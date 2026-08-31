@@ -1,0 +1,27 @@
+{
+  "name": "task-dashboard",
+  "version": "1.0.0",
+  "description": "Task Dashboard with embedded Web Server, macOS native wrapper, project selector, and Antigravity & CLI Agent dual-engine automation",
+  "main": "src/server/server.js",
+  "scripts": {
+    "start": "node src/server/server.js",
+    "dev": "node src/server/server.js",
+    "build:app": "bash scripts/build_app.sh",
+    "install:desktop": "bash scripts/install_to_desktop.sh",
+    "harness:check": "bash scripts/harness_check.sh",
+    "test": "bash scripts/test_server.sh"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "keywords": [
+    "macos",
+    "dashboard",
+    "task-management",
+    "antigravity",
+    "cli-agent",
+    "webkit",
+    "cocoa"
+  ],
+  "author": "Nelson Chung",
+  "license": "MIT"
+}

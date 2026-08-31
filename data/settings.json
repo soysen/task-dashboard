@@ -1,0 +1,8 @@
+{
+  "enableCliAgent": false,
+  "cliCommand": "hermes",
+  "defaultProject": "task-dashboard",
+  "autoTriggerOnInProgress": true,
+  "dataDirectoryPath": "",
+  "fontSize": "small"
+}

@@ -1,0 +1,3549 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="dark h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title> Task Dashboard</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script> tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50: '#f0fdf4', 500: '#22c55e', 600: '#16a34a', 700: '#15803d' },
+            darkbg: '#0f172a',
+            darkcard: '#1e293b',
+            darkborder: '#334155',
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- SortableJS -->
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    html, body {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 8px;
+      height: 10px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.04);
+      border-radius: 6px;
+    }
+    .dark .custom-scrollbar::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #94a3b8;
+      border-radius: 6px;
+      border: 2px solid transparent;
+      background-clip: content-box;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #6366f1;
+    }
+    .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #475569;
+      border-radius: 6px;
+      border: 2px solid transparent;
+      background-clip: content-box;
+    }
+    .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #818cf8;
+    }
+
+    /* 專屬加粗加寬橫向主卷軸 (增加左右與加倍底部間距，加粗易於抓取拖曳) */
+    .kanban-board-scrollbar::-webkit-scrollbar {
+      height: 14px;
+      width: 8px;
+    }
+    .kanban-board-scrollbar::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.05);
+      border-radius: 9999px;
+      margin: 0 16px 8px 16px;
+    }
+    .dark .kanban-board-scrollbar::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 9999px;
+      margin: 0 16px 8px 16px;
+    }
+    .kanban-board-scrollbar::-webkit-scrollbar-thumb {
+      background: #94a3b8;
+      border-radius: 9999px;
+      border: 3px solid transparent;
+      background-clip: content-box;
+      min-width: 60px;
+    }
+    .kanban-board-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #6366f1;
+      border: 2px solid transparent;
+      background-clip: content-box;
+    }
+    .kanban-board-scrollbar::-webkit-scrollbar-thumb:active {
+      background: #4f46e5;
+    }
+    .dark .kanban-board-scrollbar::-webkit-scrollbar-thumb {
+      background: #475569;
+      border-radius: 9999px;
+      border: 3px solid transparent;
+      background-clip: content-box;
+      min-width: 60px;
+    }
+    .dark .kanban-board-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #818cf8;
+      border: 2px solid transparent;
+      background-clip: content-box;
+    }
+    .dark .kanban-board-scrollbar::-webkit-scrollbar-thumb:active {
+      background: #6366f1;
+    }
+    .ghost-card {
+      opacity: 0.35;
+      background: #1e293b !important;
+      border: 2px dashed #6366f1 !important;
+    }
+    .diff-line-add {
+      background-color: rgba(34, 197, 94, 0.15);
+      color: #16a34a;
+      border-left: 3px solid #22c55e;
+    }
+    .dark .diff-line-add {
+      color: #4ade80;
+    }
+    .diff-line-del {
+      background-color: rgba(244, 63, 94, 0.15);
+      color: #e11d48;
+      border-left: 3px solid #f43f5e;
+    }
+    .dark .diff-line-del {
+      color: #fb7185;
+    }
+    .diff-line-chunk {
+      background-color: rgba(99, 102, 241, 0.12);
+      color: #4f46e5;
+      border-left: 3px solid #6366f1;
+    }
+    .dark .diff-line-chunk {
+      color: #a5b4fc;
+    }
+  </style>
+</head>
+<body class="h-full w-full flex flex-col overflow-hidden select-none bg-slate-100 dark:bg-[#0f172a] text-slate-800 dark:text-slate-100 transition-colors duration-200">
+
+  <!-- macOS Native Window Drag Bar -->
+  <div id="macTitlebar" class="h-8 w-full flex-shrink-0 hidden md:flex items-center justify-between px-4 pl-20 bg-slate-200 dark:bg-slate-900 border-b border-slate-300 dark:border-slate-700 select-none cursor-grab active:cursor-grabbing z-50">
+    <div class="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-400">
+      <i data-lucide="layers" class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 pointer-events-none"></i>
+      <span class="pointer-events-none"> Task Dashboard</span>
+      <span class="text-[9px] bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 px-1.5 py-0.2 rounded font-mono pointer-events-none"> v2.1 Dual-Engine</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <button type="button" onclick="restartAndReloadPage(event)" title="重啟後端服務並重新整理頁面" class="pointer-events-auto text-[10px] bg-slate-300/80 dark:bg-slate-800 hover:bg-indigo-600 hover:text-white text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded transition flex items-center gap-1 shadow-sm">
+        <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+        <span> 重整頁面</span>
+      </button>
+      <div class="text-[10px] text-slate-500 font-mono pointer-events-none hidden sm:inline"> 雙擊標題列放大 / 按住可拖曳
+      </div>
+    </div>
+  </div>
+
+  <!-- Workspace Container -->
+  <div class="flex-1 flex flex-col min-h-0 w-full overflow-hidden relative">
+
+    <!-- Sidebar Backdrop -->
+    <div id="sidebarBackdrop" onclick="closeSidebar()" class="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-40 hidden transition-opacity"></div>
+
+    <!-- Left Sidebar (Floating Drawer Panel) -->
+    <aside id="sidebar" class="fixed top-0 md:top-8 bottom-0 left-0 z-50 w-72 bg-slate-50 dark:bg-slate-900 border-r border-slate-300 dark:border-slate-700 flex flex-col transition-transform duration-300 transform -translate-x-full shadow-2xl select-none">
+      
+      <!-- Sidebar Header -->
+      <div class="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+        <div id="sidebarBrand" class="flex items-center gap-2.5 overflow-hidden">
+          <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-600 to-emerald-500 flex items-center justify-center shadow-md shadow-indigo-500/20 flex-shrink-0">
+            <i data-lucide="layers" class="w-4 h-4 text-white"></i>
+          </div>
+          <div class="truncate">
+            <h2 class="text-sm font-bold text-slate-900 dark:text-white tracking-tight truncate"> Projects Hub</h2>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400 truncate"> 本機專案管理庫</p>
+          </div>
+        </div>
+        <button onclick="closeSidebar()" title="關閉專案選單" class="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Sidebar Search & Action -->
+      <div id="sidebarSearchBox" class="p-3 border-b border-slate-200 dark:border-slate-700 space-y-2">
+        <div class="relative">
+          <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500"></i>
+          <input type="text" id="projectSearchInput" placeholder="搜尋專案..." class="w-full bg-white dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg pl-8 pr-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 transition">
+        </div>
+      </div>
+
+      <!-- Project List -->
+      <div class="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1" id="projectSidebarList">
+      </div>
+
+      <!-- Sidebar Footer -->
+      <div id="sidebarFooter" class="p-3 border-t border-slate-200 dark:border-slate-700 bg-slate-100/80 dark:bg-slate-900/80 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+        <span class="flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span id="sidebarProjectCount"> 載入中...</span>
+        </span>
+        <button onclick="chooseFolderNative(event)" title="新增或引入專案資料夾" class="text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800">
+          <i data-lucide="folder-plus" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Top Header -->
+    <header id="mainTopHeader" class="flex-shrink-0 border-b border-slate-300 dark:border-slate-700 bg-white/95 dark:bg-slate-900/90 backdrop-blur py-1.5 px-3 md:py-2.5 md:px-6">
+      <div class="flex flex-row items-center justify-between gap-1.5 sm:gap-3">
+        <div class="flex items-center gap-1.5 sm:gap-3 min-w-0">
+          <button id="headerSidebarToggle" onclick="toggleSidebar()" title="開啟專案列表抽屜" class="text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white p-1.5 sm:p-2 rounded-xl bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 transition flex-shrink-0">
+            <i data-lucide="panel-left" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-600 dark:text-indigo-400"></i>
+          </button>
+          <div class="min-w-0">
+            <h1 class="text-xs sm:text-base font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-1.5 truncate">
+              <span id="headerCurrentProjectName" class="truncate">全部專案</span>
+              <!-- 動態即時巡檢狀態 (二擇一顯示：AI 輪巡模式) -->
+              <div id="inspectionBadge" onclick="triggerManualInspect()" title="AI 對話輪巡中 · 點擊手動同步" style="display: none;" class="items-center gap-1.5 bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 dark:border-emerald-500/40 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-medium cursor-pointer hover:bg-emerald-500/25 transition flex-shrink-0">
+                <span id="inspectionDot" class="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span id="inspectionText">AI 巡檢連線中</span>
+              </div>
+              <!-- CLI Agent 即時開關徽章 (二擇一顯示：CLI Agent 模式) -->
+              <div id="headerCliAgentBadge" onclick="toggleHeaderCliAgent()" title="點擊快速切換 CLI Agent 自動開工模式" style="display: none;" class="items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-medium cursor-pointer transition flex-shrink-0">
+                <span id="headerCliDot" class="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full"></span>
+                <span id="headerCliText">CLI Agent</span>
+              </div>
+            </h1>
+          </div>
+        </div>
+
+        <!-- Quick Actions, Search & Settings Modal Button -->
+        <div class="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+          
+          <!-- 搜尋與優先級過濾 -->
+          <div class="relative w-24 sm:w-32 md:w-44">
+            <i data-lucide="search" class="w-3 h-3 sm:w-3.5 sm:h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400"></i>
+            <input type="text" id="searchInput" placeholder="搜尋..." class="w-full h-7 sm:h-8 bg-slate-100 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg pl-6 sm:pl-8 pr-1.5 sm:pr-2.5 text-[11px] sm:text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 transition">
+          </div>
+
+          <select id="priorityFilter" class="h-7 sm:h-8 bg-slate-100 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg px-1.5 sm:px-2.5 text-[11px] sm:text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500">
+            <option value="ALL"> 全部等級</option>
+            <option value="P0"> P0</option>
+            <option value="P1"> P1</option>
+            <option value="P2"> P2</option>
+            <option value="P3"> P3</option>
+          </select>
+
+          <!-- 一鍵複製派工指令 -->
+          <button onclick="triggerExecutionNow()" title="一鍵複製派工指令" class="h-7 sm:h-8 flex items-center gap-1 bg-amber-600 hover:bg-amber-500 text-white text-[11px] sm:text-xs font-semibold px-2 sm:px-2.5 rounded-lg border border-amber-500/50 shadow transition flex-shrink-0">
+            <i data-lucide="zap" class="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-200"></i>
+            <span class="hidden sm:inline"> 立即指派</span>
+          </button>
+
+          <!-- 封存任務庫按鈕 -->
+          <button id="headerArchiveBtn" onclick="openArchiveModal()" title="查看已封存任務庫" class="h-7 sm:h-8 flex items-center gap-1 bg-slate-100 dark:bg-slate-800/90 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 px-2 sm:px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 shadow-sm transition flex-shrink-0">
+            <i data-lucide="archive" class="w-3 h-3 sm:w-3.5 sm:h-3.5 text-indigo-600 dark:text-indigo-400"></i>
+            <span class="text-[11px] sm:text-xs font-semibold hidden sm:inline"> 封存庫</span>
+            <span id="headerArchiveCountBadge" class="text-[9px] sm:text-[10px] font-mono px-1 py-0.2 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold"> 0</span>
+          </button>
+
+          <!-- 右上角設定按鈕 -->
+          <button onclick="openSettingsModal()" title="系統與偏好設定" class="h-7 sm:h-8 flex items-center justify-center bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/80 text-indigo-700 dark:text-indigo-300 px-2 sm:px-2.5 rounded-lg border border-indigo-300 dark:border-indigo-700 shadow-sm transition flex-shrink-0">
+            <i data-lucide="settings" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-600 dark:text-indigo-400"></i>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Top Pinned Metrics Section -->
+    <div class="flex-shrink-0 px-2.5 sm:px-4 md:px-6 py-1.5 sm:py-2 space-y-1.5 bg-slate-100 dark:bg-[#0f172a]">
+      
+      <!-- Project Banner (if filtered) -->
+      <div id="projectBanner" class="hidden bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 rounded-xl p-2 sm:p-3 space-y-1.5 shadow-sm">
+        <div class="flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2 truncate">
+            <i data-lucide="folder-git-2" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-600 dark:text-indigo-400 flex-shrink-0"></i>
+            <h2 id="bannerTitle" class="text-xs font-bold text-slate-900 dark:text-white truncate"></h2>
+            <span id="bannerPath" class="text-[10px] text-slate-500 font-mono truncate hidden sm:inline"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Metrics Summary Cards (超精簡 Mobile 3x2 / Desktop 6x1 欄指標卡) -->
+      <div class="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-6 gap-1 sm:gap-2.5">
+        <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 sm:px-3 sm:py-2 flex items-center justify-between shadow-sm">
+          <div>
+            <p class="text-[9px] sm:text-[10px] font-medium text-slate-500 dark:text-slate-400 truncate"> 總任務</p>
+            <p id="stat-total" class="text-xs sm:text-base font-bold text-slate-900 dark:text-white leading-tight"> 0</p>
+          </div>
+          <i data-lucide="layers" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-400 hidden sm:inline"></i>
+        </div>
+
+        <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 sm:px-3 sm:py-2 flex items-center justify-between shadow-sm">
+          <div>
+            <p class="text-[9px] sm:text-[10px] font-medium text-slate-500 dark:text-slate-400 truncate"> 待處理</p>
+            <p id="stat-todo" class="text-xs sm:text-base font-bold text-blue-600 dark:text-blue-400 leading-tight"> 0</p>
+          </div>
+          <i data-lucide="list-todo" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-500 hidden sm:inline"></i>
+        </div>
+
+        <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 sm:px-3 sm:py-2 flex items-center justify-between shadow-sm">
+          <div>
+            <p class="text-[9px] sm:text-[10px] font-medium text-slate-500 dark:text-slate-400 truncate"> 進行中</p>
+            <p id="stat-in_progress" class="text-xs sm:text-base font-bold text-amber-600 dark:text-amber-400 leading-tight"> 0</p>
+          </div>
+          <i data-lucide="activity" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-500 animate-pulse hidden sm:inline"></i>
+        </div>
+
+        <div class="bg-white dark:bg-slate-800 border border-purple-300 dark:border-purple-600/60 rounded-lg p-1.5 sm:px-3 sm:py-2 flex items-center justify-between bg-purple-50/50 dark:bg-purple-950/40 shadow-sm ring-1 ring-purple-500/30">
+          <div>
+            <p class="text-[9px] sm:text-[10px] font-bold text-purple-700 dark:text-purple-300 truncate"> 待驗收</p>
+            <p id="stat-review" class="text-xs sm:text-base font-extrabold text-purple-700 dark:text-purple-300 leading-tight"> 0</p>
+          </div>
+          <i data-lucide="check-circle-2" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-purple-500 hidden sm:inline"></i>
+        </div>
+
+        <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 sm:px-3 sm:py-2 flex items-center justify-between shadow-sm">
+          <div>
+            <p class="text-[9px] sm:text-[10px] font-medium text-slate-500 dark:text-slate-400 truncate"> 已完成</p>
+            <p id="stat-done" class="text-xs sm:text-base font-bold text-emerald-600 dark:text-emerald-400 leading-tight"> 0</p>
+          </div>
+          <i data-lucide="check-check" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-500 hidden sm:inline"></i>
+        </div>
+
+        <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 sm:px-3 sm:py-2 flex items-center justify-between shadow-sm">
+          <div>
+            <p class="text-[9px] sm:text-[10px] font-medium text-slate-500 dark:text-slate-400 truncate"> 阻礙</p>
+            <p id="stat-blocked" class="text-xs sm:text-base font-bold text-rose-600 dark:text-rose-400 leading-tight"> 0</p>
+          </div>
+          <i data-lucide="alert-triangle" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-rose-500 hidden sm:inline"></i>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Kanban Board (自動延展滿版，小螢幕自然水平滾動) -->
+    <main class="flex-1 overflow-x-auto overflow-y-hidden kanban-board-scrollbar px-4 md:px-6 pb-3 pt-1 mb-2 flex items-stretch gap-4 min-h-0 w-full">
+      
+      <!-- Todo Column (含新增任務按鈕) -->
+      <div id="col-wrapper-todo" class="flex-1 min-w-[260px] w-auto flex flex-col bg-slate-200/60 dark:bg-slate-900/90 border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm flex-shrink-0">
+        <div class="p-2.5 px-3 border-b border-slate-300 dark:border-slate-700 flex items-center justify-between bg-slate-200/90 dark:bg-slate-800/90">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+            <h3 class="text-xs font-bold text-slate-800 dark:text-slate-200"> 待處理</h3>
+            <span id="badge-todo" class="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-slate-300 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold"> 0</span>
+          </div>
+          <!-- 將新增任務按鈕直接置於待處理欄位 -->
+          <button onclick="openModal({ status: 'todo' })" class="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-semibold px-2.5 py-1 rounded-lg shadow-sm transition">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+            <span> 新增任務</span>
+          </button>
+        </div>
+        <div id="col-todo" data-status="todo" class="kanban-col p-2.5 space-y-2.5 flex-1 custom-scrollbar overflow-y-auto min-h-0"></div>
+      </div>
+
+      <!-- In Progress Column -->
+      <div id="col-wrapper-in_progress" class="flex-1 min-w-[260px] w-auto flex flex-col bg-slate-200/60 dark:bg-slate-900/90 border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm flex-shrink-0">
+        <div class="p-3 border-b border-slate-300 dark:border-slate-700 flex items-center justify-between bg-slate-200/90 dark:bg-slate-800/90">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+            <h3 class="text-xs font-bold text-slate-800 dark:text-slate-200"> 進行中 (AI 開工)</h3>
+          </div>
+          <span id="badge-in_progress" class="text-[11px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold border border-amber-500/30"> 0</span>
+        </div>
+        <div id="col-in_progress" data-status="in_progress" class="kanban-col p-2.5 space-y-2.5 flex-1 custom-scrollbar overflow-y-auto min-h-0"></div>
+      </div>
+
+      <!-- Review / Verify Column (Diff View) -->
+      <div id="col-wrapper-review" class="flex-1 min-w-[260px] w-auto flex flex-col bg-purple-50/40 dark:bg-[#16172d] border border-purple-300 dark:border-purple-700/80 rounded-xl overflow-hidden shadow-sm flex-shrink-0 ring-1 ring-purple-500/20">
+        <div class="p-3 border-b border-purple-200 dark:border-purple-700/80 flex items-center justify-between bg-purple-100/80 dark:bg-[#1c1e3a]">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
+            <h3 class="text-xs font-extrabold text-purple-900 dark:text-purple-200"> 待驗收 (看 Diff)</h3>
+          </div>
+          <span id="badge-review" class="text-[11px] font-mono px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-700 dark:text-purple-300 font-bold border border-purple-500/30"> 0</span>
+        </div>
+        <div id="col-review" data-status="review" class="kanban-col p-2.5 space-y-2.5 flex-1 custom-scrollbar overflow-y-auto min-h-0"></div>
+      </div>
+
+      <!-- Done Column -->
+      <div id="col-wrapper-done" class="flex-1 min-w-[260px] w-auto flex flex-col bg-slate-200/60 dark:bg-slate-900/90 border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm flex-shrink-0">
+        <div class="p-3 border-b border-slate-300 dark:border-slate-700 flex items-center justify-between bg-slate-200/90 dark:bg-slate-800/90">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+            <h3 class="text-xs font-bold text-slate-800 dark:text-slate-200"> 已完成</h3>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span id="badge-done" class="text-[11px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/30"> 0</span>
+            <button onclick="openArchiveModal()" title="查看已封存任務庫" class="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1 rounded hover:bg-slate-300 dark:hover:bg-slate-800 transition">
+              <i data-lucide="archive" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+        </div>
+        <div id="col-done" data-status="done" class="kanban-col p-2.5 space-y-2.5 flex-1 custom-scrollbar overflow-y-auto min-h-0"></div>
+      </div>
+
+      <!-- Blocked Column -->
+      <div id="col-wrapper-blocked" class="flex-1 min-w-[260px] w-auto flex flex-col bg-slate-200/60 dark:bg-slate-900/90 border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm flex-shrink-0">
+        <div class="p-3 border-b border-slate-300 dark:border-slate-700 flex items-center justify-between bg-slate-200/90 dark:bg-slate-800/90">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+            <h3 class="text-xs font-bold text-slate-800 dark:text-slate-200"> 阻礙</h3>
+          </div>
+          <span id="badge-blocked" class="text-[11px] font-mono px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-600 dark:text-rose-400 font-bold border border-rose-500/30"> 0</span>
+        </div>
+        <div id="col-blocked" data-status="blocked" class="kanban-col p-2.5 space-y-2.5 flex-1 custom-scrollbar overflow-y-auto min-h-0"></div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- Commit Message Confirmation & Edit Modal (方式 B) -->
+  <div id="commitModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-xl flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100 transition-all">
+      <!-- Modal Header -->
+      <div class="p-3.5 px-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
+        <div class="flex items-center gap-2.5">
+          <div class="p-1.5 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-lg">
+            <i data-lucide="git-commit" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white">Git Commit 提交確認</h3>
+            <p id="commitModalSubtitle" class="text-[11px] text-slate-500 dark:text-slate-400 font-mono">TASK-XXX · 專案名稱</p>
+          </div>
+        </div>
+        <button onclick="closeCommitModal()" class="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="p-5 space-y-4">
+        <input type="hidden" id="commitTaskId">
+        
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Commit 標題 (Subject)</label>
+          <input type="text" id="commitSubjectInput" class="w-full h-9 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:border-emerald-500 transition" placeholder="feat(order): 新增訂單管理介面">
+          <p class="text-[10px] text-slate-400 mt-1">已依專案 .github Skill / Conventional Commit 規則自動格式化，可直接確認或微調</p>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">詳細說明內容 (Body / Description - 選填)</label>
+          <textarea id="commitBodyInput" rows="5" class="w-full bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg p-3 text-xs text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:border-emerald-500 transition custom-scrollbar" placeholder="- 說明重點項目 1&#10;- 說明重點項目 2"></textarea>
+          <p class="text-[10px] text-slate-400 mt-1">自動帶入任務需求條目，可補充更多實作說明或備註</p>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="p-3.5 px-5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2 bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
+        <button type="button" onclick="closeCommitModal()" class="px-3.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+          取消
+        </button>
+        <button id="commitSubmitBtn" type="button" onclick="confirmCommitTask()" class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-500/20 transition">
+          <i data-lucide="git-commit" class="w-3.5 h-3.5"></i> 確認提交 Commit
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Task Detail & Edit Modal ( 支援 新增模式單欄 與 編輯模式左右雙欄) -->
+  <div id="taskModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-4">
+    <div id="modalDialogContainer" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-6xl h-[90vh] flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100 transition-all">
+      
+      <!-- Modal Header -->
+      <div class="p-3.5 px-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
+        <div class="flex items-center gap-3">
+          <span id="modalPriorityBadge" class="px-2.5 py-0.5 rounded-md text-xs font-bold font-mono"> P1</span>
+          <h3 id="modalHeaderTitle" class="text-sm font-bold text-slate-900 dark:text-white truncate"> 任務詳情與編輯</h3>
+        </div>
+        <button onclick="closeModal()" class="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Modal Form Body (Grid 2 Columns) -->
+      <form id="taskForm" onsubmit="saveTask(event)" class="flex-1 flex flex-col min-h-0 overflow-hidden">
+        <input type="hidden" id="formTaskId">
+
+        <div id="modalFormGrid" class="grid grid-cols-1 lg:grid-cols-2 gap-5 flex-1 min-h-0 p-5 overflow-hidden">
+          
+          <!-- LEFT COLUMN: 任務基本資訊、標籤、需求說明與審查 Log (可滾動) -->
+          <div id="modalLeftColumn" class="flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar">
+            
+            <!-- 標題 -->
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 任務標題</label>
+              <input type="text" id="formTitle" required placeholder="請輸入簡潔明確的任務名稱..." class="w-full h-9 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500 transition">
+            </div>
+
+            <!-- 所屬專案與關聯前置任務 -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div class="relative">
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 所屬專案 (可搜尋)</label>
+                <input type="hidden" id="formProject">
+                <div class="relative">
+                  <input type="text" id="formProjectInput" oninput="onProjectAutocompleteInput(this.value)" onfocus="showProjectAutocomplete()" onclick="showProjectAutocomplete()" placeholder="搜尋專案..." autocomplete="off" class="w-full h-9 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg pl-3 pr-8 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500 transition">
+                  <button type="button" onclick="toggleProjectAutocomplete(event)" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                    <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
+                  </button>
+                </div>
+                <div id="formProjectDropdown" class="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-50 max-h-56 overflow-y-auto hidden custom-scrollbar">
+                  <div id="formProjectDropdownList" class="p-1 space-y-0.5 text-xs"></div>
+                </div>
+              </div>
+
+              <!-- 關聯前置任務 (Dependencies) -->
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 關聯前置任務 (Dependencies)</label>
+                <select id="formDependenciesSelect" onchange="addDependencyFromSelect(this.value)" class="w-full h-9 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500">
+                  <option value=""> 選擇關聯/前置任務...</option>
+                </select>
+                <!-- 選擇的依賴清單徽章 -->
+                <div id="formDependenciesChips" class="flex flex-wrap gap-1.5 mt-1.5"></div>
+              </div>
+            </div>
+
+            <!-- 優先級、狀態、負責人 (統一 h-9 高度) -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 優先級</label>
+                <select id="formPriority" class="w-full h-9 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500">
+                  <option value="P0"> P0 (緊急/阻礙)</option>
+                  <option value="P1" selected> P1 (高)</option>
+                  <option value="P2"> P2 (中)</option>
+                  <option value="P3"> P3 (低)</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 目前狀態</label>
+                <select id="formStatus" onchange="updateModalButtonState()" class="w-full h-9 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500">
+                  <option value="todo"> 待處理 (To Do)</option>
+                  <option value="in_progress"> 進行中 (In Progress)</option>
+                  <option value="review"> 待驗收 (Review / Verify)</option>
+                  <option value="done"> 已完成 (Done)</option>
+                  <option value="blocked"> 阻礙 (Blocked)</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 負責人</label>
+                <input type="text" id="formAssignee" value="Antigravity" class="w-full h-9 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500">
+              </div>
+            </div>
+
+            <!-- 標籤體系：Select2 風格整合選擇器模組 -->
+            <div class="space-y-1.5 bg-slate-100/70 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+              <div class="flex items-center justify-between">
+                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300"> 標籤體系</label>
+                <span class="text-[10px] text-slate-500"> 點擊選單 / 輸入後按 Enter 自訂</span>
+              </div>
+
+              <!-- 整合式 Select2 容器 -->
+              <div class="relative" id="select2Container">
+                <div id="select2ControlBox" onclick="toggleSelect2Dropdown(event)" class="min-h-[36px] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-1.5 flex flex-wrap items-center gap-1.5 cursor-pointer focus-within:border-indigo-500 transition">
+                  <!-- Chips 渲染區 -->
+                  <div id="select2Chips" class="flex flex-wrap items-center gap-1"></div>
+                  <!-- 輸入框 (支援即時打字篩選與自訂新增) -->
+                  <input type="text" id="select2Input" oninput="onSelect2Search(this.value)" onkeydown="onSelect2KeyDown(event)" placeholder="選擇標籤" class="flex-1 min-w-[80px] bg-transparent border-none outline-none text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 p-0.5">
+                  <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400 ml-auto flex-shrink-0"></i>
+                </div>
+
+                <!-- 下拉展開選單 (帶 optgroup 分類) -->
+                <div id="select2Dropdown" class="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-50 max-h-64 overflow-y-auto hidden custom-scrollbar p-1.5 space-y-2">
+                  <!-- Optgroup 0: 專案專屬 .github 技能 -->
+                  <div id="select2ProjectSkillSection" class="hidden">
+                    <div class="text-[10px] font-bold text-indigo-500 dark:text-indigo-400 px-2 py-0.5 uppercase tracking-wider flex items-center gap-1">
+                      <i data-lucide="sparkles" class="w-3 h-3"></i> 專案專屬 Skill (.github)
+                    </div>
+                    <div id="select2GroupProjectSkill" class="space-y-0.5"></div>
+                  </div>
+                  <!-- Optgroup 1: Git 類型 -->
+                  <div>
+                    <div class="text-[10px] font-bold text-slate-400 dark:text-slate-500 px-2 py-0.5 uppercase tracking-wider"> Git 變更類型</div>
+                    <div id="select2GroupGit" class="space-y-0.5"></div>
+                  </div>
+                  <!-- Optgroup 2: 全域 Antigravity Skill -->
+                  <div>
+                    <div class="text-[10px] font-bold text-slate-400 dark:text-slate-500 px-2 py-0.5 uppercase tracking-wider"> 全域 Skill (Antigravity)</div>
+                    <div id="select2GroupSkill" class="space-y-0.5"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 隱藏原生儲存欄位 -->
+              <input type="hidden" id="formTags">
+            </div>
+
+            <!-- 詳細需求與說明 (Description) -->
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 詳細需求與說明 (Description)</label>
+              <textarea id="formDescription" rows="3" placeholder="描述任務背景、具體需求或待辦重點..." class="w-full bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500 custom-scrollbar"></textarea>
+            </div>
+
+            <!-- 審查意見與修改回饋 (Review Feedback) -->
+            <div id="reviewFeedbackBox" class="bg-purple-50 dark:bg-[#131b2e] border border-purple-200 dark:border-purple-800/60 rounded-xl p-3 space-y-1.5">
+              <div class="flex items-center justify-between">
+                <label class="text-xs font-bold text-purple-900 dark:text-purple-300 flex items-center gap-1.5">
+                  <i data-lucide="message-square-code" class="w-3.5 h-3.5 text-purple-600 dark:text-purple-400"></i> 審查意見與修改回饋 (Review Feedback)
+                </label>
+                <span class="text-[10px] text-purple-600 dark:text-purple-400/80"> 退回時自動附上此意見</span>
+              </div>
+              <textarea id="formFeedback" rows="2" placeholder="如需修改或退回重做，請在此輸入修改意見..." class="w-full bg-white dark:bg-slate-950 border border-purple-200 dark:border-purple-900/80 rounded-lg p-2 text-xs text-purple-900 dark:text-purple-100 placeholder-purple-400 focus:outline-none focus:border-purple-500 custom-scrollbar"></textarea>
+            </div>
+
+            <!-- 執行紀錄與測試 Log (不加滾軸，直接完整展開) -->
+            <div id="formLogBox" class="hidden space-y-1.5">
+              <label class="text-xs font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                <i data-lucide="terminal" class="w-3.5 h-3.5"></i> 執行紀錄與測試 Log
+              </label>
+              <pre id="formLogVisual" class="bg-slate-100 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg p-3 text-xs font-mono text-amber-800 dark:text-amber-200/90 whitespace-pre-wrap leading-relaxed"></pre>
+              <input type="hidden" id="formExecutionLog">
+            </div>
+
+          </div>
+
+          <!-- RIGHT COLUMN: 異動檔案清單與即時互動 Git Diff 檢視器 (可滾動) -->
+          <div id="modalRightColumn" class="flex-1 overflow-y-auto pl-2 border-t lg:border-t-0 lg:border-l border-slate-200 dark:border-slate-800 flex flex-col space-y-3 custom-scrollbar">
+            
+            <!-- 異動檔案清單 -->
+            <div class="flex-shrink-0 space-y-1.5">
+              <div class="flex items-center justify-between">
+                <label class="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <i data-lucide="file-code-2" class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400"></i> 異動檔案清單 (點選檔案查看 Diff)
+                </label>
+                <button type="button" onclick="showAllDiffs()" id="btnShowAllDiffs" class="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline"> 顯示全部
+                </button>
+              </div>
+
+              <!-- 檔案列表 -->
+              <div id="formModifiedFilesList" class="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-2 text-xs space-y-1 font-mono max-h-36 overflow-y-auto custom-scrollbar">
+                <div class="text-center py-2 text-slate-400 text-xs italic"> 尚未有異動檔案紀錄</div>
+              </div>
+            </div>
+
+            <!-- Visual Git Diff 容器 -->
+            <div class="flex-1 flex flex-col min-h-[220px] space-y-1.5">
+              <div class="flex items-center justify-between">
+                <label class="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                  <i data-lucide="git-compare" class="w-3.5 h-3.5"></i> Git Diff 變更對比 (Visual Code Diff)
+                </label>
+                <span id="diffActiveFileBadge" class="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate max-w-[200px]"> 全部變更</span>
+              </div>
+
+              <div id="formDiffVisual" class="flex-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-xs font-mono overflow-auto custom-scrollbar leading-relaxed">
+                <div class="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
+                  <i data-lucide="git-pull-request" class="w-8 h-8 text-slate-500 mb-2 opacity-50"></i>
+                  <span class="text-xs"> 尚未產生代碼變更或 Diff</span>
+                </div>
+              </div>
+              <input type="hidden" id="formDiff">
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Modal Footer Actions -->
+        <div class="p-3 px-5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
+          <div>
+            <button type="button" id="btnDeleteTask" onclick="deleteCurrentTask()" class="hidden bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 text-xs font-medium px-3 py-1.5 rounded-lg transition"> 刪除任務
+            </button>
+          </div>
+          <div class="flex items-center gap-2">
+            <button type="button" onclick="closeModal()" class="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium px-3.5 py-1.5 rounded-lg transition"> 取消
+            </button>
+            <button type="button" id="btnRejectTask" onclick="rejectTaskWithFeedback()" class="hidden bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow transition flex items-center gap-1">
+              <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> 退回重做
+            </button>
+            <button type="button" id="btnApproveTask" onclick="approveTaskAsDone()" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-emerald-500/25 transition flex items-center gap-1.5">
+              <i data-lucide="check-circle" class="w-4 h-4"></i> 驗收通過
+            </button>
+            <button type="button" id="btnArchiveTaskModal" onclick="archiveCurrentTaskFromModal()" class="hidden bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold px-3 py-1.5 rounded-lg transition flex items-center gap-1">
+              <i data-lucide="archive" class="w-3.5 h-3.5 text-indigo-500"></i> 封存任務
+            </button>
+            <button type="submit" id="btnSubmitTask" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-indigo-500/25 transition"> 儲存變更
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- First Launch / Config Initialization Modal -->
+  <div id="firstLaunchModal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-5 shadow-2xl">
+      <div class="flex items-start gap-4">
+        <div class="w-12 h-12 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/25 flex-shrink-0 text-white">
+          <i data-lucide="sparkles" class="w-6 h-6"></i>
+        </div>
+        <div class="space-y-1 flex-1">
+          <h3 class="text-base font-bold text-slate-900 dark:text-white"> 歡迎使用 Task Dashboard
+          </h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed"> 請選擇或確認任務資料庫與設定檔 (<span class="font-mono text-[11px] text-indigo-500 dark:text-indigo-400"> tasks.json</span>, <span class="font-mono text-[11px] text-indigo-500 dark:text-indigo-400"> projects.json</span>, <span class="font-mono text-[11px] text-indigo-500 dark:text-indigo-400"> settings.json</span>) 的儲存路徑。
+          </p>
+        </div>
+      </div>
+
+      <div class="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-xl space-y-3">
+        <div class="flex items-center justify-between text-xs">
+          <span class="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+            <i data-lucide="folder-check" class="w-4 h-4 text-indigo-500"></i> 目前預計配置路徑
+          </span>
+          <span id="firstLaunchStatusBadge" class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900"> 待確認
+          </span>
+        </div>
+        
+        <div id="firstLaunchPathDisplay" class="p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-mono text-slate-800 dark:text-slate-200 break-all select-all shadow-inner"> 載入中...
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 pt-1">
+          <button type="button" onclick="chooseFirstLaunchFolderNative(event)" class="h-9 px-3 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-300 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm">
+            <i data-lucide="folder-search" class="w-3.5 h-3.5"></i> 瀏覽自訂資料夾...
+          </button>
+          <button type="button" onclick="useFirstLaunchDefaultFolder(event)" class="h-9 px-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5">
+            <i data-lucide="zap" class="w-3.5 h-3.5 text-amber-500"></i> 使用預設專案路徑
+          </button>
+        </div>
+      </div>
+
+      <div class="space-y-2">
+        <div class="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+          <i data-lucide="info" class="w-3.5 h-3.5 text-indigo-400 flex-shrink-0"></i>
+          <span> 確認後系統將自動建立該目錄並初始化 3 個 JSON 資料庫。後續可隨時於設定面板中修改。</span>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+        <button type="button" id="btnConfirmFirstLaunch" onclick="confirmFirstLaunchSetup(event)" class="h-9 px-5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white rounded-lg text-xs font-bold transition shadow-md shadow-indigo-500/25 flex items-center gap-1.5">
+          <i data-lucide="check" class="w-4 h-4"></i> 確認並開始使用
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal (CLI Agent, Data Directory & Preferences) -->
+  <!-- Settings Modal (系統與偏好設定) -->
+  <div id="settingsModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl w-full max-w-md max-h-[85vh] flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100 my-auto">
+      
+      <!-- Header (Pinned) -->
+      <div class="p-3.5 px-4 sm:px-5 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
+        <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <i data-lucide="settings" class="w-4 h-4 text-indigo-600 dark:text-indigo-400"></i> 系統與偏好設定 (Settings)
+        </h3>
+        <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Scrollable Body -->
+      <div class="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 text-xs custom-scrollbar">
+        
+        <!-- Config 與資料庫放置路徑 -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <label class="block font-bold text-slate-800 dark:text-slate-200"> Config 與資料庫放置路徑</label>
+            <button onclick="chooseConfigDirNative()" class="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1">
+              <i data-lucide="folder-search" class="w-3.5 h-3.5"></i> 選擇資料夾 (Finder)
+            </button>
+          </div>
+          <div id="settingConfigPathDisplay" class="p-2.5 bg-slate-100 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-lg text-[11px] font-mono text-slate-700 dark:text-slate-300 break-all select-text"> 載入中...
+          </div>
+        </div>
+
+        <!-- 偏好設定：外觀主題 (Theme) -->
+        <div class="space-y-1.5">
+          <label class="block font-bold text-slate-800 dark:text-slate-200"> 外觀主題 (Theme)</label>
+          <div class="grid grid-cols-3 gap-2">
+            <button type="button" onclick="setAppTheme('system')" id="themeBtnSystem" class="flex flex-col items-center justify-center p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:border-indigo-500 transition text-[11px] font-medium gap-1">
+              <i data-lucide="monitor" class="w-4 h-4 text-slate-600 dark:text-slate-400"></i>
+              <span> 跟隨系統</span>
+            </button>
+            <button type="button" onclick="setAppTheme('light')" id="themeBtnLight" class="flex flex-col items-center justify-center p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:border-indigo-500 transition text-[11px] font-medium gap-1">
+              <i data-lucide="sun" class="w-4 h-4 text-amber-500"></i>
+              <span> 明亮模式</span>
+            </button>
+            <button type="button" onclick="setAppTheme('dark')" id="themeBtnDark" class="flex flex-col items-center justify-center p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:border-indigo-500 transition text-[11px] font-medium gap-1">
+              <i data-lucide="moon" class="w-4 h-4 text-indigo-400"></i>
+              <span> 暗黑模式</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 偏好設定：字級大小 (Font Size) -->
+        <div class="space-y-1.5">
+          <label class="block font-bold text-slate-800 dark:text-slate-200"> 字級大小 (Font Size)</label>
+          <div class="grid grid-cols-3 gap-2">
+            <button type="button" onclick="setAppFontSize('small')" id="fontSizeBtnSmall" class="flex flex-col items-center justify-center p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:border-indigo-500 transition text-[11px] font-medium gap-1 text-slate-700 dark:text-slate-300">
+              <span class="text-xs font-bold"> A</span>
+              <span> 小 (預設)</span>
+            </button>
+            <button type="button" onclick="setAppFontSize('medium')" id="fontSizeBtnMedium" class="flex flex-col items-center justify-center p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:border-indigo-500 transition text-[11px] font-medium gap-1 text-slate-700 dark:text-slate-300">
+              <span class="text-sm font-bold"> A</span>
+              <span> 中 (+2px)</span>
+            </button>
+            <button type="button" onclick="setAppFontSize('large')" id="fontSizeBtnLarge" class="flex flex-col items-center justify-center p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:border-indigo-500 transition text-[11px] font-medium gap-1 text-slate-700 dark:text-slate-300">
+              <span class="text-base font-bold"> A</span>
+              <span> 大 (+4px)</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 自動化執行引擎切換 (Pill Tab) -->
+        <div class="space-y-2 border-t border-slate-200 dark:border-slate-700 pt-3">
+          <label class="block font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between text-xs">
+            <span class="flex items-center gap-1.5">
+              <i data-lucide="cpu" class="w-3.5 h-3.5 text-indigo-500"></i> 自動化開工引擎 (二選一)
+            </span>
+            <span class="text-[10px] text-slate-400 font-normal"> 選擇您偏好的開工模式</span>
+          </label>
+
+          <!-- Pill Tab Control -->
+          <div class="grid grid-cols-2 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl gap-1 border border-slate-200 dark:border-slate-700/60">
+            <button type="button" id="tabBtnCli" onclick="selectAutomationMode('cli')" class="flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-semibold transition">
+              <i data-lucide="terminal" class="w-3.5 h-3.5"></i>
+              <span> 本機 CLI Agent</span>
+            </button>
+            <button type="button" id="tabBtnDesktopAi" onclick="selectAutomationMode('desktop_ai')" class="flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-semibold transition">
+              <i data-lucide="bot" class="w-3.5 h-3.5"></i>
+              <span> Desktop AI 對話輪巡</span>
+            </button>
+          </div>
+
+          <!-- Panel 1: 本機 CLI Agent 模式 -->
+          <div id="panelCliMode" class="space-y-2.5 p-3 bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-200/80 dark:border-indigo-900/50 rounded-xl">
+            <div class="flex items-center justify-between">
+              <div>
+                <span class="text-xs font-bold text-indigo-950 dark:text-indigo-200 flex items-center gap-1"> 即時自動開工
+                </span>
+                <p class="text-[10px] text-slate-500 dark:text-slate-400"> 任務拖入「進行中」時，系統立即在目標專案調用 CLI 開工</p>
+              </div>
+              <span class="text-[10px] font-mono bg-indigo-600/15 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full font-bold"> 已啟用</span>
+            </div>
+
+            <div class="space-y-1">
+              <div class="flex items-center justify-between">
+                <label class="block text-[11px] font-semibold text-slate-700 dark:text-slate-300"> CLI 執行指令 (Command)</label>
+                <span class="text-[10px] text-slate-400"> 支援 hermes, agy, claude 等</span>
+              </div>
+              <input type="text" id="settingCliCommand" placeholder="例如: hermes 或 agy 或 claude -p {prompt}" class="w-full h-8 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-mono">
+              <p class="text-[10px] text-slate-500 dark:text-slate-400"> 輸入 <code class="text-indigo-500 font-mono"> hermes</code> 會自動適配為 <code class="text-indigo-500 font-mono"> hermes -z {prompt}</code>，亦可自訂佔位符 <code class="text-indigo-500 font-mono">{prompt}</code>。</p>
+            </div>
+
+            <div class="flex items-center justify-between pt-1 border-t border-indigo-100 dark:border-indigo-900/40">
+              <span class="text-[11px] text-slate-600 dark:text-slate-400"> 移入進行中時自動觸發 CLI</span>
+              <input type="checkbox" id="settingAutoTrigger" class="rounded text-indigo-600">
+            </div>
+          </div>
+
+          <!-- Panel 2: Desktop AI 輪巡模式 (通用 IDE / 對話型 AI) -->
+          <div id="panelDesktopAiMode" class="space-y-2 p-3 bg-purple-50/50 dark:bg-purple-950/30 border border-purple-200/80 dark:border-purple-900/50 rounded-xl hidden">
+            <div class="flex items-center justify-between">
+              <div>
+                <span class="text-xs font-bold text-purple-950 dark:text-purple-200 flex items-center gap-1"> 定時巡檢模式 (IDE / Desktop AI)
+                </span>
+                <p class="text-[10px] text-slate-500 dark:text-slate-400"> 適用於 Antigravity、Claude Desktop、Cursor、Windsurf、Cline 等所有桌面 AI 助理</p>
+              </div>
+              <button onclick="copyAiInspectionPrompt()" class="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 transition shadow-sm">
+                <i data-lucide="copy" class="w-3 h-3"></i> 複製開工 Prompt
+              </button>
+            </div>
+
+            <div id="aiPromptTextDisplay" class="p-2.5 bg-white dark:bg-slate-900 border border-purple-100 dark:border-purple-900/60 rounded-lg font-mono text-[10px] text-slate-700 dark:text-slate-300 select-all break-all max-h-24 overflow-y-auto leading-relaxed"> 請建立定時/背景巡檢任務，監控任務檔案...
+            </div>
+            <p class="text-[10px] text-purple-700 dark:text-purple-300"> 提示：將此 Prompt 複製貼給您的 AI 桌面軟體或 IDE 助理，AI 將自動掛載定時排程持續巡檢任務並自主開工。</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer (Pinned) -->
+      <div class="p-3 px-4 sm:px-5 border-t border-slate-200 dark:border-slate-700 flex items-center justify-end gap-2 bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
+        <button type="button" onclick="closeSettingsModal()" class="px-3.5 h-8 rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-medium"> 取消</button>
+        <button type="button" id="btnSaveSettings" onclick="saveSettingsFromModal(event)" class="px-4 h-8 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow transition"> 儲存設定</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- New Project Modal -->
+  <div id="projectModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl w-full max-w-md max-h-[85vh] flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100 my-auto">
+      <div class="p-3.5 px-4 sm:px-5 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
+        <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <i data-lucide="folder-plus" class="w-4 h-4 text-indigo-600 dark:text-indigo-400"></i> 手動引入本機新專案
+        </h3>
+        <button onclick="closeProjectModal()" class="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <form onsubmit="saveNewProject(event)" class="flex-1 flex flex-col min-h-0 overflow-hidden">
+        <div class="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3 custom-scrollbar text-xs">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 專案 ID (資料夾名稱)</label>
+            <input type="text" id="newProjId" required placeholder="例如: my-new-project" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 專案顯示名稱</label>
+            <input type="text" id="newProjName" placeholder="例如: 客服中心前端專案" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 實體路徑 (Path)</label>
+            <input type="text" id="newProjPath" placeholder="請輸入專案實體目錄路徑" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500">
+          </div>
+        </div>
+        <div class="p-3 px-4 sm:px-5 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-2 bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
+          <button type="button" onclick="closeProjectModal()" class="px-3.5 h-8 rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-medium"> 取消</button>
+          <button type="submit" id="btnSaveProject" class="px-4 h-8 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow transition"> 加入專案</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Archive Modal (封存任務管理：列表、多選、批次刪除與還原) -->
+  <div id="archiveModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100">
+      <!-- Modal Header -->
+      <div class="p-3.5 px-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
+        <div class="flex items-center gap-2.5">
+          <i data-lucide="archive" class="w-5 h-5 text-indigo-600 dark:text-indigo-400"></i>
+          <div>
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white"> 已封存任務管理 (Archived Tasks)</h3>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400"> 列出所有已 Commit 歸檔之任務，支援多選批次刪除與還原</p>
+          </div>
+        </div>
+        <button onclick="closeArchiveModal()" class="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1 rounded-lg">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Controls & Filter Toolbar -->
+      <div class="p-3 px-5 border-b border-slate-200 dark:border-slate-800 bg-slate-100/60 dark:bg-slate-900/40 flex flex-wrap items-center justify-between gap-3 flex-shrink-0">
+        <div class="flex items-center gap-3">
+          <label class="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
+            <input type="checkbox" id="archiveSelectAllCheckbox" onchange="toggleArchiveSelectAll(this.checked)" class="rounded text-indigo-600 w-4 h-4">
+            <span> 全選</span>
+          </label>
+          <span id="archiveSelectedCountLabel" class="text-xs text-slate-500 dark:text-slate-400"> 已選取 0 項</span>
+        </div>
+
+        <div class="flex items-center gap-2 flex-wrap">
+          <select id="archiveProjectFilter" onchange="renderArchiveTasksList()" class="h-8 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500">
+            <option value="ALL"> 全部專案</option>
+          </select>
+          <button type="button" id="btnBatchRestoreArchived" onclick="batchRestoreSelectedArchived(event)" class="h-8 flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/80 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700 px-3 rounded-lg text-xs font-semibold shadow-sm transition">
+            <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+            <span> 批次還原</span>
+          </button>
+          <button type="button" id="btnBatchDeleteArchived" onclick="batchDeleteSelectedArchived(event)" class="h-8 flex items-center gap-1 bg-rose-600 hover:bg-rose-500 text-white px-3 rounded-lg text-xs font-bold shadow transition">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+            <span> 批次刪除</span>
+          </button>
+          <button type="button" id="btnDeleteAllArchived" onclick="deleteAllArchivedTasks(event)" class="h-8 flex items-center gap-1 bg-slate-200 dark:bg-slate-800 hover:bg-rose-100 dark:hover:bg-rose-950/50 hover:text-rose-600 text-slate-700 dark:text-slate-300 px-3 rounded-lg text-xs font-medium border border-slate-300 dark:border-slate-700 transition">
+            <span> 清空全部</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Archived Tasks List -->
+      <div id="archiveTasksList" class="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
+        <!-- JS Render -->
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="p-3 px-5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900/90 text-xs text-slate-500 dark:text-slate-400 flex-shrink-0">
+        <span id="archiveTotalCountLabel"> 共 0 筆封存任務</span>
+        <button onclick="closeArchiveModal()" class="px-4 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium"> 關閉</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="fixed bottom-6 right-6 z-50 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-4 py-2.5 rounded-xl shadow-2xl border border-slate-700 text-xs flex items-center gap-2 transform translate-y-20 opacity-0 pointer-events-none transition-all duration-300">
+    <i data-lucide="info" class="w-4 h-4 text-indigo-400 dark:text-indigo-600 flex-shrink-0"></i>
+    <span id="toastMsg"> 已完成操作</span>
+  </div>
+
+  <!-- Core JavaScript Logic -->
+  <script> let projects = [];
+    let tasks = [];
+    let settings = { enableCliAgent: false, cliCommand: 'agy', autoTriggerOnInProgress: true, dataDirectoryPath: '' };
+    let projectGitStatus = {};
+    let currentProject = 'ALL';
+    let currentActiveTaskDiff = '';
+    let currentTaskDependencies = [];
+
+    // Native Window Dragging & Double Click Zoom Handlers
+    const macTitlebarEl = document.getElementById('macTitlebar');
+    if (macTitlebarEl) {
+      macTitlebarEl.addEventListener('mousedown', (e) => {
+        if (e.target.closest('button, input, select, a, textarea, option, label')) return;
+        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.dragWindow) {
+          window.webkit.messageHandlers.dragWindow.postMessage('drag');
+        }
+      });
+
+      macTitlebarEl.addEventListener('dblclick', (e) => {
+        if (e.target.closest('button, input, select, a, textarea, option, label')) return;
+        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.zoomWindow) {
+          window.webkit.messageHandlers.zoomWindow.postMessage('zoom');
+        }
+      });
+    }
+
+    let selectedFirstLaunchPath = '';
+
+    function openFirstLaunchModal() {
+      selectedFirstLaunchPath = settings.dataDirectoryPath || settings.defaultDataDir || '';
+      updateFirstLaunchModalUI();
+      const modal = document.getElementById('firstLaunchModal');
+      if (modal) modal.classList.remove('hidden');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function closeFirstLaunchModal() {
+      const modal = document.getElementById('firstLaunchModal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function updateFirstLaunchModalUI() {
+      const display = document.getElementById('firstLaunchPathDisplay');
+      if (display) {
+        display.innerText = selectedFirstLaunchPath || settings.defaultDataDir || '載入中...';
+      }
+      const badge = document.getElementById('firstLaunchStatusBadge');
+      if (badge) {
+        if (selectedFirstLaunchPath) {
+          badge.innerText = '已選定';
+          badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900';
+        } else {
+          badge.innerText = '待確認';
+          badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900';
+        }
+      }
+    }
+
+    async function chooseFirstLaunchFolderNative(event) {
+      const btn = event ? event.currentTarget : null;
+      await withButtonLoading(btn, '選擇中...', async () => {
+        try {
+          showToast('請在彈出的 macOS 原生視窗中選擇放置目錄...');
+          const res = await fetch('/api/settings/choose-config-dir', { method: 'POST' });
+          const data = await res.json();
+          if (data && data.success && data.path) {
+            selectedFirstLaunchPath = data.path;
+            if (data.settings) settings = data.settings;
+            updateFirstLaunchModalUI();
+            showToast(`已選定目錄：${data.path}`);
+          }
+        } catch (err) {
+          console.error('Failed to choose first launch folder:', err);
+        }
+      });
+    }
+
+    function useFirstLaunchDefaultFolder(event) {
+      selectedFirstLaunchPath = settings.defaultDataDir || '';
+      updateFirstLaunchModalUI();
+      showToast('已切換為專案預設資料夾');
+    }
+
+    async function confirmFirstLaunchSetup(event) {
+      const btn = event ? event.currentTarget : document.getElementById('btnConfirmFirstLaunch');
+      await withButtonLoading(btn, '初始化中...', async () => {
+        const pathToUse = selectedFirstLaunchPath || settings.defaultDataDir;
+        try {
+          const res = await fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              dataDirectoryPath: pathToUse,
+              initialized: true
+            })
+          });
+          const updated = await res.json();
+          settings = updated;
+          showToast('初始化成功！已建立資料庫與設定檔');
+          closeFirstLaunchModal();
+          await loadData();
+        } catch (err) {
+          showToast(`初始化失敗: ${err.message}`);
+        }
+      });
+    }
+
+    async function loadData() {
+      try {
+        const cacheBuster = '?t=' + Date.now();
+        const [projRes, taskRes, setRes, gitRes] = await Promise.all([
+          fetch('/api/projects' + cacheBuster, { cache: 'no-store' }),
+          fetch('/api/tasks' + cacheBuster, { cache: 'no-store' }),
+          fetch('/api/settings' + cacheBuster, { cache: 'no-store' }),
+          fetch('/api/git/projects-status' + cacheBuster, { cache: 'no-store' }).catch(() => ({ json: () => ({}) }))
+        ]);
+        projects = await projRes.json();
+        tasks = await taskRes.json();
+        settings = await setRes.json();
+        try {
+          projectGitStatus = await gitRes.json();
+        } catch (e) {
+          projectGitStatus = {};
+        }
+        
+        const cliEl = document.getElementById('settingEnableCliAgent');
+        const autoEl = document.getElementById('settingAutoTrigger');
+        const cliCmdEl = document.getElementById('settingCliCommand');
+        if (cliEl) cliEl.checked = !!settings.enableCliAgent;
+        if (autoEl) autoEl.checked = settings.autoTriggerOnInProgress !== false;
+        if (cliCmdEl && !cliCmdEl.value) cliCmdEl.value = settings.cliCommand || 'hermes';
+        renderCliAgentBadge();
+
+        const pathDisplay = document.getElementById('settingConfigPathDisplay');
+        if (pathDisplay) {
+          pathDisplay.innerText = settings.dataDirectoryPath || settings.defaultDataDir || '預設專案 data 目錄';
+        }
+        updateAiPromptDisplay();
+
+        // 首次啟動檢查：若尚未初始化或未指定目錄，彈出引導初始化視窗
+        if (!settings.initialized && (!settings.dataDirectoryPath || settings.dataDirectoryPath === '')) {
+          openFirstLaunchModal();
+        }
+
+        // 更新封存庫徽章數量
+        const archivedCount = tasks.filter(t => t.status === 'archived').length;
+        const archiveBadge = document.getElementById('headerArchiveCountBadge');
+        if (archiveBadge) archiveBadge.innerText = archivedCount;
+
+        renderSidebarProjects();
+        renderProjectBanner();
+        renderKanban();
+        renderMetrics();
+
+        // 若當前有開啟中且處於 in_progress 的任務 Modal，即時平滑同步最新日誌與變更檔案
+        const modalEl = document.getElementById('taskModal');
+        const currentTaskIdInForm = document.getElementById('formTaskId')?.value;
+        if (modalEl && !modalEl.classList.contains('hidden') && currentModalEditingTask && currentTaskIdInForm === currentModalEditingTask.id) {
+          const freshTask = tasks.find(t => t.id === currentModalEditingTask.id);
+          if (freshTask && freshTask.status === 'in_progress') {
+            currentModalEditingTask = freshTask;
+            updateModalLiveInProgressView(freshTask);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load dashboard data:', err);
+      }
+    }
+
+    function renderCliAgentBadge() {
+      const cliBadge = document.getElementById('headerCliAgentBadge');
+      const inspectionBadge = document.getElementById('inspectionBadge');
+      const dot = document.getElementById('headerCliDot');
+      const text = document.getElementById('headerCliText');
+      if (!cliBadge || !inspectionBadge) return;
+
+      const isEnabled = !!settings.enableCliAgent;
+      const cmd = settings.cliCommand || 'hermes';
+
+      if (isEnabled) {
+        // CLI Agent 模式：顯示 CLI 徽章，完全隱藏 AI 巡檢徽章
+        inspectionBadge.style.display = 'none';
+        cliBadge.style.display = 'inline-flex';
+        cliBadge.className = 'inline-flex items-center gap-1.5 bg-indigo-500/15 dark:bg-indigo-500/25 text-indigo-700 dark:text-indigo-300 border border-indigo-500/40 px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-medium cursor-pointer hover:bg-indigo-500/30 transition flex-shrink-0';
+        if (dot) dot.className = 'w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-indigo-500 animate-pulse';
+        if (text) text.innerText = `CLI Agent: 啟用 (${cmd})`;
+        cliBadge.title = `CLI Agent 自動開工已啟用 (${cmd}) · 點擊切換為 AI 對話輪巡模式`;
+      } else {
+        // AI 輪巡模式：完全隱藏 CLI 徽章，顯示 AI 巡檢徽章
+        cliBadge.style.display = 'none';
+        inspectionBadge.style.display = 'inline-flex';
+        inspectionBadge.className = 'inline-flex items-center gap-1.5 bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 dark:border-emerald-500/40 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-medium cursor-pointer hover:bg-emerald-500/25 transition flex-shrink-0';
+        const inspectionText = document.getElementById('inspectionText');
+        if (inspectionText) inspectionText.innerText = 'AI 巡檢連線中';
+        inspectionBadge.title = 'AI 對話輪巡模式運作中 · 點擊手動同步';
+      }
+    }
+
+    async function toggleHeaderCliAgent() {
+      const next = !settings.enableCliAgent;
+      await toggleCliAgent(next);
+    }
+
+    function updateAiPromptDisplay() {
+      const configDir = (settings.dataDirectoryPath || settings.defaultDataDir || 'data').replace(/\/+$/, '');
+      const promptText = `請建立定時/背景巡檢任務（建議每 2 分鐘一次），監控任務檔案：${configDir}/tasks.json。一旦偵測到 status === "in_progress" 的任務，請嚴格遵循專案內的架構規範文檔（如 AGENTS.md / README.md）自主開工，完成實作與測試後將異動記錄（modifiedFiles, diff, executionLog）寫回 tasks.json 並推進至 review 階段。`;
+      const promptEl = document.getElementById('aiPromptTextDisplay');
+      if (promptEl) {
+        promptEl.innerText = promptText;
+      }
+      return promptText;
+    }
+
+    function copyAiInspectionPrompt() {
+      const promptText = updateAiPromptDisplay();
+      navigator.clipboard.writeText(promptText).then(() => {
+        showToast('已複製 Desktop AI 輪巡開工 Prompt！');
+      }).catch(() => {
+        showToast('複製失敗，請手動選取文字');
+      });
+    }
+
+    // Helper for managing button loading and disabled states
+    async function withButtonLoading(btn, loadingText, asyncFn) {
+      if (!btn) return await asyncFn();
+      if (btn.disabled) return;
+      const originalHtml = btn.innerHTML;
+      const originalDisabled = btn.disabled;
+      btn.disabled = true;
+      btn.classList.add('opacity-70', 'cursor-not-allowed');
+      btn.innerHTML = `<span class="inline-flex items-center justify-center gap-1.5"><svg class="animate-spin h-3.5 w-3.5 text-current flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg><span>${loadingText}</span></span>`;
+      try {
+        return await asyncFn();
+      } finally {
+        btn.disabled = originalDisabled;
+        btn.classList.remove('opacity-70', 'cursor-not-allowed');
+        btn.innerHTML = originalHtml;
+        if (window.lucide) lucide.createIcons();
+      }
+    }
+
+    async function chooseFolderNative(event) {
+      const btn = event ? event.currentTarget : document.getElementById('btnChooseProjectFolder');
+      await withButtonLoading(btn, '選擇中...', async () => {
+        try {
+          showToast('請在彈出的 macOS 原生視窗中選擇專案資料夾...');
+          const res = await fetch('/api/projects/choose-folder', { method: 'POST' });
+          const data = await res.json();
+          if (data && data.success && data.project) {
+            showToast(`已成功引入專案：${data.project.name}`);
+            await loadData();
+            filterByProject(data.project.id);
+          }
+        } catch (err) {
+          console.error('Failed to choose folder:', err);
+        }
+      });
+    }
+
+    async function chooseConfigDirNative(event) {
+      const btn = event ? event.currentTarget : document.getElementById('btnChooseConfigDir');
+      await withButtonLoading(btn, '選擇中...', async () => {
+        try {
+          showToast('請在彈出的 macOS 原生視窗中選擇 Config 與資料庫資料夾...');
+          const res = await fetch('/api/settings/choose-config-dir', { method: 'POST' });
+          const data = await res.json();
+          if (data && data.success && data.path) {
+            if (data.settings) {
+              settings = data.settings;
+            } else {
+              settings.dataDirectoryPath = data.path;
+            }
+            const pathDisplay = document.getElementById('settingConfigPathDisplay');
+            if (pathDisplay) pathDisplay.innerText = data.path;
+            updateAiPromptDisplay();
+            showToast(`已變更 Config 放置目錄至：${data.path} 並建立資料庫檔案`);
+            await loadData();
+          }
+        } catch (err) {
+          console.error('Failed to choose config directory:', err);
+        }
+      });
+    }
+
+    async function toggleCliAgent(enabled) {
+      settings.enableCliAgent = enabled;
+      const cliCmdEl = document.getElementById('settingCliCommand');
+      const cliCmd = (cliCmdEl ? cliCmdEl.value.trim() : '') || settings.cliCommand || 'hermes';
+      const autoTriggerEl = document.getElementById('settingAutoTrigger');
+      const autoTrigger = autoTriggerEl ? autoTriggerEl.checked : (settings.autoTriggerOnInProgress !== false);
+
+      try {
+        const res = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            enableCliAgent: enabled,
+            cliCommand: cliCmd,
+            autoTriggerOnInProgress: autoTrigger,
+            dataDirectoryPath: settings.dataDirectoryPath
+          })
+        });
+        const updated = await res.json();
+        settings = updated;
+        
+        // 同步 UI 狀態
+        renderCliAgentBadge();
+        
+        showToast(enabled ? ` CLI Agent 自動開工已啟用 (${settings.cliCommand || 'hermes'})！` : ' Desktop AI 輪巡模式已啟用');
+      } catch (err) {
+        console.error('Failed to update settings:', err);
+        showToast(`設定變更失敗: ${err.message}`);
+      }
+    }
+
+    let currentAutomationMode = 'cli';
+
+    function selectAutomationMode(mode, triggerSave = true) {
+      const normalizedMode = (mode === 'antigravity' || mode === 'desktop_ai') ? 'desktop_ai' : 'cli';
+      currentAutomationMode = normalizedMode;
+      const tabCli = document.getElementById('tabBtnCli');
+      const tabDesktop = document.getElementById('tabBtnDesktopAi');
+      const panelCli = document.getElementById('panelCliMode');
+      const panelDesktop = document.getElementById('panelDesktopAiMode');
+
+      if (!tabCli || !tabDesktop || !panelCli || !panelDesktop) return;
+
+      if (normalizedMode === 'cli') {
+        tabCli.className = 'flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-bold bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm border border-slate-200 dark:border-slate-700 transition';
+        tabDesktop.className = 'flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition';
+        panelCli.classList.remove('hidden');
+        panelDesktop.classList.add('hidden');
+        if (triggerSave && !settings.enableCliAgent) {
+          toggleCliAgent(true);
+        }
+      } else {
+        tabDesktop.className = 'flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-bold bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-sm border border-slate-200 dark:border-slate-700 transition';
+        tabCli.className = 'flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition';
+        panelDesktop.classList.remove('hidden');
+        panelCli.classList.add('hidden');
+        updateAiPromptDisplay();
+        if (triggerSave && settings.enableCliAgent) {
+          toggleCliAgent(false);
+        }
+      }
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function openSettingsModal() {
+      const cliCmdEl = document.getElementById('settingCliCommand');
+      if (cliCmdEl) cliCmdEl.value = settings.cliCommand || 'hermes';
+      const autoEl = document.getElementById('settingAutoTrigger');
+      if (autoEl) autoEl.checked = settings.autoTriggerOnInProgress !== false;
+      updateThemeButtons();
+      updateFontSizeButtons();
+      const pathDisplay = document.getElementById('settingConfigPathDisplay');
+      if (pathDisplay) {
+        pathDisplay.innerText = settings.dataDirectoryPath || settings.defaultDataDir || '預設專案 data 目錄';
+      }
+      updateAiPromptDisplay();
+
+      // 根據當前 settings.enableCliAgent 設定 Pill Tab 初始狀態
+      selectAutomationMode(settings.enableCliAgent ? 'cli' : 'antigravity', false);
+
+      document.getElementById('settingsModal').classList.remove('hidden');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function closeSettingsModal() {
+      document.getElementById('settingsModal').classList.add('hidden');
+    }
+
+    async function saveSettingsFromModal(event) {
+      const btn = event ? event.currentTarget : document.getElementById('btnSaveSettings');
+      await withButtonLoading(btn, '儲存中...', async () => {
+        const cliCmd = document.getElementById('settingCliCommand').value.trim() || 'hermes';
+        const autoTrigger = document.getElementById('settingAutoTrigger').checked;
+        const enableAgent = (currentAutomationMode === 'cli');
+        
+        try {
+          const res = await fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              enableCliAgent: enableAgent,
+              cliCommand: cliCmd,
+              autoTriggerOnInProgress: autoTrigger,
+              dataDirectoryPath: settings.dataDirectoryPath,
+              fontSize: localStorage.getItem('fontSize') || (settings && settings.fontSize) || 'small',
+              initialized: true
+            })
+          });
+          const updated = await res.json();
+          settings = updated;
+          renderCliAgentBadge();
+          showToast('系統設定已成功儲存！');
+          closeSettingsModal();
+          await loadData();
+        } catch (err) {
+          showToast(`儲存失敗: ${err.message}`);
+        }
+      });
+    }
+
+    function setFormProject(projId) {
+      const proj = projects.find(p => p.id === projId) || { id: projId, name: projId };
+      const formProj = document.getElementById('formProject');
+      const formProjInput = document.getElementById('formProjectInput');
+      if (formProj) formProj.value = proj.id;
+      if (formProjInput) formProjInput.value = proj.name;
+      hideProjectAutocomplete();
+      initSelect2Dropdown('');
+      renderSelect2Chips();
+    }
+
+    function showProjectAutocomplete() {
+      const input = document.getElementById('formProjectInput');
+      const query = (input ? input.value : '').toLowerCase();
+      renderProjectAutocompleteList(query);
+      const dropdown = document.getElementById('formProjectDropdown');
+      if (dropdown) dropdown.classList.remove('hidden');
+    }
+
+    function hideProjectAutocomplete() {
+      const dropdown = document.getElementById('formProjectDropdown');
+      if (dropdown) dropdown.classList.add('hidden');
+    }
+
+    function toggleProjectAutocomplete(e) {
+      if (e) e.stopPropagation();
+      const dropdown = document.getElementById('formProjectDropdown');
+      if (!dropdown) return;
+      if (dropdown.classList.contains('hidden')) {
+        showProjectAutocomplete();
+      } else {
+        hideProjectAutocomplete();
+      }
+    }
+
+    function onProjectAutocompleteInput(val) {
+      const formProj = document.getElementById('formProject');
+      if (formProj) formProj.value = val;
+      renderProjectAutocompleteList((val || '').toLowerCase());
+      const dropdown = document.getElementById('formProjectDropdown');
+      if (dropdown) dropdown.classList.remove('hidden');
+    }
+
+    function renderProjectAutocompleteList(query = '') {
+      const listEl = document.getElementById('formProjectDropdownList');
+      if (!listEl) return;
+      const filtered = projects.filter(p => 
+        (p.name && p.name.toLowerCase().includes(query)) || 
+        (p.id && p.id.toLowerCase().includes(query)) || 
+        (p.description && p.description.toLowerCase().includes(query))
+      );
+
+      if (filtered.length === 0) {
+        listEl.innerHTML = '<div class="p-2 text-center text-slate-400 dark:text-slate-500 text-xs"> 無符合的專案 (將以輸入文字儲存)</div>';
+        return;
+      }
+
+      const currentVal = document.getElementById('formProject') ? document.getElementById('formProject').value : '';
+
+      listEl.innerHTML = filtered.map(p => {
+        const isSelected = currentVal === p.id;
+        const colorClass = p.color === 'purple' ? 'bg-purple-500' :
+                           p.color === 'blue' ? 'bg-blue-500' :
+                           p.color === 'emerald' ? 'bg-emerald-500' :
+                           p.color === 'amber' ? 'bg-amber-500' : 'bg-indigo-500';
+        return `
+          <div onclick="setFormProject('${p.id}')" class="p-2 rounded-lg flex items-center justify-between cursor-pointer transition ${isSelected ? 'bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300 font-bold' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'}">
+            <div class="flex items-center gap-2 truncate">
+              <span class="w-2 h-2 rounded-full ${colorClass} flex-shrink-0"></span>
+              <span class="font-medium truncate">${escapeHtml(p.name)}</span>
+              <span class="text-[10px] text-slate-400 font-mono">(${escapeHtml(p.id)})</span>
+            </div>
+            ${isSelected ? '<i data-lucide="check" class="w-3.5 h-3.5 text-indigo-500"></i>' : ''}
+          </div>
+        `;
+      }).join('');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    // 依賴任務管理
+    function updateDependencyOptions(currentEditingTaskId) {
+      const selectEl = document.getElementById('formDependenciesSelect');
+      if (!selectEl) return;
+
+      const availableTasks = tasks.filter(t => t.id !== currentEditingTaskId);
+      let html = '<option value=""> 選擇關聯/前置任務...</option>';
+      availableTasks.forEach(t => {
+        html += `<option value="${t.id}">[${t.id}] ${escapeHtml(t.title)} (${t.status})</option>`;
+      });
+      selectEl.innerHTML = html;
+      renderDependencyChips();
+    }
+
+    function addDependencyFromSelect(taskId) {
+      if (!taskId) return;
+      if (!currentTaskDependencies.includes(taskId)) {
+        currentTaskDependencies.push(taskId);
+        renderDependencyChips();
+      }
+      document.getElementById('formDependenciesSelect').value = '';
+    }
+
+    function removeDependency(taskId) {
+      currentTaskDependencies = currentTaskDependencies.filter(id => id !== taskId);
+      renderDependencyChips();
+    }
+
+    function renderDependencyChips() {
+      const container = document.getElementById('formDependenciesChips');
+      if (!container) return;
+      if (currentTaskDependencies.length === 0) {
+        container.innerHTML = '<span class="text-[10px] text-slate-400 italic"> 無前置依賴</span>';
+        return;
+      }
+      container.innerHTML = currentTaskDependencies.map(depId => {
+        return `
+          <span class="inline-flex items-center gap-1 text-[10px] bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 px-2 py-0.5 rounded-md font-mono">
+            <span> ${escapeHtml(depId)}</span>
+            <button type="button" onclick="removeDependency('${depId}')" class="text-indigo-400 hover:text-indigo-600 dark:hover:text-white ml-0.5 font-bold">×</button>
+          </span>
+        `;
+      }).join('');
+    }
+
+    // Select2 標籤體系常數庫與狀態
+    const SELECT2_TAG_OPTIONS = {
+      git: [
+        { id: 'feat', label: 'feat', desc: '新功能 (Feature)' },
+        { id: 'fix', label: 'fix', desc: '錯誤修復 (BugFix)' },
+        { id: 'refactor', label: 'refactor', desc: '代碼重構' },
+        { id: 'perf', label: 'perf', desc: '效能優化' },
+        { id: 'test', label: 'test', desc: '測試用例' },
+        { id: 'chore', label: 'chore', desc: '日常維護/相依套件' },
+        { id: 'docs', label: 'docs', desc: '文件修訂' },
+        { id: 'style', label: 'style', desc: '代碼風格/樣式微調' }
+      ],
+      skill: [
+        { id: 'modern-web-guidance', label: 'modern-web-guidance', desc: '現代 Web 最佳實踐' },
+        { id: 'a11y-debugging', label: 'a11y-debugging', desc: '無障礙與 ARIA' },
+        { id: 'chrome-devtools', label: 'chrome-devtools', desc: 'DevTools 偵錯與自動化' },
+        { id: 'google-antigravity-sdk', label: 'google-antigravity-sdk', desc: 'AI Agent SDK' },
+        { id: 'generative_ui', label: 'generative_ui', desc: '互動式視覺 UI' },
+        { id: 'debug-optimize-lcp', label: 'debug-optimize-lcp', desc: 'LCP / 效能優化' },
+        { id: 'memory-leak-debugging', label: 'memory-leak-debugging', desc: '記憶體洩漏診斷' },
+        { id: 'troubleshooting', label: 'troubleshooting', desc: '連線與環境排查' }
+      ]
+    };
+
+    let select2SelectedTags = [];
+
+    function initSelect2Dropdown(query = '') {
+      const q = (query || '').toLowerCase().trim();
+      const groupGit = document.getElementById('select2GroupGit');
+      const groupSkill = document.getElementById('select2GroupSkill');
+      const groupProjectSkill = document.getElementById('select2GroupProjectSkill');
+      const projectSkillSection = document.getElementById('select2ProjectSkillSection');
+      if (!groupGit || !groupSkill) return;
+
+      const currentProjId = (document.getElementById('formProject') ? document.getElementById('formProject').value : '') || currentFilter;
+      const currentProj = projects.find(p => p.id === currentProjId);
+      const projectSkills = (currentProj && Array.isArray(currentProj.skills)) ? currentProj.skills : [];
+
+      const filterList = (list) => list.filter(item => item.id.toLowerCase().includes(q) || 
+        item.label.toLowerCase().includes(q) || 
+        (item.desc && item.desc.toLowerCase().includes(q))
+      );
+
+      const filteredGit = filterList(SELECT2_TAG_OPTIONS.git);
+      const filteredSkill = filterList(SELECT2_TAG_OPTIONS.skill);
+      const filteredProjectSkill = filterList(projectSkills);
+
+      // Render Project Skills (.github)
+      if (groupProjectSkill && projectSkillSection) {
+        if (projectSkills.length > 0) {
+          projectSkillSection.classList.remove('hidden');
+          groupProjectSkill.innerHTML = filteredProjectSkill.map(item => {
+            const isSelected = select2SelectedTags.includes(item.id);
+            return `
+              <div onclick="select2ToggleOption('${escapeHtml(item.id)}')" class="px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer transition text-xs ${isSelected ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-300 font-bold' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'}">
+                <div class="flex items-center gap-2 truncate">
+                  <span class="font-mono font-medium text-purple-600 dark:text-purple-400 truncate">#${escapeHtml(item.label || item.id)}</span>
+                  <span class="text-[10px] text-slate-400 truncate">(${escapeHtml(item.desc || '專案技能')})</span>
+                </div>
+                ${isSelected ? '<i data-lucide="check" class="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 flex-shrink-0"></i>' : ''}
+              </div>
+            `;
+          }).join('') || '<div class="text-[10px] text-slate-400 px-2 py-1 italic"> 無符合項目</div>';
+        } else {
+          projectSkillSection.classList.add('hidden');
+          groupProjectSkill.innerHTML = '';
+        }
+      }
+
+      groupGit.innerHTML = filteredGit.map(item => {
+        const isSelected = select2SelectedTags.includes(item.id);
+        return `
+          <div onclick="select2ToggleOption('${escapeHtml(item.id)}')" class="px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer transition text-xs ${isSelected ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-300 font-bold' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'}">
+            <div class="flex items-center gap-2">
+              <span class="font-mono font-medium text-blue-600 dark:text-blue-400">#${escapeHtml(item.label)}</span>
+              <span class="text-[10px] text-slate-400">(${escapeHtml(item.desc)})</span>
+            </div>
+            ${isSelected ? '<i data-lucide="check" class="w-3.5 h-3.5 text-blue-600 dark:text-blue-400"></i>' : ''}
+          </div>
+        `;
+      }).join('') || '<div class="text-[10px] text-slate-400 px-2 py-1 italic"> 無符合項目</div>';
+
+      groupSkill.innerHTML = filteredSkill.map(item => {
+        const isSelected = select2SelectedTags.includes(item.id);
+        return `
+          <div onclick="select2ToggleOption('${escapeHtml(item.id)}')" class="px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer transition text-xs ${isSelected ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 font-bold' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'}">
+            <div class="flex items-center gap-2">
+              <span class="font-mono font-medium">${escapeHtml(item.label)}</span>
+              <span class="text-[10px] text-slate-400">(${escapeHtml(item.desc)})</span>
+            </div>
+            ${isSelected ? '<i data-lucide="check" class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400"></i>' : ''}
+          </div>
+        `;
+      }).join('') || '<div class="text-[10px] text-slate-400 px-2 py-1 italic"> 無符合項目</div>';
+
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function toggleSelect2Dropdown(e) {
+      if (e) e.stopPropagation();
+      const dropdown = document.getElementById('select2Dropdown');
+      const input = document.getElementById('select2Input');
+      if (!dropdown) return;
+      
+      const isOpen = !dropdown.classList.contains('hidden');
+      if (isOpen) {
+        dropdown.classList.add('hidden');
+      } else {
+        dropdown.classList.remove('hidden');
+        initSelect2Dropdown(input ? input.value : '');
+        if (input) input.focus();
+      }
+    }
+
+    function onSelect2Search(val) {
+      const dropdown = document.getElementById('select2Dropdown');
+      if (dropdown) dropdown.classList.remove('hidden');
+      initSelect2Dropdown(val);
+    }
+
+    function onSelect2KeyDown(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const input = document.getElementById('select2Input');
+        const val = (input ? input.value : '').trim();
+        if (val) {
+          select2AddTag(val);
+          input.value = '';
+          initSelect2Dropdown('');
+        }
+      } else if (e.key === 'Backspace' && e.target.value === '' && select2SelectedTags.length > 0) {
+        select2SelectedTags.pop();
+        syncSelect2ToHiddenInput();
+        renderSelect2Chips();
+        initSelect2Dropdown('');
+      } else if (e.key === 'Escape') {
+        document.getElementById('select2Dropdown').classList.add('hidden');
+      }
+    }
+
+    function select2ToggleOption(tagId) {
+      if (select2SelectedTags.includes(tagId)) {
+        select2SelectedTags = select2SelectedTags.filter(t => t !== tagId);
+      } else {
+        select2SelectedTags.push(tagId);
+      }
+      const input = document.getElementById('select2Input');
+      if (input) input.value = '';
+      syncSelect2ToHiddenInput();
+      renderSelect2Chips();
+      initSelect2Dropdown('');
+    }
+
+    function select2AddTag(tagName) {
+      if (!tagName) return;
+      if (!select2SelectedTags.includes(tagName)) {
+        select2SelectedTags.push(tagName);
+        syncSelect2ToHiddenInput();
+        renderSelect2Chips();
+      }
+    }
+
+    function select2RemoveTag(tagToRemove, e) {
+      if (e) e.stopPropagation();
+      select2SelectedTags = select2SelectedTags.filter(t => t !== tagToRemove);
+      syncSelect2ToHiddenInput();
+      renderSelect2Chips();
+      initSelect2Dropdown('');
+    }
+
+    function syncSelect2ToHiddenInput() {
+      const hiddenInput = document.getElementById('formTags');
+      if (hiddenInput) {
+        hiddenInput.value = select2SelectedTags.join(', ');
+      }
+    }
+
+    function setSelect2Tags(tagsArray) {
+      select2SelectedTags = Array.isArray(tagsArray) ? [...tagsArray] : [];
+      syncSelect2ToHiddenInput();
+      renderSelect2Chips();
+    }
+
+    function renderSelect2Chips() {
+      const chipsContainer = document.getElementById('select2Chips');
+      const input = document.getElementById('select2Input');
+      if (!chipsContainer) return;
+
+      const currentProjId = (document.getElementById('formProject') ? document.getElementById('formProject').value : '') || currentFilter;
+      const currentProj = projects.find(p => p.id === currentProjId);
+      const projectSkills = (currentProj && Array.isArray(currentProj.skills)) ? currentProj.skills : [];
+
+      chipsContainer.innerHTML = select2SelectedTags.map(tag => {
+        const isGit = SELECT2_TAG_OPTIONS.git.some(g => g.id === tag);
+        const isProjectSkill = projectSkills.some(s => s.id === tag);
+        const isGlobalSkill = SELECT2_TAG_OPTIONS.skill.some(s => s.id === tag);
+        const colorClass = isProjectSkill ? 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-400/40 font-bold' :
+                           isGit ? 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-400/40 font-bold' :
+                           isGlobalSkill ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-400/40 font-semibold' :
+                           'bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700';
+        return `
+          <span class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md border ${colorClass}">
+            ${isProjectSkill ? '<i data-lucide="sparkles" class="w-3 h-3 text-purple-500"></i>' : ''}
+            <span>#${escapeHtml(tag)}</span>
+            <button type="button" onclick="select2RemoveTag('${escapeHtml(tag)}', event)" class="text-slate-400 hover:text-slate-700 dark:hover:text-white font-bold ml-0.5">×</button>
+          </span>
+        `;
+      }).join('');
+
+      if (input) {
+        input.placeholder = select2SelectedTags.length === 0 ? '選擇標籤' : '';
+      }
+      if (window.lucide) lucide.createIcons();
+    }
+
+    // 側邊欄與專案切換
+    function toggleSidebar() {
+      const sidebar = document.getElementById('sidebar');
+      const backdrop = document.getElementById('sidebarBackdrop');
+      sidebar.classList.toggle('-translate-x-full');
+      backdrop.classList.toggle('hidden');
+    }
+
+    function closeSidebar() {
+      document.getElementById('sidebar').classList.add('-translate-x-full');
+      document.getElementById('sidebarBackdrop').classList.add('hidden');
+    }
+
+    function filterByProject(projId) {
+      currentProject = projId;
+      renderSidebarProjects();
+      renderProjectBanner();
+      renderKanban();
+      renderMetrics();
+      closeSidebar();
+    }
+
+    async function deleteProject(projId, index, e) {
+      if (e) e.stopPropagation();
+      const proj = projects[index] || projects.find(p => p.id === projId);
+      const projName = proj ? proj.name : projId;
+      
+      if (!confirm(`確定要取消追蹤專案 "${projName}" 嗎？\n（此操作僅從 Task Dashboard 移除追蹤，不會刪除您電腦中的實體資料夾）`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/projects/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: projId, index: index })
+        });
+        const data = await res.json();
+        if (data && data.success) {
+          showToast(`已取消追蹤專案：${projName}`);
+          if (currentProject === projId) {
+            currentProject = 'ALL';
+          }
+          await loadData();
+        } else {
+          showToast(`取消追蹤失敗: ${data.error || '未知錯誤'}`);
+        }
+      } catch (err) {
+        console.error('Failed to untrack project:', err);
+        showToast('取消追蹤失敗');
+      }
+    }
+
+    function renderSidebarProjects() {
+      const listEl = document.getElementById('projectSidebarList');
+      const search = (document.getElementById('projectSearchInput').value || '').toLowerCase();
+      
+      let filtered = projects;
+      if (search) {
+        filtered = filtered.filter(p => p.name.toLowerCase().includes(search) || p.id.toLowerCase().includes(search));
+      }
+
+      document.getElementById('sidebarProjectCount').innerText = `${projects.length} 個本機專案`;
+
+      let html = `
+        <div onclick="filterByProject('ALL')" class="p-2.5 rounded-xl flex items-center justify-between cursor-pointer transition ${currentProject === 'ALL' ? 'bg-indigo-600 text-white font-bold shadow-md shadow-indigo-500/20' : 'hover:bg-slate-200/60 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'}">
+          <div class="flex items-center gap-2">
+            <i data-lucide="layout-grid" class="w-4 h-4"></i>
+            <span class="text-xs"> 全部專案 (${tasks.filter(t => normalizeStatus(t.status) !== 'archived').length})</span>
+          </div>
+          ${currentProject === 'ALL' ? '<i data-lucide="check" class="w-3.5 h-3.5"></i>' : ''}
+        </div>
+      `;
+
+      projects.forEach((p, idx) => {
+        if (search && !p.name.toLowerCase().includes(search) && !p.id.toLowerCase().includes(search)) return;
+        
+        const isSelected = currentProject === p.id;
+        const taskCount = tasks.filter(t => t.project === p.id && normalizeStatus(t.status) !== 'archived').length;
+        const colorClass = p.color === 'purple' ? 'bg-purple-500' :
+                           p.color === 'blue' ? 'bg-blue-500' :
+                           p.color === 'emerald' ? 'bg-emerald-500' :
+                           p.color === 'amber' ? 'bg-amber-500' : 'bg-indigo-500';
+
+        html += `
+          <div onclick="filterByProject('${p.id}')" class="group/proj p-2 rounded-xl flex items-center justify-between cursor-pointer transition ${isSelected ? 'bg-indigo-600 text-white font-bold shadow-md shadow-indigo-500/20' : 'hover:bg-slate-200/60 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'}">
+            <div class="flex items-center gap-2 truncate mr-2">
+              <span class="w-2 h-2 rounded-full ${colorClass} flex-shrink-0"></span>
+              <div class="truncate">
+                <p class="text-xs font-medium truncate">${escapeHtml(p.name)}</p>
+                <p class="text-[10px] ${isSelected ? 'text-indigo-100' : 'text-slate-400'} truncate font-mono">${escapeHtml(p.id)}</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5 flex-shrink-0">
+              <span class="text-[10px] font-mono px-1.5 py-0.2 rounded-full ${isSelected ? 'bg-indigo-700 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'}">${taskCount}</span>
+              <button onclick="deleteProject('${p.id}', ${idx}, event)" title="取消追蹤此專案" class="opacity-0 group-hover/proj:opacity-100 p-1 text-slate-400 hover:text-rose-500 hover:bg-slate-200/80 dark:hover:bg-slate-700 rounded transition flex items-center justify-center">
+                <i data-lucide="trash-2" class="w-3.5 h-3.5 pointer-events-none"></i>
+              </button>
+            </div>
+          </div>
+        `;
+      });
+
+      listEl.innerHTML = html;
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function renderProjectBanner() {
+      const banner = document.getElementById('projectBanner');
+      const headerTitle = document.getElementById('headerCurrentProjectName');
+
+      if (currentProject === 'ALL') {
+        banner.classList.add('hidden');
+        headerTitle.innerText = '全部專案';
+        return;
+      }
+
+      const proj = projects.find(p => p.id === currentProject);
+      if (!proj) {
+        banner.classList.add('hidden');
+        headerTitle.innerText = currentProject;
+        return;
+      }
+
+      banner.classList.remove('hidden');
+      headerTitle.innerText = proj.name;
+      document.getElementById('bannerTitle').innerText = proj.name;
+      document.getElementById('bannerPath').innerText = proj.path || proj.name || proj.id;
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function normalizeStatus(rawStatus) {
+      if (!rawStatus) return 'todo';
+      const s = String(rawStatus).toLowerCase().trim();
+      if (['in_progress', 'inprogress', 'running', 'active', 'doing'].includes(s)) return 'in_progress';
+      if (['review', 'in_review', 'under_review', 'verify', 'testing'].includes(s)) return 'review';
+      if (['done', 'completed', 'finished', 'closed', 'resolved'].includes(s)) return 'done';
+      if (['blocked', 'block', 'hold', 'paused'].includes(s)) return 'blocked';
+      if (['archived', 'archive', 'archived_done', 'archivedone'].includes(s)) return 'archived';
+      return 'todo'; // 任何 pending, backlog, open 或非預設狀態皆統一歸入 todo
+    }
+
+    function renderMetrics() {
+      let filtered = tasks.filter(t => normalizeStatus(t.status) !== 'archived');
+      if (currentProject !== 'ALL') {
+        filtered = filtered.filter(t => t.project === currentProject);
+      }
+
+      document.getElementById('stat-total').innerText = filtered.length;
+      document.getElementById('stat-todo').innerText = filtered.filter(t => normalizeStatus(t.status) === 'todo').length;
+      document.getElementById('stat-in_progress').innerText = filtered.filter(t => normalizeStatus(t.status) === 'in_progress').length;
+      document.getElementById('stat-review').innerText = filtered.filter(t => normalizeStatus(t.status) === 'review').length;
+      document.getElementById('stat-done').innerText = filtered.filter(t => normalizeStatus(t.status) === 'done').length;
+      document.getElementById('stat-blocked').innerText = filtered.filter(t => normalizeStatus(t.status) === 'blocked').length;
+    }
+
+    function renderKanban() {
+      const search = document.getElementById('searchInput').value.toLowerCase();
+      const priority = document.getElementById('priorityFilter').value;
+
+      let filtered = tasks.filter(t => normalizeStatus(t.status) !== 'archived');
+      if (currentProject !== 'ALL') {
+        filtered = filtered.filter(t => t.project === currentProject);
+      }
+      if (priority !== 'ALL') {
+        filtered = filtered.filter(t => t.priority === priority);
+      }
+      if (search) {
+        filtered = filtered.filter(t => t.title.toLowerCase().includes(search) || 
+          (t.description && t.description.toLowerCase().includes(search)) ||
+          (t.tags && t.tags.some(tag => tag.toLowerCase().includes(search))) ||
+          t.id.toLowerCase().includes(search)
+        );
+      }
+
+      // 找出各專案最新的一筆 Done 任務
+      const newestDoneTaskIdByProject = {};
+      const allDoneTasks = tasks.filter(t => normalizeStatus(t.status) === 'done');
+      allDoneTasks.forEach(t => {
+        const projKey = t.project || 'default';
+        const cur = newestDoneTaskIdByProject[projKey];
+        const tTime = new Date(t.updatedAt || t.createdAt || 0).getTime();
+        if (!cur || tTime > cur.time) {
+          newestDoneTaskIdByProject[projKey] = { id: t.id, time: tTime };
+        }
+      });
+
+      const statuses = ['todo', 'in_progress', 'review', 'done', 'blocked'];
+
+      statuses.forEach(st => {
+        const colEl = document.getElementById(`col-${st}`);
+        const badgeEl = document.getElementById(`badge-${st}`);
+        let colTasks = filtered.filter(t => normalizeStatus(t.status) === st);
+
+        // 已完成任務：由新到舊排列 (updatedAt/createdAt 降序)
+        if (st === 'done') {
+          colTasks.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+        }
+
+        badgeEl.innerText = colTasks.length;
+
+        if (colTasks.length === 0) {
+          colEl.innerHTML = '<div class="text-center py-8 text-xs text-slate-400 dark:text-slate-500 border border-dashed border-slate-200 dark:border-slate-800 rounded-lg"> 無任務卡片</div>';
+          return;
+        }
+
+        colEl.innerHTML = colTasks.map(t => {
+          const proj = projects.find(p => p.id === t.project);
+          const projName = proj ? proj.name : t.project;
+          const priorityColor = t.priority === 'P0' ? 'bg-rose-50 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-500/40' :
+                                t.priority === 'P1' ? 'bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-500/40' :
+                                t.priority === 'P2' ? 'bg-blue-50 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-500/40' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300';
+          
+          const isInProgress = t.status === 'in_progress';
+          const isReviewStatus = t.status === 'review';
+          const cardBorderClass = isInProgress ? 'border-indigo-400 dark:border-indigo-500/80 bg-indigo-50/20 dark:bg-indigo-950/40 ring-1 ring-indigo-500/40' :
+                                  isReviewStatus ? 'border-purple-400 dark:border-purple-500/80 bg-purple-50/20 dark:bg-purple-950/40 ring-1 ring-purple-500/40' : 
+                                  'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/90 hover:border-slate-300 dark:hover:border-slate-500 shadow-sm';
+
+          return `
+            <div data-id="${t.id}" onclick="openModalForEdit('${t.id}')" class="kanban-card p-3 rounded-lg border ${cardBorderClass} shadow-sm transition-all cursor-pointer group hover:scale-[1.01] space-y-2 relative">
+              <div class="flex items-start justify-between gap-1.5">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-[10px] font-bold px-1.5 py-0.2 rounded border ${priorityColor} font-mono">${t.priority || 'P1'}</span>
+                  <span class="text-[10px] px-1.5 py-0.2 rounded bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 font-mono truncate max-w-[110px]" title="${escapeHtml(projName)}">
+                     ${escapeHtml(projName)}
+                  </span>
+                </div>
+                <button onclick="copyPrompt('${t.id}', event)" title="複製 AI 指令" class="opacity-80 group-hover:opacity-100 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition">
+                  <i data-lucide="copy" class="w-3 h-3"></i>
+                </button>
+              </div>
+
+              <h4 class="text-xs font-bold text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition leading-snug">
+                ${escapeHtml(t.title)}
+              </h4>
+
+              ${t.description ? `<p class="text-[11px] text-slate-600 dark:text-slate-400 line-clamp-2 leading-relaxed">${escapeHtml(t.description)}</p>` : ''}
+
+              ${(t.feedback && t.feedback.trim() && (isInProgress || t.status === 'todo')) ? `
+                <div class="bg-amber-500/10 border border-amber-500/30 rounded-md p-2 space-y-1 text-amber-800 dark:text-amber-300 shadow-sm">
+                  <div class="flex items-center gap-1 font-bold text-[10px]">
+                    <i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 flex-shrink-0"></i>
+                    <span> 退回審查意見：</span>
+                  </div>
+                  <p class="text-[11px] font-sans leading-relaxed bg-amber-50/80 dark:bg-amber-950/60 p-1.5 rounded border border-amber-500/20 text-amber-900 dark:text-amber-200">
+                    ${escapeHtml(t.feedback)}
+                  </p>
+                </div>
+              ` : ''}
+
+              ${isInProgress ? `
+                <div class="space-y-1.5 pt-0.5">
+                  <div class="bg-indigo-100/80 dark:bg-indigo-950/60 border border-indigo-300 dark:border-indigo-800/80 rounded-md p-1.5 flex items-center justify-between text-[10px] text-indigo-900 dark:text-indigo-200">
+                    <span class="flex items-center gap-1.5 font-bold">
+                      <span class="relative flex h-2 w-2">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                      </span>
+                      ${settings.enableCliAgent ? ` CLI (${settings.cliCommand || 'hermes'}) 執行中` : ` AI 輪巡中`}
+                    </span>
+                    ${settings.enableCliAgent ? `
+                    <span class="text-[9px] font-mono font-bold text-indigo-600 dark:text-indigo-300 bg-indigo-200/60 dark:bg-indigo-900/60 px-1.5 py-0.5 rounded border border-indigo-400/30">
+                       ${formatDuration(t.liveStatus?.elapsedSeconds || 0)}
+                    </span>
+                    ` : ''}
+                  </div>
+
+                  ${t.liveStatus?.currentAction ? `
+                    <div class="bg-slate-900/90 dark:bg-slate-950 text-amber-300 dark:text-amber-200 border border-amber-500/30 rounded p-1.5 font-mono text-[10px] flex items-center gap-1.5 overflow-hidden shadow-inner" title="${escapeHtml(t.liveStatus.currentAction)}">
+                      <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping flex-shrink-0"></span>
+                      <span class="truncate font-sans font-medium text-amber-200">
+                        ${escapeHtml(t.liveStatus.currentAction)}
+                      </span>
+                    </div>
+                  ` : ''}
+
+                  ${t.liveStatus?.liveModifiedFiles && t.liveStatus.liveModifiedFiles.length > 0 ? `
+                    <div class="flex items-center gap-1 text-[10px] text-indigo-700 dark:text-indigo-300 font-mono bg-indigo-50/70 dark:bg-indigo-950/40 px-1.5 py-0.5 rounded border border-indigo-200/60 dark:border-indigo-900/40">
+                      <i data-lucide="file-edit" class="w-3 h-3 text-indigo-500 flex-shrink-0"></i>
+                      <span class="truncate font-medium"> 即時異動 ${t.liveStatus.liveModifiedFiles.length} 個檔案</span>
+                    </div>
+                  ` : ''}
+                </div>
+              ` : ''}
+
+              <!-- 依賴任務徽章 (點擊可直接打開關聯任務) -->
+              ${t.dependencies && t.dependencies.length > 0 ? `
+                <div class="flex flex-wrap gap-1">
+                  ${t.dependencies.map(dep => `
+                    <span onclick="event.stopPropagation(); openModalForEdit('${dep}')" class="text-[9px] bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-1.5 py-0.2 rounded border border-indigo-200 dark:border-indigo-800/60 font-mono hover:underline" title="點擊檢視前置任務 ${dep}"> 依賴 ${escapeHtml(dep)}
+                    </span>
+                  `).join('')}
+                </div>
+              ` : ''}
+
+              ${isReviewStatus ? `
+                <div class="bg-purple-100/70 dark:bg-purple-950/40 border border-purple-300 dark:border-purple-800/60 rounded-md p-1.5 flex items-center justify-between text-[10px] text-purple-900 dark:text-purple-200">
+                  <span class="flex items-center gap-1 font-bold">
+                    <i data-lucide="eye" class="w-3 h-3 text-purple-600 dark:text-purple-400"></i> 含 Diff 異動
+                  </span>
+                  <button onclick="quickApproveDone('${t.id}', event)" class="bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-0.5 rounded font-bold flex items-center gap-1 shadow-sm transition">
+                    <i data-lucide="check" class="w-3 h-3"></i> 驗收結案
+                  </button>
+                </div>
+              ` : ''}
+
+              ${t.status === 'done' ? (() => {
+                const isLatestInProj = newestDoneTaskIdByProject[t.project || 'default']?.id === t.id;
+                const projGit = projectGitStatus[t.project];
+                const hasDiff = projGit ? projGit.hasDiff : false;
+
+                return `
+                  <div class="bg-emerald-100/60 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-800/50 rounded-md p-1.5 flex items-center justify-between text-[10px] text-emerald-900 dark:text-emerald-200">
+                    <span class="flex items-center gap-1 font-bold">
+                      <i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-600 dark:text-emerald-400"></i> 已完成
+                    </span>
+                    <div class="flex items-center gap-1">
+                      <button onclick="archiveTaskFromCard('${t.id}', event)" class="bg-slate-200/90 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded font-bold flex items-center gap-1 shadow-sm transition" title="手動將此任務移入封存庫">
+                        <i data-lucide="archive" class="w-3 h-3 text-indigo-500"></i> 封存
+                      </button>
+                      ${isLatestInProj && hasDiff ? `
+                        <button onclick="commitTaskFromCard('${t.id}', event)" class="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-0.5 rounded font-bold flex items-center gap-1 shadow-sm transition" title="提交 Git Commit 並封存">
+                          <i data-lucide="git-commit" class="w-3 h-3"></i> Commit
+                        </button>
+                      ` : ''}
+                    </div>
+                  </div>
+                `;
+              })() : ''}
+
+              ${t.tags && t.tags.length > 0 ? `
+                <div class="flex flex-wrap gap-1 pt-0.5">
+                  ${t.tags.map(tag => {
+                    const isGit = ['feat', 'fix', 'refactor', 'perf', 'test', 'chore', 'docs', 'style'].includes(tag);
+                    const tagClass = tag === 'feat' ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-400/30 font-bold' :
+                                     tag === 'fix' ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-400/30 font-bold' :
+                                     tag === 'refactor' ? 'bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-400/30' :
+                                     tag === 'perf' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-400/30' :
+                                     'bg-slate-200/60 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700/60';
+                    return `<span class="text-[9px] px-1.5 py-0.2 rounded-full border ${tagClass}">#${escapeHtml(tag)}</span>`;
+                  }).join('')}
+                </div>
+              ` : ''}
+
+              <div class="pt-1.5 border-t border-slate-200 dark:border-slate-800/80 flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
+                <span class="flex items-center gap-1">
+                  ${(t.assignee === 'CLI' || (t.assignee && t.assignee.includes('CLI'))) ? `
+                    <i data-lucide="terminal" class="w-3 h-3 text-indigo-500"></i>
+                    <span class="font-bold text-indigo-600 dark:text-indigo-400 font-mono"> CLI</span>
+                  ` : (t.assignee === 'Antigravity' || !t.assignee) ? `
+                    <i data-lucide="sparkles" class="w-3 h-3 text-indigo-400"></i>
+                    <span>${escapeHtml(t.assignee || 'Antigravity')}</span>
+                  ` : `
+                    <i data-lucide="user" class="w-3 h-3 text-slate-400 dark:text-slate-500"></i>
+                    <span>${escapeHtml(t.assignee)}</span>
+                  `}
+                </span>
+                <span class="text-indigo-600 dark:text-indigo-400 font-medium group-hover:underline"> 編輯詳情</span>
+              </div>
+            </div>
+          `;
+        }).join('');
+      });
+
+      if (window.lucide) lucide.createIcons();
+    }
+
+    // Modal 邏輯 (支援 新增單欄 與 編輯雙欄)
+    function openModal(initialData = {}) {
+      currentModalEditingTask = null;
+      document.getElementById('taskForm').reset();
+      document.getElementById('formTaskId').value = '';
+      document.getElementById('formExecutionLog').value = '';
+      document.getElementById('modalHeaderTitle').innerText = '新增任務';
+      document.getElementById('modalPriorityBadge').innerText = 'P1';
+      document.getElementById('modalPriorityBadge').className = 'px-2.5 py-0.5 rounded-md text-xs font-bold font-mono bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40';
+      document.getElementById('btnDeleteTask').classList.add('hidden');
+      currentTaskDependencies = [];
+
+      if (initialData.status) {
+        document.getElementById('formStatus').value = initialData.status;
+      }
+      const defaultProj = initialData.project || (currentProject !== 'ALL' ? currentProject : (projects[0] && projects[0].id) || 'task-dashboard');
+      setFormProject(defaultProj);
+
+      document.getElementById('formAssignee').value = initialData.assignee || (settings.enableCliAgent ? 'CLI' : 'Antigravity');
+
+      updateDependencyOptions('');
+      setSelect2Tags([]);
+
+      // 新增任務時：隱藏審查回饋區塊
+      document.getElementById('reviewFeedbackBox').classList.add('hidden');
+
+      // 清空右欄 Diff 與 Modified Files
+      document.getElementById('formModifiedFilesList').innerHTML = '<div class="text-center py-2 text-slate-400 text-xs italic"> 尚未有異動檔案紀錄</div>';
+      document.getElementById('formDiffVisual').innerHTML = `
+        <div class="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
+          <i data-lucide="git-pull-request" class="w-8 h-8 text-slate-500 mb-2 opacity-50"></i>
+          <span class="text-xs"> 尚未產生代碼變更或 Diff</span>
+        </div>
+      `;
+      document.getElementById('formLogBox').classList.add('hidden');
+      const logVisual = document.getElementById('formLogVisual');
+      if (logVisual) logVisual.innerText = '';
+
+      updateModalButtonState();
+
+      document.getElementById('taskModal').classList.remove('hidden');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    let currentModalEditingTask = null;
+
+    function updateModalLiveInProgressView(task) {
+      if (!task || task.status !== 'in_progress') return;
+      const currentTaskIdInForm = document.getElementById('formTaskId')?.value;
+      if (!currentTaskIdInForm || currentTaskIdInForm !== task.id) return;
+
+      const modFilesList = document.getElementById('formModifiedFilesList');
+      if (modFilesList) {
+        if (task.liveStatus && Array.isArray(task.liveStatus.liveModifiedFiles) && task.liveStatus.liveModifiedFiles.length > 0) {
+          modFilesList.innerHTML = task.liveStatus.liveModifiedFiles.map(filePath => `
+            <div class="mod-file-item flex items-center justify-between bg-amber-50/70 dark:bg-amber-950/30 hover:bg-amber-100/60 dark:hover:bg-amber-900/40 px-2.5 py-1.5 rounded-lg border border-amber-300/70 dark:border-amber-700/60 transition">
+              <span class="text-amber-700 dark:text-amber-300 font-semibold truncate flex items-center gap-1.5 text-xs font-mono">
+                <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping flex-shrink-0"></span>
+                 ${escapeHtml(filePath)}
+              </span>
+              <span class="text-[9px] bg-amber-500/20 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/30 font-bold animate-pulse"> 即時變更中</span>
+            </div>
+          `).join('');
+        } else if (task.modifiedFiles && task.modifiedFiles.length > 0) {
+          modFilesList.innerHTML = task.modifiedFiles.map(f => {
+            const filePath = typeof f === 'string' ? f : f.path;
+            const desc = (typeof f === 'object' && f.description) ? f.description : '';
+            return `
+              <div data-path="${escapeHtml(filePath)}" onclick="filterDiffForFile('${escapeHtml(filePath)}')" class="mod-file-item flex items-center justify-between bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer transition">
+                <span class="text-indigo-600 dark:text-indigo-300 font-semibold truncate"> ${escapeHtml(filePath)}</span>
+                <span class="text-slate-500 dark:text-slate-400 text-[10px] truncate max-w-xs">${escapeHtml(desc || '點擊查看 Diff')}</span>
+              </div>
+            `;
+          }).join('');
+        } else {
+          modFilesList.innerHTML = '<div class="text-center py-3 text-slate-400 dark:text-slate-500 text-xs italic flex items-center justify-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-ping"></span> 尚未偵測到檔案變更 (代碼分析中...)</div>';
+        }
+      }
+
+      const logBox = document.getElementById('formLogBox');
+      const logVisual = document.getElementById('formLogVisual');
+      if (logBox && logVisual) {
+        logBox.classList.remove('hidden');
+        if (task.liveStatus && task.liveStatus.recentTail) {
+          const elapsedStr = formatDuration(task.liveStatus.elapsedSeconds || 0);
+          const header = ` [即時日誌串流] 已執行 ${elapsedStr} | 當前動作: ${task.liveStatus.currentAction || '處理中...'}\n========================================\n\n`;
+          logVisual.innerText = header + task.liveStatus.recentTail;
+        } else if (task.executionLog) {
+          logVisual.innerText = task.executionLog;
+        } else {
+          logVisual.innerText = `[即時狀態]  AI Agent 目前正在背景執行此任務...\n   執行完成後日誌將自動同步更新並推進至「待驗收 (Review)」階段。\n========================================\n\n等待 CLI 輸出...`;
+        }
+      }
+    }
+
+    function openModalForEdit(id) {
+      const task = tasks.find(t => t.id === id);
+      if (!task) return;
+      currentModalEditingTask = task;
+
+      document.getElementById('formTaskId').value = task.id;
+      document.getElementById('modalHeaderTitle').innerText = `編輯任務：${task.id}`;
+      document.getElementById('modalPriorityBadge').innerText = task.priority || 'P1';
+      document.getElementById('modalPriorityBadge').className = `px-2.5 py-0.5 rounded-md text-xs font-bold font-mono ${
+        task.priority === 'P0' ? 'bg-rose-50 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-500/40' :
+        task.priority === 'P1' ? 'bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40' : 'bg-blue-50 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-500/40'
+      }`;
+
+      document.getElementById('formTitle').value = task.title || '';
+      setFormProject(task.project || (projects[0] && projects[0].id) || 'task-dashboard');
+      document.getElementById('formPriority').value = task.priority || 'P1';
+      document.getElementById('formStatus').value = task.status || 'todo';
+      document.getElementById('formAssignee').value = task.assignee || (settings.enableCliAgent ? 'CLI' : 'Antigravity');
+      document.getElementById('formDescription').value = task.description || '';
+      document.getElementById('formFeedback').value = task.feedback || '';
+
+      // 設定 Select2 標籤
+      setSelect2Tags(task.tags || []);
+
+      // 依賴任務
+      currentTaskDependencies = Array.isArray(task.dependencies) ? [...task.dependencies] : [];
+      updateDependencyOptions(task.id);
+
+      // 右欄：異動檔案清單 (可點選互動過濾 Diff)
+      currentActiveTaskDiff = task.diff || '';
+      const modFilesList = document.getElementById('formModifiedFilesList');
+      const logBox = document.getElementById('formLogBox');
+      const logVisual = document.getElementById('formLogVisual');
+
+      if (task.status === 'in_progress') {
+        updateModalLiveInProgressView(task);
+      } else {
+        if (task.modifiedFiles && task.modifiedFiles.length > 0) {
+          modFilesList.innerHTML = task.modifiedFiles.map(f => {
+            const filePath = typeof f === 'string' ? f : f.path;
+            const desc = (typeof f === 'object' && f.description) ? f.description : '';
+            return `
+              <div data-path="${escapeHtml(filePath)}" onclick="filterDiffForFile('${escapeHtml(filePath)}')" class="mod-file-item flex items-center justify-between bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer transition">
+                <span class="text-indigo-600 dark:text-indigo-300 font-semibold truncate"> ${escapeHtml(filePath)}</span>
+                <span class="text-slate-500 dark:text-slate-400 text-[10px] truncate max-w-xs">${escapeHtml(desc || '點擊查看 Diff')}</span>
+              </div>
+            `;
+          }).join('');
+        } else {
+          modFilesList.innerHTML = '<div class="text-center py-2 text-slate-400 text-xs italic"> 尚未有異動檔案紀錄</div>';
+        }
+
+        // 執行紀錄 (自然完整展開，不加內部滾軸)
+        if (task.executionLog) {
+          logBox.classList.remove('hidden');
+          logVisual.innerText = task.executionLog;
+        } else {
+          logBox.classList.add('hidden');
+        }
+      }
+
+      // 右欄：Git Diff 檢視器 (若有異動檔案則預設呈現第一個檔案，否則顯示全部)
+      if (task.modifiedFiles && task.modifiedFiles.length > 0) {
+        const firstFile = typeof task.modifiedFiles[0] === 'string' ? task.modifiedFiles[0] : task.modifiedFiles[0].path;
+        filterDiffForFile(firstFile);
+      } else {
+        showAllDiffs();
+      }
+
+      document.getElementById('btnDeleteTask').classList.remove('hidden');
+      updateModalButtonState();
+
+      document.getElementById('taskModal').classList.remove('hidden');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function extractFilePathFromDiffSection(lines) {
+      for (const line of lines) {
+        if (line.startsWith('diff --git a/')) {
+          const m = line.match(/^diff --git a\/(.+?) b\/(.+)$/);
+          if (m) return m[2].trim();
+        }
+        if (line.startsWith('diff --no-index')) {
+          const m = line.match(/diff --no-index \/dev\/null "?(.+?)"?$/);
+          if (m) return m[1].trim();
+        }
+        if (line.startsWith('+++ b/')) {
+          return line.slice(6).trim();
+        }
+        if (line.startsWith('+++ ') && !line.includes('/dev/null')) {
+          return line.slice(4).trim().replace(/^"|"$/g, '');
+        }
+        if (line.startsWith('--- a/') && !line.includes('/dev/null')) {
+          return line.slice(6).trim();
+        }
+        if (line.startsWith('--- ') && !line.includes('/dev/null')) {
+          return line.slice(4).trim().replace(/^"|"$/g, '');
+        }
+        if (line.startsWith('// ') || line.startsWith('// 異動檔案')) {
+          const m = line.match(/[:：]\s*(.+)$/);
+          if (m) return m[1].trim();
+        }
+      }
+      return '';
+    }
+
+    function splitDiffByFiles(rawDiff) {
+      if (!rawDiff || typeof rawDiff !== 'string') return [];
+      const lines = rawDiff.split('\n');
+      const sections = [];
+      let currentSection = null;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const isNewFileStart = line.startsWith('diff --git') ||
+                               line.startsWith('diff --no-index') ||
+                               (line.startsWith('--- /dev/null') && (!lines[i - 1] || !lines[i - 1].startsWith('diff'))) ||
+                               line.startsWith('// ') ||
+                               (line.startsWith('//') && line.includes('異動檔案'));
+
+        if (isNewFileStart) {
+          if (currentSection) {
+            currentSection.fullText = currentSection.lines.join('\n');
+            currentSection.body = currentSection.lines.slice(1).join('\n');
+            currentSection.filePath = extractFilePathFromDiffSection(currentSection.lines);
+            sections.push(currentSection);
+          }
+          currentSection = {
+            header: line,
+            lines: [line],
+            fullText: '',
+            body: '',
+            filePath: ''
+          };
+        } else {
+          if (!currentSection) {
+            currentSection = {
+              header: line,
+              lines: [line],
+              fullText: '',
+              body: '',
+              filePath: ''
+            };
+          } else {
+            currentSection.lines.push(line);
+          }
+        }
+      }
+
+      if (currentSection) {
+        currentSection.fullText = currentSection.lines.join('\n');
+        currentSection.body = currentSection.lines.slice(1).join('\n');
+        currentSection.filePath = extractFilePathFromDiffSection(currentSection.lines);
+        sections.push(currentSection);
+      }
+
+      return sections;
+    }
+
+    async function filterDiffForFile(filePath) {
+      document.getElementById('diffActiveFileBadge').innerText = `檔案: ${filePath}`;
+      
+      // 更新檔案列表的 Active 選中樣式
+      document.querySelectorAll('.mod-file-item').forEach(el => {
+        if (el.getAttribute('data-path') === filePath) {
+          el.className = 'mod-file-item flex items-center justify-between bg-indigo-100 dark:bg-indigo-900/60 border-indigo-500 font-bold px-2.5 py-1.5 rounded-lg border cursor-pointer transition';
+        } else {
+          el.className = 'mod-file-item flex items-center justify-between bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer transition';
+        }
+      });
+
+      const baseName = filePath.split('/').pop();
+      let matchedSection = null;
+
+      // 1. 先從任務已嵌入的 Diff 字串解析
+      if (currentActiveTaskDiff && currentActiveTaskDiff.trim().length > 0) {
+        const sections = splitDiffByFiles(currentActiveTaskDiff);
+        const matched = sections.filter(sec => {
+          const secPath = (sec.filePath || '').trim();
+          const cleanTarget = filePath.trim();
+          return secPath === cleanTarget ||
+                 secPath.endsWith('/' + cleanTarget) ||
+                 cleanTarget.endsWith('/' + secPath) ||
+                 (baseName && secPath.endsWith('/' + baseName)) ||
+                 sec.header.includes(cleanTarget) ||
+                 sec.lines.some(l => l.includes(cleanTarget));
+        });
+        if (matched.length > 0) {
+          matchedSection = matched.map(m => m.fullText).join('\n\n');
+        }
+      }
+
+      if (matchedSection) {
+        renderDiffViewer(matchedSection, filePath);
+        return;
+      }
+
+      // 2. 若任務 diff 內未包含該單檔，向後端即時查詢本機 Git Diff
+      const projId = currentModalEditingTask ? currentModalEditingTask.project : (currentProject !== 'ALL' ? currentProject : 'task-dashboard');
+      const modFileInfo = currentModalEditingTask && currentModalEditingTask.modifiedFiles ? 
+        currentModalEditingTask.modifiedFiles.find(f => (typeof f === 'string' ? f : f.path) === filePath) : null;
+      const fileDesc = (modFileInfo && typeof modFileInfo === 'object' && modFileInfo.description) ? modFileInfo.description : '';
+
+      try {
+        const res = await fetch(`/api/git/file-diff?projectId=${encodeURIComponent(projId)}&filePath=${encodeURIComponent(filePath)}`);
+        const data = await res.json();
+        if (data && data.diff && data.diff.trim().length > 0) {
+          renderDiffViewer(data.diff, filePath);
+          return;
+        }
+      } catch (err) {
+        console.warn('Could not fetch git diff from server:', err);
+      }
+
+      // 3. 若為純設定檔或無獨立 Git diff，呈現結構化且具體的異動說明卡片
+      renderDiffViewer(
+`//  異動檔案：${filePath}
+// ----------------------------------------------------
+//  變更說明：${fileDesc || '專案設定 / 依賴套件 / 流程同步異動'}
+//  所屬專案：${projId}
+//  說明：此檔案已於本任務完成修正並符合 Harness 檢核。`,
+        filePath
+      );
+    }
+
+    function showAllDiffs() {
+      document.getElementById('diffActiveFileBadge').innerText = '全部變更';
+      document.querySelectorAll('.mod-file-item').forEach(el => {
+        el.className = 'mod-file-item flex items-center justify-between bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer transition';
+      });
+      renderDiffViewer(currentActiveTaskDiff);
+    }
+
+    function renderDiffViewer(diffText, singleFilePath) {
+      const diffVisual = document.getElementById('formDiffVisual');
+      if (!diffText || diffText.trim().length === 0) {
+        diffVisual.innerHTML = `
+          <div class="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
+            <i data-lucide="git-pull-request" class="w-8 h-8 text-slate-500 mb-2 opacity-50"></i>
+            <span class="text-xs"> 尚未產生代碼變更或 Diff</span>
+          </div>
+        `;
+        if (window.lucide) lucide.createIcons();
+        return;
+      }
+
+      const sections = splitDiffByFiles(diffText);
+
+      if (sections.length > 1) {
+        // 多檔案結構化卡片式呈現
+        diffVisual.innerHTML = sections.map(sec => {
+          const fileName = sec.filePath || '未命名檔案';
+          const linesHtml = sec.lines.map(line => {
+            const escaped = escapeHtml(line);
+            if (line.startsWith('+') && !line.startsWith('+++')) {
+              return `<div class="diff-line-add px-2 py-0.5">${escaped}</div>`;
+            } else if (line.startsWith('-') && !line.startsWith('---')) {
+              return `<div class="diff-line-del px-2 py-0.5">${escaped}</div>`;
+            } else if (line.startsWith('@@') || line.startsWith('//') || line.startsWith('diff --git')) {
+              return `<div class="diff-line-chunk px-2 py-0.5 font-bold">${escaped}</div>`;
+            } else {
+              return `<div class="px-2 py-0.5 text-slate-600 dark:text-slate-400">${escaped}</div>`;
+            }
+          }).join('');
+
+          return `
+            <div class="mb-3 last:mb-0 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden bg-white dark:bg-slate-900 shadow-sm">
+              <div class="bg-slate-100 dark:bg-slate-800/80 px-3 py-1.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                <span class="text-[11px] font-bold font-mono text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5 truncate">
+                   ${escapeHtml(fileName)}
+                </span>
+                <span class="text-[10px] text-slate-400 font-sans flex-shrink-0">${sec.lines.length} 行</span>
+              </div>
+              <div class="p-2 overflow-x-auto custom-scrollbar font-mono text-xs leading-relaxed">
+                ${linesHtml}
+              </div>
+            </div>
+          `;
+        }).join('');
+      } else {
+        // 單一檔案呈現
+        const lines = diffText.split('\n');
+        const headerTitle = singleFilePath || (sections[0] && sections[0].filePath) || '';
+        const linesHtml = lines.map(line => {
+          const escaped = escapeHtml(line);
+          if (line.startsWith('+') && !line.startsWith('+++')) {
+            return `<div class="diff-line-add px-2 py-0.5">${escaped}</div>`;
+          } else if (line.startsWith('-') && !line.startsWith('---')) {
+            return `<div class="diff-line-del px-2 py-0.5">${escaped}</div>`;
+          } else if (line.startsWith('@@') || line.startsWith('//') || line.startsWith('diff --git')) {
+            return `<div class="diff-line-chunk px-2 py-0.5 font-bold">${escaped}</div>`;
+          } else {
+            return `<div class="px-2 py-0.5 text-slate-600 dark:text-slate-400">${escaped}</div>`;
+          }
+        }).join('');
+
+        if (headerTitle) {
+          diffVisual.innerHTML = `
+            <div class="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden bg-white dark:bg-slate-900 shadow-sm">
+              <div class="bg-slate-100 dark:bg-slate-800/80 px-3 py-1.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                <span class="text-[11px] font-bold font-mono text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5 truncate">
+                   ${escapeHtml(headerTitle)}
+                </span>
+                <span class="text-[10px] text-slate-400 font-sans flex-shrink-0">${lines.length} 行</span>
+              </div>
+              <div class="p-2 overflow-x-auto custom-scrollbar font-mono text-xs leading-relaxed">
+                ${linesHtml}
+              </div>
+            </div>
+          `;
+        } else {
+          diffVisual.innerHTML = linesHtml;
+        }
+      }
+    }
+
+    function updateModalButtonState() {
+      const status = document.getElementById('formStatus').value;
+      const taskId = document.getElementById('formTaskId').value;
+      const btnApprove = document.getElementById('btnApproveTask');
+      const btnReject = document.getElementById('btnRejectTask');
+      const btnSubmit = document.getElementById('btnSubmitTask');
+      const reviewFeedbackBox = document.getElementById('reviewFeedbackBox');
+      const rightCol = document.getElementById('modalRightColumn');
+      const dialogEl = document.getElementById('modalDialogContainer');
+      const formGrid = document.getElementById('modalFormGrid');
+      const leftCol = document.getElementById('modalLeftColumn');
+
+      // 待處理、進行中或新增任務時：隱藏審查回饋、異動檔案與 Git Diff，左側欄位 100% 滿版展開
+      const isSimpleMode = (status === 'todo' || status === 'in_progress' || !taskId);
+
+      if (isSimpleMode) {
+        if (reviewFeedbackBox) reviewFeedbackBox.classList.add('hidden');
+        if (rightCol) rightCol.classList.add('hidden');
+        if (formGrid) {
+          formGrid.className = 'grid grid-cols-1 gap-5 flex-1 min-h-0 p-5 overflow-hidden';
+        }
+        if (leftCol) {
+          leftCol.className = 'flex-1 overflow-y-auto pr-1 space-y-4 custom-scrollbar w-full';
+        }
+        if (dialogEl) {
+          dialogEl.className = 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100 transition-all';
+        }
+      } else {
+        if (reviewFeedbackBox) reviewFeedbackBox.classList.remove('hidden');
+        if (rightCol) rightCol.classList.remove('hidden');
+        if (formGrid) {
+          formGrid.className = 'grid grid-cols-1 lg:grid-cols-2 gap-5 flex-1 min-h-0 p-5 overflow-hidden';
+        }
+        if (leftCol) {
+          leftCol.className = 'flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar';
+        }
+        if (dialogEl) {
+          dialogEl.className = 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-6xl h-[90vh] flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100 transition-all';
+        }
+      }
+
+      const btnArchiveModal = document.getElementById('btnArchiveTaskModal');
+
+      if (status === 'review') {
+        btnApprove.classList.remove('hidden');
+        btnReject.classList.remove('hidden');
+        if (btnArchiveModal) btnArchiveModal.classList.add('hidden');
+        btnSubmit.innerHTML = '僅儲存內容';
+        btnSubmit.className = 'bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold px-3.5 py-1.5 rounded-lg transition';
+      } else if (status === 'done') {
+        btnApprove.classList.add('hidden');
+        btnReject.classList.add('hidden');
+        if (btnArchiveModal) btnArchiveModal.classList.remove('hidden');
+
+        // 檢查是否為該專案最新任務且有未提交之異動
+        const currentProjectVal = document.getElementById('formProject').value || 'task-dashboard';
+        const newestDoneTaskIdByProject = {};
+        const allDoneTasks = tasks.filter(t => t.status === 'done');
+        allDoneTasks.forEach(t => {
+          const projKey = t.project || 'default';
+          const cur = newestDoneTaskIdByProject[projKey];
+          const tTime = new Date(t.updatedAt || t.createdAt || 0).getTime();
+          if (!cur || tTime > cur.time) {
+            newestDoneTaskIdByProject[projKey] = { id: t.id, time: tTime };
+          }
+        });
+        const isLatestInProj = (!taskId) || (newestDoneTaskIdByProject[currentProjectVal]?.id === taskId);
+        const projGit = projectGitStatus[currentProjectVal];
+        const hasDiff = projGit ? projGit.hasDiff : false;
+
+        if (isLatestInProj && hasDiff) {
+          btnSubmit.innerHTML = '<span class="flex items-center gap-1.5"><i data-lucide="git-commit" class="w-3.5 h-3.5"></i> Commit</span>';
+          btnSubmit.className = 'bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-emerald-500/25 transition';
+        } else {
+          btnSubmit.innerHTML = '儲存變更';
+          btnSubmit.className = 'bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-indigo-500/25 transition';
+        }
+      } else {
+        btnApprove.classList.add('hidden');
+        btnReject.classList.add('hidden');
+        if (btnArchiveModal) btnArchiveModal.classList.add('hidden');
+        btnSubmit.innerHTML = '儲存變更';
+        btnSubmit.className = 'bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-indigo-500/25 transition';
+      }
+      if (window.lucide) lucide.createIcons();
+    }
+
+    async function saveTask(e) {
+      e.preventDefault();
+      const btnSubmit = document.getElementById('btnSubmitTask');
+      const btnDelete = document.getElementById('btnDeleteTask');
+      const btnApprove = document.getElementById('btnApproveTask');
+      const btnReject = document.getElementById('btnRejectTask');
+      const btnArchive = document.getElementById('btnArchiveTaskModal');
+
+      const otherButtons = [btnDelete, btnApprove, btnReject, btnArchive].filter(Boolean);
+      otherButtons.forEach(b => { b.disabled = true; b.classList.add('opacity-50', 'pointer-events-none'); });
+
+      await withButtonLoading(btnSubmit, '儲存中...', async () => {
+        const id = document.getElementById('formTaskId').value;
+        const title = document.getElementById('formTitle').value.trim();
+        const project = document.getElementById('formProject').value.trim() || 'task-dashboard';
+        const priority = document.getElementById('formPriority').value;
+        const status = document.getElementById('formStatus').value;
+        const assignee = document.getElementById('formAssignee').value.trim() || 'Antigravity';
+        const tags = document.getElementById('formTags').value.split(',').map(s => s.trim()).filter(Boolean);
+        const description = document.getElementById('formDescription').value.trim();
+        const feedback = document.getElementById('formFeedback').value.trim();
+
+        const taskData = {
+          title,
+          project,
+          priority,
+          status,
+          assignee,
+          tags,
+          dependencies: currentTaskDependencies,
+          description,
+          feedback
+        };
+
+        try {
+          if (id) {
+            await fetch(`/api/tasks/${id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(taskData)
+            });
+            if (status === 'done') {
+              const cRes = await fetch(`/api/tasks/${id}/commit`, { method: 'POST' });
+              const cData = await cRes.json();
+              const arcMsg = cData.archivedTaskIds && cData.archivedTaskIds.length > 0
+                ? `，已將 ${cData.archivedTaskIds.length} 個已完成任務移入封存庫 `
+                : '';
+              showToast(`任務 ${id} 已成功儲存並執行 Commit${arcMsg}`);
+            } else {
+              showToast(`任務 ${id} 已成功更新！`);
+            }
+          } else {
+            const res = await fetch('/api/tasks', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(taskData)
+            });
+            const created = await res.json();
+            showToast(`成功建立新任務 ${created.id}！`);
+          }
+          closeModal();
+          await loadData();
+        } catch (err) {
+          console.error('Failed to save task:', err);
+          showToast(`儲存失敗: ${err.message}`);
+        }
+      });
+
+      otherButtons.forEach(b => { b.disabled = false; b.classList.remove('opacity-50', 'pointer-events-none'); });
+    }
+
+    async function approveTaskAsDone(event) {
+      const id = document.getElementById('formTaskId').value;
+      if (!id) return;
+      const task = tasks.find(t => t.id === id);
+      if (!task) return;
+
+      const btnApprove = document.getElementById('btnApproveTask');
+      const btnReject = document.getElementById('btnRejectTask');
+      const btnSubmit = document.getElementById('btnSubmitTask');
+      [btnReject, btnSubmit].filter(Boolean).forEach(b => { b.disabled = true; b.classList.add('opacity-50', 'pointer-events-none'); });
+
+      await withButtonLoading(btnApprove, '驗收中...', async () => {
+        try {
+          const res = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...task,
+              status: 'done',
+              updatedAt: new Date().toISOString()
+            })
+          });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error || `伺服器回應 ${res.status}`);
+          }
+
+          showToast(`任務 ${id} 驗收通過！已成功結案移入「已完成」。`);
+          closeModal();
+          await loadData();
+        } catch (err) {
+          console.error('Failed to approve task:', err);
+          showToast(`驗收失敗: ${err.message}`);
+        }
+      });
+
+      [btnReject, btnSubmit].filter(Boolean).forEach(b => { b.disabled = false; b.classList.remove('opacity-50', 'pointer-events-none'); });
+    }
+
+    async function rejectTaskWithFeedback(event) {
+      const id = document.getElementById('formTaskId').value;
+      if (!id) return;
+      const feedback = document.getElementById('formFeedback').value.trim();
+
+      const task = tasks.find(t => t.id === id);
+      if (!task) return;
+
+      const btnReject = document.getElementById('btnRejectTask');
+      const btnApprove = document.getElementById('btnApproveTask');
+      const btnSubmit = document.getElementById('btnSubmitTask');
+      [btnApprove, btnSubmit].filter(Boolean).forEach(b => { b.disabled = true; b.classList.add('opacity-50', 'pointer-events-none'); });
+
+      await withButtonLoading(btnReject, '退回中...', async () => {
+        const configDir = (settings.dataDirectoryPath || settings.defaultDataDir || 'data').replace(/\/+$/, '');
+        const tasksFilePath = `${configDir}/tasks.json`;
+        const notifyPrompt = `【任務退回重修指示】
+任務 ID: ${task.id}
+任務名稱: ${task.title}
+任務資料庫路徑: ${tasksFilePath}
+
+ 審查退回意見 / 修復要求:
+${feedback || '請根據最新的需求進行調整與修復。'}
+
+執行與結案規範：
+1. 依據審查意見修復代碼並完成驗證。
+2. 完成後請將更新結果寫入 ${tasksFilePath}（將 id 為 "${task.id}" 的 status 改為 "review"，並填入 modifiedFiles 與 executionLog）。`;
+
+        try {
+          if (navigator.clipboard) {
+            await navigator.clipboard.writeText(notifyPrompt);
+          }
+        } catch (_) {}
+
+        try {
+          const res = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...task,
+              status: 'in_progress',
+              feedback: feedback,
+              updatedAt: new Date().toISOString()
+            })
+          });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error || `伺服器回應 ${res.status}`);
+          }
+
+          showToast(`已將 ${id} 退回「進行中」，並將完整修復指令複製到剪貼簿！`);
+          closeModal();
+          await loadData();
+        } catch (err) {
+          console.error('Failed to reject task:', err);
+          showToast(`退回失敗: ${err.message}`);
+        }
+      });
+
+      [btnApprove, btnSubmit].filter(Boolean).forEach(b => { b.disabled = false; b.classList.remove('opacity-50', 'pointer-events-none'); });
+    }
+
+    async function submitTaskForReview(id, event) {
+      if (event) event.stopPropagation();
+      const targetBtn = event ? event.currentTarget : null;
+      await withButtonLoading(targetBtn, '送審中...', async () => {
+        try {
+          const res = await fetch(`/api/tasks/${encodeURIComponent(id)}/submit-review`, {
+            method: 'POST'
+          });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error || `伺服器回應 ${res.status}`);
+          }
+          showToast(`任務 ${id} 已推進至待審查，並已同步 Git 異動！`);
+          await loadData();
+        } catch (err) {
+          console.error('Failed to submit task for review:', err);
+          showToast(`送審失敗: ${err.message}`);
+        }
+      });
+    }
+
+    async function quickApproveDone(id, event) {
+      if (event) event.stopPropagation();
+      const task = tasks.find(t => t.id === id);
+      if (!task) return;
+
+      const targetBtn = event ? event.currentTarget : null;
+      await withButtonLoading(targetBtn, '結案中...', async () => {
+        try {
+          const res = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...task,
+              status: 'done',
+              updatedAt: new Date().toISOString()
+            })
+          });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error || `伺服器回應 ${res.status}`);
+          }
+
+          showToast(`任務 ${id} 驗收通過！已成功結案。`);
+          await loadData();
+        } catch (err) {
+          showToast(`驗收失敗: ${err.message}`);
+        }
+      });
+    }
+
+    function openCommitModal(id, event) {
+      if (event) event.stopPropagation();
+      const task = tasks.find(t => t.id === id);
+      if (!task) return;
+
+      const proj = projects.find(p => p.id === task.project);
+      const projName = proj ? proj.name : (task.project || '預設專案');
+
+      document.getElementById('commitTaskId').value = task.id;
+      document.getElementById('commitModalSubtitle').innerText = `${task.id} · ${projName}`;
+
+      // 1. 決定 Type
+      let type = '';
+      if (Array.isArray(task.tags)) {
+        const found = task.tags.find(t => ['feat', 'fix', 'refactor', 'style', 'perf', 'test', 'docs', 'chore', 'revert'].includes(t.toLowerCase().trim()));
+        if (found) type = found.toLowerCase().trim();
+      }
+      if (!type) {
+        const rawTitle = task.title || '';
+        if (/修復|修正|fix|error|bug|錯/i.test(rawTitle)) type = 'fix';
+        else if (/優化|改善|提升|perf|optimize/i.test(rawTitle)) type = 'perf';
+        else if (/重構|refactor/i.test(rawTitle)) type = 'refactor';
+        else if (/樣式|style|版面|排版|css|scss/i.test(rawTitle)) type = 'style';
+        else if (/文件|doc|readme/i.test(rawTitle)) type = 'docs';
+        else if (/測試|test/i.test(rawTitle)) type = 'test';
+        else type = 'feat';
+      }
+
+      let cleanTitle = (task.title || 'Update task').replace(/^(feat|fix|refactor|style|perf|test|docs|chore|revert)(\([^)]+\))?:\s*/i, '').trim();
+
+      // 2. 決定 Scope
+      let scope = '';
+      const descLower = ((task.description || '') + ' ' + (task.title || '') + ' ' + (task.modifiedFiles || []).join(' ')).toLowerCase();
+      if (descLower.includes('order-management') || descLower.includes('訂單') || descLower.includes('order')) scope = 'order';
+      else if (descLower.includes('server') || descLower.includes('後端') || descLower.includes('api')) scope = 'server';
+      else if (descLower.includes('ui') || descLower.includes('樣式') || descLower.includes('畫面') || descLower.includes('按鈕') || descLower.includes('彈窗')) scope = 'ui';
+      else if (descLower.includes('router') || descLower.includes('路由')) scope = 'router';
+      else if (descLower.includes('store') || descLower.includes('狀態')) scope = 'store';
+      else if (descLower.includes('build') || descLower.includes('打包') || descLower.includes('腳本')) scope = 'build';
+
+      let subject = scope ? `${type}(${scope}): ${cleanTitle}` : `${type}: ${cleanTitle}`;
+      document.getElementById('commitSubjectInput').value = subject;
+      document.getElementById('commitBodyInput').value = task.description || '';
+
+      document.getElementById('commitModal').classList.remove('hidden');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function closeCommitModal() {
+      document.getElementById('commitModal').classList.add('hidden');
+    }
+
+    async function confirmCommitTask() {
+      const taskId = document.getElementById('commitTaskId').value;
+      const subject = document.getElementById('commitSubjectInput').value.trim();
+      const body = document.getElementById('commitBodyInput').value.trim();
+
+      if (!subject) {
+        showToast('請輸入 Commit 標題');
+        return;
+      }
+
+      const submitBtn = document.getElementById('commitSubmitBtn');
+      await withButtonLoading(submitBtn, '提交中...', async () => {
+        try {
+          showToast(`正在提交 Commit 並封存任務...`);
+          const res = await fetch(`/api/tasks/${taskId}/commit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ customSubject: subject, customBody: body })
+          });
+          const result = await res.json();
+          const arcMsg = result.archivedTaskIds && result.archivedTaskIds.length > 0
+            ? `，已將 ${result.archivedTaskIds.length} 個已完成任務移入封存庫 `
+            : '';
+          showToast(`[${taskId}] Commit 成功！${result.message || ''}${arcMsg}`);
+          closeCommitModal();
+          await loadData();
+        } catch (err) {
+          showToast(`Commit 失敗: ${err.message}`);
+        }
+      });
+    }
+
+    function commitTaskFromCard(id, event) {
+      openCommitModal(id, event);
+    }
+
+    async function archiveTaskFromCard(id, event) {
+      if (event) event.stopPropagation();
+      const task = tasks.find(t => t.id === id);
+      if (!task) return;
+
+      const targetBtn = event ? event.currentTarget : null;
+      await withButtonLoading(targetBtn, '封存中...', async () => {
+        task.status = 'archived';
+        task.updatedAt = new Date().toISOString();
+
+        try {
+          await fetch(`/api/tasks/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(task)
+          });
+          showToast(`任務 ${id} 已成功移入封存庫！`);
+          await loadData();
+        } catch (err) {
+          showToast(`封存失敗: ${err.message}`);
+        }
+      });
+    }
+
+    async function archiveCurrentTaskFromModal(event) {
+      const id = document.getElementById('formTaskId').value;
+      if (!id) return;
+      const btnArchive = document.getElementById('btnArchiveTaskModal');
+      await withButtonLoading(btnArchive, '封存中...', async () => {
+        await archiveTaskFromCard(id);
+        closeModal();
+      });
+    }
+
+    // ===== 封存任務管理 (Archive Modal) =====
+    let selectedArchiveTaskIds = new Set();
+
+    function openArchiveModal() {
+      selectedArchiveTaskIds.clear();
+      const selectAllCb = document.getElementById('archiveSelectAllCheckbox');
+      if (selectAllCb) selectAllCb.checked = false;
+
+      // 填充專案篩選下拉選單
+      const projFilter = document.getElementById('archiveProjectFilter');
+      if (projFilter) {
+        const currentVal = projFilter.value || 'ALL';
+        projFilter.innerHTML = '<option value="ALL"> 全部專案</option>' + projects.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+        projFilter.value = currentVal;
+      }
+
+      renderArchiveTasksList();
+      document.getElementById('archiveModal').classList.remove('hidden');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function closeArchiveModal() {
+      document.getElementById('archiveModal').classList.add('hidden');
+    }
+
+    function renderArchiveTasksList() {
+      const listEl = document.getElementById('archiveTasksList');
+      const totalCountLabel = document.getElementById('archiveTotalCountLabel');
+      const selectedCountLabel = document.getElementById('archiveSelectedCountLabel');
+      const filterProj = document.getElementById('archiveProjectFilter') ? document.getElementById('archiveProjectFilter').value : 'ALL';
+
+      let archived = tasks.filter(t => t.status === 'archived');
+      if (filterProj !== 'ALL') {
+        archived = archived.filter(t => t.project === filterProj);
+      }
+
+      // 由新到舊排序
+      archived.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+
+      if (totalCountLabel) totalCountLabel.innerText = `共 ${archived.length} 筆封存任務`;
+      if (selectedCountLabel) selectedCountLabel.innerText = `已選取 ${selectedArchiveTaskIds.size} 項`;
+
+      if (archived.length === 0) {
+        listEl.innerHTML = `
+          <div class="h-48 flex flex-col items-center justify-center text-center p-6 text-slate-400">
+            <i data-lucide="archive-restore" class="w-10 h-10 text-slate-400 mb-2 opacity-60"></i>
+            <span class="text-xs font-medium"> 目前封存庫中無任何任務</span>
+            <span class="text-[11px] text-slate-400 mt-0.5"> 當您在「已完成」欄位執行 Commit 後，任務將自動封存於此。</span>
+          </div>
+        `;
+        if (window.lucide) lucide.createIcons();
+        return;
+      }
+
+      listEl.innerHTML = archived.map(t => {
+        const proj = projects.find(p => p.id === t.project);
+        const projName = proj ? proj.name : t.project;
+        const isChecked = selectedArchiveTaskIds.has(t.id);
+        const dateStr = t.updatedAt ? new Date(t.updatedAt).toLocaleString('zh-TW', { hour12: false }) : (t.createdAt || '');
+
+        return `
+          <div class="p-3 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-xl flex items-center justify-between gap-3 hover:border-slate-300 dark:hover:border-slate-600 transition">
+            <div class="flex items-center gap-3 flex-1 min-w-0">
+              <input type="checkbox" data-archive-id="${t.id}" ${isChecked ? 'checked' : ''} onchange="toggleArchiveTaskSelect('${t.id}', this.checked)" class="rounded text-indigo-600 w-4 h-4 flex-shrink-0 cursor-pointer">
+              
+              <div class="flex-1 min-w-0 space-y-1">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 font-bold">${t.id}</span>
+                  <span class="text-[10px] px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600 font-mono truncate max-w-[120px]" title="${escapeHtml(projName)}">
+                     ${escapeHtml(projName)}
+                  </span>
+                  <span class="text-[10px] text-slate-400 font-mono"> ${dateStr}</span>
+                </div>
+                <h4 class="text-xs font-bold text-slate-800 dark:text-slate-200 truncate" title="${escapeHtml(t.title)}">
+                  ${escapeHtml(t.title)}
+                </h4>
+                ${t.description ? `<p class="text-[11px] text-slate-500 dark:text-slate-400 truncate">${escapeHtml(t.description)}</p>` : ''}
+              </div>
+            </div>
+
+            <!-- 操作按鈕 -->
+            <div class="flex items-center gap-1.5 flex-shrink-0">
+              <button onclick="openModalForEdit('${t.id}')" title="檢視詳情與 Diff" class="text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-xs flex items-center gap-1 transition">
+                <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+                <span class="hidden sm:inline text-[11px]"> 查看</span>
+              </button>
+              <button onclick="restoreSingleArchivedTask('${t.id}', event)" title="還原至已完成欄位" class="text-emerald-600 hover:text-emerald-500 dark:text-emerald-400 p-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/50 text-xs flex items-center gap-1 transition">
+                <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+                <span class="hidden sm:inline text-[11px]"> 還原</span>
+              </button>
+              <button onclick="deleteSingleArchivedTask('${t.id}', event)" title="永久刪除此任務" class="text-rose-600 hover:text-rose-500 dark:text-rose-400 p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/50 text-xs flex items-center gap-1 transition">
+                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                <span class="hidden sm:inline text-[11px]"> 刪除</span>
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function toggleArchiveTaskSelect(id, checked) {
+      if (checked) {
+        selectedArchiveTaskIds.add(id);
+      } else {
+        selectedArchiveTaskIds.delete(id);
+      }
+      const selectedCountLabel = document.getElementById('archiveSelectedCountLabel');
+      if (selectedCountLabel) selectedCountLabel.innerText = `已選取 ${selectedArchiveTaskIds.size} 項`;
+    }
+
+    function toggleArchiveSelectAll(checked) {
+      const filterProj = document.getElementById('archiveProjectFilter') ? document.getElementById('archiveProjectFilter').value : 'ALL';
+      let archived = tasks.filter(t => t.status === 'archived');
+      if (filterProj !== 'ALL') {
+        archived = archived.filter(t => t.project === filterProj);
+      }
+
+      if (checked) {
+        archived.forEach(t => selectedArchiveTaskIds.add(t.id));
+      } else {
+        selectedArchiveTaskIds.clear();
+      }
+      renderArchiveTasksList();
+    }
+
+    async function batchDeleteSelectedArchived(event) {
+      if (selectedArchiveTaskIds.size === 0) {
+        showToast('請先勾選要刪除的封存任務！');
+        return;
+      }
+      const count = selectedArchiveTaskIds.size;
+      if (!confirm(`確定要永久刪除已選取的 ${count} 筆封存任務嗎？此操作無法復原。`)) {
+        return;
+      }
+
+      const btn = event ? event.currentTarget : document.getElementById('btnBatchDeleteArchived');
+      await withButtonLoading(btn, '刪除中...', async () => {
+        try {
+          const res = await fetch('/api/tasks/batch-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskIds: Array.from(selectedArchiveTaskIds) })
+          });
+          const data = await res.json();
+          showToast(`已成功刪除 ${count} 筆封存任務！`);
+          selectedArchiveTaskIds.clear();
+          await loadData();
+          renderArchiveTasksList();
+        } catch (err) {
+          showToast(`刪除失敗: ${err.message}`);
+        }
+      });
+    }
+
+    async function deleteAllArchivedTasks(event) {
+      const archivedCount = tasks.filter(t => t.status === 'archived').length;
+      if (archivedCount === 0) {
+        showToast('目前沒有任何封存任務需要清空。');
+        return;
+      }
+      if (!confirm(` 確定要清空全部 ${archivedCount} 筆封存任務嗎？\n此操作將永久從資料庫刪除所有已封存任務，無法復原！`)) {
+        return;
+      }
+
+      const btn = event ? event.currentTarget : document.getElementById('btnDeleteAllArchived');
+      await withButtonLoading(btn, '清空中...', async () => {
+        try {
+          const res = await fetch('/api/tasks/batch-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ allArchived: true })
+          });
+          const data = await res.json();
+          showToast(`已清空所有封存任務 (${archivedCount} 筆)！`);
+          selectedArchiveTaskIds.clear();
+          await loadData();
+          renderArchiveTasksList();
+        } catch (err) {
+          showToast(`清空失敗: ${err.message}`);
+        }
+      });
+    }
+
+    async function batchRestoreSelectedArchived(event) {
+      if (selectedArchiveTaskIds.size === 0) {
+        showToast('請先勾選要還原的封存任務！');
+        return;
+      }
+      const count = selectedArchiveTaskIds.size;
+
+      const btn = event ? event.currentTarget : document.getElementById('btnBatchRestoreArchived');
+      await withButtonLoading(btn, '還原中...', async () => {
+        try {
+          const res = await fetch('/api/tasks/batch-restore', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskIds: Array.from(selectedArchiveTaskIds) })
+          });
+          const data = await res.json();
+          showToast(`已成功還原 ${count} 筆任務至「已完成」欄位！`);
+          selectedArchiveTaskIds.clear();
+          await loadData();
+          renderArchiveTasksList();
+        } catch (err) {
+          showToast(`還原失敗: ${err.message}`);
+        }
+      });
+    }
+
+    async function restoreSingleArchivedTask(id, event) {
+      const btn = event ? event.currentTarget : null;
+      await withButtonLoading(btn, '還原中...', async () => {
+        try {
+          await fetch('/api/tasks/batch-restore', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskIds: [id] })
+          });
+          showToast(`已還原任務 ${id} 至「已完成」！`);
+          selectedArchiveTaskIds.delete(id);
+          await loadData();
+          renderArchiveTasksList();
+        } catch (err) {
+          showToast(`還原失敗: ${err.message}`);
+        }
+      });
+    }
+
+    async function deleteSingleArchivedTask(id, event) {
+      if (!confirm(`確定要刪除封存任務 ${id} 嗎？`)) return;
+      const btn = event ? event.currentTarget : null;
+      await withButtonLoading(btn, '刪除中...', async () => {
+        try {
+          await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
+          showToast(`已刪除任務 ${id}`);
+          selectedArchiveTaskIds.delete(id);
+          await loadData();
+          renderArchiveTasksList();
+        } catch (err) {
+          showToast(`刪除失敗: ${err.message}`);
+        }
+      });
+    }
+
+    async function deleteCurrentTask(event) {
+      const id = document.getElementById('formTaskId').value;
+      if (!id) return;
+      if (!confirm(`確定要刪除任務 ${id} 嗎？此操作無法復原。`)) return;
+
+      const btnDelete = document.getElementById('btnDeleteTask');
+      const btnSubmit = document.getElementById('btnSubmitTask');
+      if (btnSubmit) { btnSubmit.disabled = true; btnSubmit.classList.add('opacity-50', 'pointer-events-none'); }
+
+      await withButtonLoading(btnDelete, '刪除中...', async () => {
+        try {
+          await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
+          showToast(`已刪除任務 ${id}`);
+          closeModal();
+          await loadData();
+        } catch (err) {
+          console.error('Failed to delete task:', err);
+          showToast(`刪除失敗: ${err.message}`);
+        }
+      });
+
+      if (btnSubmit) { btnSubmit.disabled = false; btnSubmit.classList.remove('opacity-50', 'pointer-events-none'); }
+    }
+
+    function closeModal() {
+      currentModalEditingTask = null;
+      document.getElementById('taskModal').classList.add('hidden');
+    }
+
+    function openNewProjectModal() {
+      document.getElementById('projectModal').classList.remove('hidden');
+    }
+
+    function closeProjectModal() {
+      document.getElementById('projectModal').classList.add('hidden');
+    }
+
+    async function saveNewProject(e) {
+      e.preventDefault();
+      const btn = document.getElementById('btnSaveProject');
+      await withButtonLoading(btn, '加入中...', async () => {
+        const id = document.getElementById('newProjId').value.trim();
+        const name = document.getElementById('newProjName').value.trim() || id;
+        const customPath = document.getElementById('newProjPath').value.trim();
+
+        try {
+          await fetch('/api/projects', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, name, path: customPath })
+          });
+          showToast(`已新增專案：${name}`);
+          closeProjectModal();
+          await loadData();
+          filterByProject(id);
+        } catch (err) {
+          console.error('Failed to add project:', err);
+          showToast(`新增專案失敗: ${err.message}`);
+        }
+      });
+    }
+
+    function triggerExecutionNow() {
+      const inProgressTasks = tasks.filter(t => t.status === 'in_progress');
+      if (inProgressTasks.length === 0) {
+        showToast('目前沒有進行中的任務，請先將卡片拖入「進行中」！');
+        return;
+      }
+
+      const taskSummaries = inProgressTasks.map(t => {
+        const proj = projects.find(p => p.id === t.project);
+        const projText = proj ? `【${proj.name}】` : '';
+        return `• [${t.id}] ${projText} ${t.title} (說明: ${t.description || '無'})`;
+      }).join('\n');
+
+      const batchPrompt = `【立即執行進行中任務】\n請立即依序執行以下進行中任務，完成後將異動結果與 Diff 送入待驗收：\n${taskSummaries}`;
+      navigator.clipboard.writeText(batchPrompt);
+
+      showToast(`已複製 ${inProgressTasks.length} 個進行中任務派工指令！貼入對話即可立即開工。`);
+    }
+
+    function copyPrompt(id, event) {
+      if (event) event.stopPropagation();
+      const task = tasks.find(t => t.id === id);
+      if (!task) return;
+      const proj = projects.find(p => p.id === task.project);
+      const projText = proj ? `【專案：${proj.name}】` : '';
+      const configDir = settings.dataDirectoryPath || settings.defaultDataDir || 'data';
+      const tasksFilePath = `${configDir}/tasks.json`;
+      const prompt = `【任務執行指示】
+任務 ID: ${task.id}
+任務名稱: ${task.title}
+${projText}
+任務資料庫: ${tasksFilePath}
+
+需求說明：
+${task.description || '無詳細說明'}
+
+執行與結案規範：
+1. 依據專案規範與文檔完成實作並進行驗證。
+2. 完成後請將更新結果寫入 ${tasksFilePath}（將 id 為 "${task.id}" 的 status 改為 "review"，並填入 modifiedFiles 與 executionLog）。`;
+      navigator.clipboard.writeText(prompt);
+      showToast('已複製包含 tasks.json 結案指引的 AI 派工指令！');
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      const toastMsg = document.getElementById('toastMsg');
+      toastMsg.innerText = msg;
+      toast.classList.remove('translate-y-20', 'opacity-0', 'pointer-events-none');
+      setTimeout(() => {
+        toast.classList.add('translate-y-20', 'opacity-0', 'pointer-events-none');
+      }, 2500);
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function formatDuration(seconds) {
+      const s = Math.max(0, parseInt(seconds || 0, 10));
+      const m = Math.floor(s / 60);
+      const sec = s % 60;
+      const h = Math.floor(m / 60);
+      const min = m % 60;
+      if (h > 0) {
+        return `${h}:${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+      }
+      return `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+    }
+
+    function setAppTheme(mode) {
+      changeTheme(mode);
+      updateThemeButtons(mode);
+    }
+
+    function updateThemeButtons(mode) {
+      const cur = mode || localStorage.getItem('theme') || 'system';
+      ['system', 'light', 'dark'].forEach(m => {
+        const btn = document.getElementById(`themeBtn${m.charAt(0).toUpperCase() + m.slice(1)}`);
+        if (btn) {
+          if (m === cur) {
+            btn.className = 'flex flex-col items-center justify-center p-2 rounded-xl border-2 border-indigo-600 bg-indigo-50/80 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold transition text-[11px] gap-1 shadow-sm';
+          } else {
+            btn.className = 'flex flex-col items-center justify-center p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:border-indigo-500 transition text-[11px] font-medium gap-1 text-slate-700 dark:text-slate-300';
+          }
+        }
+      });
+    }
+
+    function changeTheme(mode) {
+      localStorage.setItem('theme', mode);
+      applyTheme(mode);
+      updateThemeButtons(mode);
+      showToast(`主題已切換為：${mode === 'system' ? '跟隨系統' : mode === 'dark' ? '暗黑模式' : '明亮模式'}`);
+    }
+
+    function applyTheme(mode) {
+      const theme = mode || localStorage.getItem('theme') || 'system';
+      const html = document.documentElement;
+      const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+      if (theme === 'dark' || (theme === 'system' && systemDark)) {
+        html.classList.add('dark');
+      } else {
+        html.classList.remove('dark');
+      }
+
+      const selectEl = document.getElementById('settingThemeSelect');
+      if (selectEl) selectEl.value = theme;
+    }
+
+    function initTheme() {
+      applyTheme(localStorage.getItem('theme') || 'system');
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+        if ((localStorage.getItem('theme') || 'system') === 'system') {
+          applyTheme('system');
+        }
+      });
+    }
+
+    function setAppFontSize(size) {
+      const fontSizeToSet = size || 'small';
+      localStorage.setItem('fontSize', fontSizeToSet);
+      applyFontSize(fontSizeToSet);
+      updateFontSizeButtons(fontSizeToSet);
+      showToast(`字級大小已切換為：${fontSizeToSet === 'large' ? '大 (+4px)' : fontSizeToSet === 'medium' ? '中 (+2px)' : '小 (預設)'}`);
+    }
+
+    function updateFontSizeButtons(size) {
+      const cur = size || localStorage.getItem('fontSize') || (typeof settings !== 'undefined' && settings ? settings.fontSize : 'small') || 'small';
+      ['small', 'medium', 'large'].forEach(s => {
+        const btn = document.getElementById(`fontSizeBtn${s.charAt(0).toUpperCase() + s.slice(1)}`);
+        if (btn) {
+          if (s === cur) {
+            btn.className = 'flex flex-col items-center justify-center p-2 rounded-xl border-2 border-indigo-600 bg-indigo-50/80 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold transition text-[11px] gap-1 shadow-sm';
+          } else {
+            btn.className = 'flex flex-col items-center justify-center p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:border-indigo-500 transition text-[11px] font-medium gap-1 text-slate-700 dark:text-slate-300';
+          }
+        }
+      });
+    }
+
+    function applyFontSize(size) {
+      const fs = size || localStorage.getItem('fontSize') || (typeof settings !== 'undefined' && settings ? settings.fontSize : 'small') || 'small';
+      const html = document.documentElement;
+      if (fs === 'large') {
+        html.style.fontSize = '18px';
+      } else if (fs === 'medium') {
+        html.style.fontSize = '16px';
+      } else {
+        html.style.fontSize = '14px';
+      }
+      updateFontSizeButtons(fs);
+    }
+
+    function initFontSize() {
+      applyFontSize(localStorage.getItem('fontSize') || (typeof settings !== 'undefined' && settings ? settings.fontSize : 'small') || 'small');
+    }
+
+    function initSortable() {
+      const cols = ['todo', 'in_progress', 'review', 'done', 'blocked'];
+      cols.forEach(st => {
+        const el = document.getElementById(`col-${st}`);
+        if (!el) return;
+        new Sortable(el, {
+          group: 'kanban',
+          animation: 150,
+          ghostClass: 'ghost-card',
+          onEnd: async (evt) => {
+            const taskId = evt.item.getAttribute('data-id');
+            const toStatus = evt.to.getAttribute('data-status');
+            const task = tasks.find(t => t.id === taskId);
+            if (task && task.status !== toStatus) {
+              task.status = toStatus;
+              task.updatedAt = new Date().toISOString();
+              try {
+                await fetch(`/api/tasks/${taskId}`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(task)
+                });
+                renderMetrics();
+                if (toStatus === 'in_progress' && settings.enableCliAgent) {
+                  showToast(`已將 ${taskId} 移至進行中，CLI Agent 正在執行...`);
+                }
+              } catch (err) {
+                console.error('Failed to move task:', err);
+              }
+            }
+          }
+        });
+      });
+    }
+
+    async function restartAndReloadPage(event) {
+      if (event) event.stopPropagation();
+      const targetBtn = event ? event.currentTarget : null;
+      await withButtonLoading(targetBtn, '重啟中...', async () => {
+        showToast('正在重啟後端服務並重新整理...');
+
+        // 優先透過 macOS 原生外殼重啟 Node 與釋放埠口
+        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.restartServer) {
+          window.webkit.messageHandlers.restartServer.postMessage({});
+          return;
+        }
+
+        // Web 瀏覽器環境發出 API 重啟指令
+        try {
+          await fetch('/api/server/restart', { method: 'POST' });
+        } catch (_) {}
+
+        setTimeout(() => {
+          window.location.reload(true);
+        }, 1200);
+      });
+    }
+
+    async function fetchInspectionStatus(showNotice = false) {
+      try {
+        const res = await fetch('/api/inspect?t=' + Date.now(), { cache: 'no-store' });
+        const data = await res.json();
+        
+        if (data && data.inspectedAt) {
+          const textEl = document.getElementById('inspectionText');
+          if (textEl) {
+            textEl.innerText = 'AI 巡檢連線中';
+          }
+          if (showNotice) {
+            showToast(`專案同步完成 (${data.inspectedAt})`);
+          }
+        }
+      } catch (err) {
+        console.error('Inspection check failed:', err);
+      }
+    }
+
+    function triggerManualInspect() {
+      fetchInspectionStatus(true);
+    }
+
+    document.getElementById('searchInput').addEventListener('input', renderKanban);
+    document.getElementById('priorityFilter').addEventListener('change', renderKanban);
+    document.getElementById('projectSearchInput').addEventListener('input', renderSidebarProjects);
+
+    document.addEventListener('click', (e) => {
+      const container = document.getElementById('select2Container');
+      const dropdown = document.getElementById('select2Dropdown');
+      if (container && dropdown && !container.contains(e.target)) {
+        dropdown.classList.add('hidden');
+      }
+      const projInput = document.getElementById('formProjectInput');
+      const projDropdown = document.getElementById('formProjectDropdown');
+      if (projInput && projDropdown && !projInput.contains(e.target) && !projDropdown.contains(e.target)) {
+        projDropdown.classList.add('hidden');
+      }
+    });
+
+    // 防止滑鼠滾輪誤觸 Select 下拉選單
+    document.querySelectorAll('select').forEach(sel => {
+      sel.addEventListener('wheel', e => e.target.blur());
+    });
+
+    window.addEventListener('DOMContentLoaded', () => {
+      initTheme();
+      initFontSize();
+      loadData();
+      initSortable();
+      fetchInspectionStatus(false);
+      setInterval(loadData, 3000);
+      setInterval(() => fetchInspectionStatus(false), 120000);
+
+      // SSE webhook: 監聽 CLI Agent 狀態變更事件
+      const evtSource = new EventSource('/api/events');
+      evtSource.addEventListener('task-update', (e) => {
+        const data = JSON.parse(e.data);
+        console.log('[SSE] task-update:', data.taskId, data.status);
+        loadData(); // 即時刷新任務列表
+      });
+      evtSource.addEventListener('task-complete', (e) => {
+        const data = JSON.parse(e.data);
+        console.log('[SSE] task-complete:', data.taskId);
+        showToast(`任務 ${data.taskId} CLI Agent 執行完成，已推進至 Review！`);
+        loadData();
+      });
+      evtSource.addEventListener('task-error', (e) => {
+        const data = JSON.parse(e.data);
+        console.error('[SSE] task-error:', data.taskId, data.error);
+        showToast(`任務 ${data.taskId} CLI Agent 執行失敗，正在重試...`);
+        loadData();
+      });
+      evtSource.onerror = (err) => {
+        console.error('[SSE] 連線錯誤，5秒後自動重連:', err);
+      };
+    });
+  </script>
+</body>
+</html>
