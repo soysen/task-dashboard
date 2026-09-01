@@ -1394,6 +1394,8 @@
       if (formProj) formProj.value = proj.id;
       if (formProjInput) formProjInput.value = proj.name;
       hideProjectAutocomplete();
+
+      // 切換或選擇專案時：重置下拉選單選項，讓該專案資料夾下的 .github skills 呈現於下拉清單供使用者手動勾選
       initSelect2Dropdown('');
       renderSelect2Chips();
     }

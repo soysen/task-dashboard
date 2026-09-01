@@ -589,6 +589,29 @@ function executeTaskWithCliAgent(taskId) {
 
   console.log(' [CLI Agent 引擎] 啟動執行任務: ' + task.id + ' - ' + task.title + ' (目錄: ' + projPath + ')');
 
+  const githubInfo = scanProjectGithubInfo(projPath);
+
+  let skillsSection = '';
+  if (githubInfo.skills && githubInfo.skills.length > 0) {
+    skillsSection = '\n【專案專屬 .github Skills 技能庫】\n' +
+      githubInfo.skills.map(s => `- ${s.label} (${s.path}): ${s.desc}`).join('\n') + '\n';
+  }
+
+  let docsSection = '';
+  if (githubInfo.docs && githubInfo.docs.length > 0) {
+    const docContents = githubInfo.docs.map(docFile => {
+      const docPath = path.join(projPath, docFile);
+      let summary = '';
+      try {
+        summary = fs.readFileSync(docPath, 'utf8').slice(0, 1000);
+      } catch (e) {}
+      return `--- [${docFile}] ---\n${summary}`;
+    }).join('\n\n');
+    docsSection = '\n【專案 Agent 規範與架構文檔】\n' + docContents + '\n';
+  }
+
+  const harnessCmd = (githubInfo.harness && githubInfo.harness.command) ? githubInfo.harness.command : 'npm test / npm run harness:check';
+
   const feedbackSection = task.feedback ? '\n【審查退回意見 / 修復要求】\n' + task.feedback + '\n' : '';
   const promptText = '【任務執行指示】\n' +
     '任務 ID: ' + task.id + '\n' +
@@ -597,10 +620,12 @@ function executeTaskWithCliAgent(taskId) {
     '工作目錄: ' + projPath + '\n' +
     '\n詳細需求描述:\n' + (task.description || '無詳細描述') + '\n' +
     feedbackSection +
-    '執行規範與驗收要求：\n' +
-    '1. 請先檢閱專案內文檔與架構規範（如 AGENTS.md, README.md, package.json）。\n' +
-    '2. 在專案目錄下完成相應實作與代碼修改。\n' +
-    '3. 實作完成後執行測試或診斷指令驗證並回報結果。\n' +
+    skillsSection +
+    docsSection +
+    '\n執行規範與驗收要求：\n' +
+    '1. 必須嚴格遵循上列專案 Agent 規範文檔（如 AGENTS.md / CLAUDE.md）與 .github skills 技能指引開工實作。\n' +
+    '2. 僅在該專案目錄下進行修改，不得跨專案產生不相關副作用。\n' +
+    '3. 實作完成後執行專案驗證指令（' + harnessCmd + '）確保全數通過。\n' +
     '4. 交付時必須擷取全量完整無截斷之 git diff（包含已追蹤與未追蹤檔案），填寫 modifiedFiles, diff 與 executionLog 並推進 status 至 review。';
 
   const rawCliCmd = (settings.cliCommand || 'hermes').trim();
