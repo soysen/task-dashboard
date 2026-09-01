@@ -2628,13 +2628,13 @@
 
         try {
           if (id) {
-            await fetch(`/api/tasks/${id}`, {
+            await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(taskData)
             });
             if (status === 'done') {
-              const cRes = await fetch(`/api/tasks/${id}/commit`, { method: 'POST' });
+              const cRes = await fetch(`/api/tasks/${encodeURIComponent(id)}/commit`, { method: 'POST' });
               const cData = await cRes.json();
               const arcMsg = cData.archivedTaskIds && cData.archivedTaskIds.length > 0
                 ? `，已將 ${cData.archivedTaskIds.length} 個已完成任務移入封存庫 `
@@ -2881,7 +2881,7 @@ ${feedback || '請根據最新的需求進行調整與修復。'}
       await withButtonLoading(submitBtn, '提交中...', async () => {
         try {
           showToast(`正在提交 Commit 並封存任務...`);
-          const res = await fetch(`/api/tasks/${taskId}/commit`, {
+          const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/commit`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ customSubject: subject, customBody: body })
@@ -2914,7 +2914,7 @@ ${feedback || '請根據最新的需求進行調整與修復。'}
         task.updatedAt = new Date().toISOString();
 
         try {
-          await fetch(`/api/tasks/${id}`, {
+          await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(task)
@@ -3172,7 +3172,7 @@ ${feedback || '請根據最新的需求進行調整與修復。'}
       const btn = event ? event.currentTarget : null;
       await withButtonLoading(btn, '刪除中...', async () => {
         try {
-          await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
+          await fetch(`/api/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
           showToast(`已刪除任務 ${id}`);
           selectedArchiveTaskIds.delete(id);
           await loadData();
@@ -3194,7 +3194,7 @@ ${feedback || '請根據最新的需求進行調整與修復。'}
 
       await withButtonLoading(btnDelete, '刪除中...', async () => {
         try {
-          await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
+          await fetch(`/api/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
           showToast(`已刪除任務 ${id}`);
           closeModal();
           await loadData();
@@ -3426,7 +3426,7 @@ ${task.description || '無詳細說明'}
               task.status = toStatus;
               task.updatedAt = new Date().toISOString();
               try {
-                await fetch(`/api/tasks/${taskId}`, {
+                await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
                   method: 'PUT',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify(task)

@@ -1098,7 +1098,7 @@ function runNativeFolderPicker(promptText, callback) {
   }
 
   if (pathname.match(/^\/api\/projects\/([^/]+)\/conversations$/) && req.method === 'POST') {
-    const projId = pathname.split('/')[3];
+    const projId = decodeURIComponent(pathname.split('/')[3] || '').trim();
     let body = '';
     req.on('data', chunk => (body += chunk));
     req.on('end', () => {
@@ -1203,7 +1203,7 @@ function runNativeFolderPicker(promptText, callback) {
 
   // 任務修改 (狀態變更、拖曳卡片)
   if (pathname.startsWith('/api/tasks/') && (req.method === 'PUT' || req.method === 'PATCH')) {
-    const taskId = pathname.replace('/api/tasks/', '');
+    const taskId = decodeURIComponent(pathname.replace('/api/tasks/', '')).trim();
     let body = '';
     req.on('data', chunk => (body += chunk));
     req.on('end', () => {
@@ -1264,7 +1264,7 @@ function runNativeFolderPicker(promptText, callback) {
 
   // 取得任務執行實體日誌 (即時日誌檢視)
   if (pathname.match(/^\/api\/tasks\/([^/]+)\/log$/) && req.method === 'GET') {
-    const taskId = pathname.split('/')[3];
+    const taskId = decodeURIComponent(pathname.split('/')[3] || '').trim();
     const logFile = path.join(getLogsDir(), `${taskId}.log`);
     if (fs.existsSync(logFile)) {
       const content = fs.readFileSync(logFile, 'utf8');
@@ -1279,7 +1279,7 @@ function runNativeFolderPicker(promptText, callback) {
 
   // 手動觸發 CLI Agent 執行指定任務
   if (pathname.match(/^\/api\/tasks\/([^/]+)\/trigger-agent$/) && req.method === 'POST') {
-    const taskId = pathname.split('/')[3];
+    const taskId = decodeURIComponent(pathname.split('/')[3] || '').trim();
     executeTaskWithCliAgent(taskId);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true, message: `CLI Agent 已觸發任務 ${taskId}` }));
@@ -1471,7 +1471,7 @@ function executeProjectCommit(projPath, task, customData = {}) {
 
   // Git Commit
   if (pathname.match(/^\/api\/tasks\/([^/]+)\/commit$/) && req.method === 'POST') {
-    const taskId = pathname.split('/')[3];
+    const taskId = decodeURIComponent(pathname.split('/')[3] || '').trim();
     let reqBody = '';
     req.on('data', chunk => { reqBody += chunk; });
     req.on('end', () => {
@@ -1647,7 +1647,7 @@ function executeProjectCommit(projPath, task, customData = {}) {
 
   // 刪除單一任務
   if (pathname.startsWith('/api/tasks/') && req.method === 'DELETE') {
-    const taskId = pathname.replace('/api/tasks/', '');
+    const taskId = decodeURIComponent(pathname.replace('/api/tasks/', '')).trim();
     const tasks = readTasks();
     const filtered = tasks.filter(t => t.id !== taskId);
     if (tasks.length === filtered.length) {
