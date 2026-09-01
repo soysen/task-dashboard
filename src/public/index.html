@@ -143,6 +143,22 @@
     .dark .diff-line-chunk {
       color: #a5b4fc;
     }
+
+    /* Make text-xs / text-[11px] / text-[10px] scale with the dynamically-set root font size (applyFontSize) */
+    /* Tailwind's text-xs uses 0.75rem which is already relative to :root font-size — these rules ensure
+       no absolute px overrides from CDN classes prevent scaling. */
+    .text-xs {
+      font-size: 0.75rem !important;
+      line-height: 1rem !important;
+    }
+    .text-xs\/sm {
+      font-size: 0.8125rem !important;
+      line-height: 1.25rem !important;
+    }
+    .text-xs\/lg {
+      font-size: 0.9375rem !important;
+      line-height: 1.375rem !important;
+    }
   </style>
 </head>
 <body class="h-full w-full flex flex-col overflow-hidden select-none bg-slate-100 dark:bg-[#0f172a] text-slate-800 dark:text-slate-100 transition-colors duration-200">
@@ -474,6 +490,10 @@
         <div class="flex items-center gap-3">
           <span id="modalPriorityBadge" class="px-2.5 py-0.5 rounded-md text-xs font-bold font-mono"> P1</span>
           <h3 id="modalHeaderTitle" class="text-sm font-bold text-slate-900 dark:text-white truncate"> 任務詳情與編輯</h3>
+          <div id="modalSessionBadge" onclick="copySessionId(document.getElementById('formConversationId').value, event)" class="hidden items-center gap-1 bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 px-2 py-0.5 rounded-md text-[11px] font-mono cursor-pointer hover:bg-indigo-100 hover:text-indigo-600 dark:hover:bg-indigo-950/60 dark:hover:text-indigo-300 transition" title="點擊複製 Hermes Session ID">
+            <i data-lucide="terminal" class="w-3 h-3 text-indigo-500"></i>
+            <span id="modalSessionIdText"></span>
+          </div>
         </div>
         <button onclick="closeModal()" class="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition">
           <i data-lucide="x" class="w-4 h-4"></i>
@@ -483,6 +503,7 @@
       <!-- Modal Form Body (Grid 2 Columns) -->
       <form id="taskForm" onsubmit="saveTask(event)" class="flex-1 flex flex-col min-h-0 overflow-hidden">
         <input type="hidden" id="formTaskId">
+        <input type="hidden" id="formConversationId">
 
         <div id="modalFormGrid" class="grid grid-cols-1 lg:grid-cols-2 gap-5 flex-1 min-h-0 p-5 overflow-hidden">
           
@@ -502,11 +523,14 @@
                 <input type="hidden" id="formProject">
                 <div class="relative">
                   <input type="text" id="formProjectInput" oninput="onProjectAutocompleteInput(this.value)" onfocus="showProjectAutocomplete()" onclick="showProjectAutocomplete()" placeholder="搜尋專案..." autocomplete="off" class="w-full h-9 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg pl-3 pr-8 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500 transition">
+                  <button type="button" id="formProjectClearBtn" onclick="clearFormProject(event)" title="清除專案選擇" class="absolute right-8 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 opacity-0 pointer-events-none transition-opacity">
+                    <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                  </button>
                   <button type="button" onclick="toggleProjectAutocomplete(event)" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
                     <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
                   </button>
                 </div>
-                <div id="formProjectDropdown" class="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-50 max-h-56 overflow-y-auto hidden custom-scrollbar">
+                <div id="formProjectDropdown" class="absolute left-0 right-0 top-[66%] mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-[60] max-h-56 overflow-y-auto hidden custom-scrollbar">
                   <div id="formProjectDropdownList" class="p-1 space-y-0.5 text-xs"></div>
                 </div>
               </div>
@@ -569,7 +593,7 @@
                 </div>
 
                 <!-- 下拉展開選單 (帶 optgroup 分類) -->
-                <div id="select2Dropdown" class="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-50 max-h-64 overflow-y-auto hidden custom-scrollbar p-1.5 space-y-2">
+                <div id="select2Dropdown" class="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-[60] max-h-[48rem] overflow-y-auto hidden custom-scrollbar p-1.5 space-y-2">
                   <!-- Optgroup 0: 專案專屬 .github 技能 -->
                   <div id="select2ProjectSkillSection" class="hidden">
                     <div class="text-[10px] font-bold text-indigo-500 dark:text-indigo-400 px-2 py-0.5 uppercase tracking-wider flex items-center gap-1">
@@ -597,7 +621,7 @@
             <!-- 詳細需求與說明 (Description) -->
             <div>
               <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 詳細需求與說明 (Description)</label>
-              <textarea id="formDescription" rows="3" placeholder="描述任務背景、具體需求或待辦重點..." class="w-full bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500 custom-scrollbar"></textarea>
+              <textarea id="formDescription" rows="12" placeholder="描述任務背景、具體需求或待辦重點..." class="w-full bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500 custom-scrollbar"></textarea>
             </div>
 
             <!-- 審查意見與修改回饋 (Review Feedback) -->
@@ -1393,11 +1417,39 @@
       const formProjInput = document.getElementById('formProjectInput');
       if (formProj) formProj.value = proj.id;
       if (formProjInput) formProjInput.value = proj.name;
+      updateProjectClearButtonVisibility(proj.name);
       hideProjectAutocomplete();
 
       // 切換或選擇專案時：重置下拉選單選項，讓該專案資料夾下的 .github skills 呈現於下拉清單供使用者手動勾選
       initSelect2Dropdown('');
       renderSelect2Chips();
+    }
+
+    function clearFormProject(e) {
+      if (e) e.stopPropagation();
+      const formProj = document.getElementById('formProject');
+      const formProjInput = document.getElementById('formProjectInput');
+      if (formProj) formProj.value = '';
+      if (formProjInput) formProjInput.value = '';
+      hideProjectAutocomplete();
+      // 清除後顯示完整專案選單，方便重新 key-in 或選擇
+      renderProjectAutocompleteList('');
+      showProjectAutocomplete();
+      initSelect2Dropdown('');
+      updateProjectClearButtonVisibility('');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function updateProjectClearButtonVisibility(val) {
+      const clearBtn = document.getElementById('formProjectClearBtn');
+      if (!clearBtn) return;
+      if (val && val.trim() !== '') {
+        clearBtn.classList.remove('opacity-0', 'pointer-events-none');
+        clearBtn.classList.add('opacity-100', 'pointer-events-auto');
+      } else {
+        clearBtn.classList.add('opacity-0', 'pointer-events-none');
+        clearBtn.classList.remove('opacity-100', 'pointer-events-auto');
+      }
     }
 
     function showProjectAutocomplete() {
@@ -1427,6 +1479,7 @@
     function onProjectAutocompleteInput(val) {
       const formProj = document.getElementById('formProject');
       if (formProj) formProj.value = val;
+      updateProjectClearButtonVisibility(val || '');
       renderProjectAutocompleteList((val || '').toLowerCase());
       const dropdown = document.getElementById('formProjectDropdown');
       if (dropdown) dropdown.classList.remove('hidden');
@@ -2074,18 +2127,26 @@
               ` : ''}
 
               <div class="pt-1.5 border-t border-slate-200 dark:border-slate-800/80 flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
-                <span class="flex items-center gap-1">
-                  ${(t.assignee === 'CLI' || (t.assignee && t.assignee.includes('CLI'))) ? `
-                    <i data-lucide="terminal" class="w-3 h-3 text-indigo-500"></i>
-                    <span class="font-bold text-indigo-600 dark:text-indigo-400 font-mono"> CLI</span>
-                  ` : (t.assignee === 'Antigravity' || !t.assignee) ? `
-                    <i data-lucide="sparkles" class="w-3 h-3 text-indigo-400"></i>
-                    <span>${escapeHtml(t.assignee || 'Antigravity')}</span>
-                  ` : `
-                    <i data-lucide="user" class="w-3 h-3 text-slate-400 dark:text-slate-500"></i>
-                    <span>${escapeHtml(t.assignee)}</span>
-                  `}
-                </span>
+                <div class="flex items-center gap-1.5">
+                  <span class="flex items-center gap-1">
+                    ${(t.assignee === 'CLI' || (t.assignee && t.assignee.includes('CLI'))) ? `
+                      <i data-lucide="terminal" class="w-3 h-3 text-indigo-500"></i>
+                      <span class="font-bold text-indigo-600 dark:text-indigo-400 font-mono"> CLI</span>
+                    ` : (t.assignee === 'Antigravity' || !t.assignee) ? `
+                      <i data-lucide="sparkles" class="w-3 h-3 text-indigo-400"></i>
+                      <span>${escapeHtml(t.assignee || 'Antigravity')}</span>
+                    ` : `
+                      <i data-lucide="user" class="w-3 h-3 text-slate-400 dark:text-slate-500"></i>
+                      <span>${escapeHtml(t.assignee)}</span>
+                    `}
+                  </span>
+                  ${t.conversationId ? `
+                    <span onclick="copySessionId('${escapeHtml(t.conversationId)}', event)" class="font-mono text-[9px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/80 hover:bg-indigo-100 hover:text-indigo-600 dark:hover:bg-indigo-950/60 dark:hover:text-indigo-300 px-1.5 py-0.2 rounded border border-slate-200 dark:border-slate-700/60 transition cursor-pointer flex items-center gap-0.5" title="點擊複製 Hermes Session ID: ${escapeHtml(t.conversationId)}">
+                      <i data-lucide="hash" class="w-2.5 h-2.5 text-indigo-500"></i>
+                      <span>${escapeHtml(t.conversationId.length > 14 ? t.conversationId.slice(-8) : t.conversationId)}</span>
+                    </span>
+                  ` : ''}
+                </div>
                 <span class="text-indigo-600 dark:text-indigo-400 font-medium group-hover:underline"> 編輯詳情</span>
               </div>
             </div>
@@ -2101,7 +2162,14 @@
       currentModalEditingTask = null;
       document.getElementById('taskForm').reset();
       document.getElementById('formTaskId').value = '';
+      document.getElementById('formConversationId').value = '';
+      const sessionBadge = document.getElementById('modalSessionBadge');
+      if (sessionBadge) {
+        sessionBadge.classList.add('hidden');
+        sessionBadge.classList.remove('flex');
+      }
       document.getElementById('formExecutionLog').value = '';
+      document.getElementById('formDescription').rows = 12;
       document.getElementById('modalHeaderTitle').innerText = '新增任務';
       document.getElementById('modalPriorityBadge').innerText = 'P1';
       document.getElementById('modalPriorityBadge').className = 'px-2.5 py-0.5 rounded-md text-xs font-bold font-mono bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40';
@@ -2197,6 +2265,21 @@
       currentModalEditingTask = task;
 
       document.getElementById('formTaskId').value = task.id;
+      document.getElementById('formConversationId').value = task.conversationId || '';
+      
+      const sessionBadge = document.getElementById('modalSessionBadge');
+      const sessionIdText = document.getElementById('modalSessionIdText');
+      if (sessionBadge && sessionIdText) {
+        if (task.conversationId) {
+          sessionIdText.innerText = `Session: ${task.conversationId}`;
+          sessionBadge.classList.remove('hidden');
+          sessionBadge.classList.add('flex');
+        } else {
+          sessionBadge.classList.add('hidden');
+          sessionBadge.classList.remove('flex');
+        }
+      }
+
       document.getElementById('modalHeaderTitle').innerText = `編輯任務：${task.id}`;
       document.getElementById('modalPriorityBadge').innerText = task.priority || 'P1';
       document.getElementById('modalPriorityBadge').className = `px-2.5 py-0.5 rounded-md text-xs font-bold font-mono ${
@@ -2210,6 +2293,7 @@
       document.getElementById('formStatus').value = task.status || 'todo';
       document.getElementById('formAssignee').value = task.assignee || (settings.enableCliAgent ? 'CLI' : 'Antigravity');
       document.getElementById('formDescription').value = task.description || '';
+      document.getElementById('formDescription').rows = 6;
       document.getElementById('formFeedback').value = task.feedback || '';
 
       // 設定 Select2 標籤
@@ -2615,6 +2699,7 @@
         const tags = document.getElementById('formTags').value.split(',').map(s => s.trim()).filter(Boolean);
         const description = document.getElementById('formDescription').value.trim();
         const feedback = document.getElementById('formFeedback').value.trim();
+        const conversationId = (document.getElementById('formConversationId')?.value || '').trim();
 
         const taskData = {
           title,
@@ -2625,7 +2710,8 @@
           tags,
           dependencies: currentTaskDependencies,
           description,
-          feedback
+          feedback,
+          conversationId
         };
 
         try {
@@ -3288,6 +3374,13 @@ ${task.description || '無詳細說明'}
 2. 完成後請將更新結果寫入 ${tasksFilePath}（將 id 為 "${task.id}" 的 status 改為 "review"，並填入 modifiedFiles 與 executionLog）。`;
       navigator.clipboard.writeText(prompt);
       showToast('已複製包含 tasks.json 結案指引的 AI 派工指令！');
+    }
+
+    function copySessionId(sid, event) {
+      if (event) event.stopPropagation();
+      if (!sid) return;
+      navigator.clipboard.writeText(sid);
+      showToast(`已複製 Hermes Session ID：${sid}`);
     }
 
     function showToast(msg) {

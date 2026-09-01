@@ -565,6 +565,181 @@ function getLogsDir() {
   return dir;
 }
 
+// 輔助函式：更新任務的 conversationId
+function updateTaskConversationId(taskId, conversationId) {
+  if (!conversationId || typeof conversationId !== 'string') return;
+  const sid = conversationId.trim();
+  if (!sid) return;
+
+  const tasks = readTasks();
+  const target = tasks.find(t => t.id === taskId);
+  if (target && target.conversationId !== sid) {
+    target.conversationId = sid;
+    target.updatedAt = new Date().toISOString();
+    writeTasks(tasks);
+    syncToMarkdown(tasks);
+    console.log(` [CLI Agent 引擎] 任務 ${taskId} 已綁定 Session ID: ${sid}`);
+  }
+}
+
+// 通用 Session 辨識與標籤回寫器 (支援 Hermes, Claude Code, OpenAI Codex 與自訂 CLI)
+function captureAndTagCliSession(bin, taskId, taskTitle, projPath, startTime, liveOutputBuffer) {
+  const binName = path.basename(bin || '').toLowerCase();
+
+  // 1. Hermes 專屬適配器：讀寫 SQLite state.db
+  if (binName.includes('hermes')) {
+    const dbPath = path.join(USER_HOME, '.hermes', 'state.db');
+    if (fs.existsSync(dbPath)) {
+      const startUnix = Math.floor((startTime || Date.now()) / 1000) - 30;
+      const targetCwd = projPath || '';
+      const cleanTitle = (taskTitle || '').split(/[\n\r]/)[0].trim().slice(0, 60);
+
+      const pyScript = `
+import sqlite3, re, os, json
+
+db = os.path.expanduser("~/.hermes/state.db")
+if not os.path.exists(db):
+    exit(0)
+
+conn = sqlite3.connect(db)
+cur = conn.cursor()
+
+results = {}
+
+# 1. 優先針對目標任務進行精準命名與提取
+target_id = ${JSON.stringify(taskId)}
+target_title = ${JSON.stringify(cleanTitle)}
+target_cwd = ${JSON.stringify(targetCwd)}
+start_unix = ${startUnix}
+
+cur.execute("""
+    SELECT s.id 
+    FROM sessions s 
+    JOIN messages m ON s.id = m.session_id 
+    WHERE m.role = 'user' AND m.content LIKE ?
+    ORDER BY s.started_at DESC LIMIT 1
+""", (f"%任務 ID: {target_id}%",))
+row = cur.fetchone()
+
+if not row:
+    cur.execute("""
+        SELECT id FROM sessions 
+        WHERE (cwd = ? OR ? = '')
+          AND started_at >= ?
+        ORDER BY started_at DESC LIMIT 1
+    """, (target_cwd, target_cwd, start_unix))
+    row = cur.fetchone()
+
+if row:
+    sid = row[0]
+    base = f"[{target_id}] {target_title}"
+    title = base
+    suffix = 1
+    while True:
+        cur.execute("SELECT id FROM sessions WHERE title = ? AND id != ?", (title, sid))
+        if not cur.fetchone():
+            break
+        suffix += 1
+        time_part = sid.split("_")[1][:4] if "_" in sid else str(suffix)
+        title = f"{base} (#{suffix}·{time_part})"
+    cur.execute("UPDATE sessions SET title = ? WHERE id = ?", (title, sid))
+    results[target_id] = sid
+
+# 2. 全域掃描：自動為任何未命名但帶有任務指示的 Session 進行標題補齊
+cur.execute("""
+    SELECT s.id, m.content 
+    FROM sessions s 
+    JOIN messages m ON s.id = m.session_id 
+    WHERE (s.title IS NULL OR s.title = '' OR s.title = '—') AND m.role = 'user' AND m.content LIKE '%任務 ID:%'
+    GROUP BY s.id
+""")
+unnamed_rows = cur.fetchall()
+for sid, content in unnamed_rows:
+    id_m = re.search(r"任務\s*ID:\s*([A-Za-z0-9_-]+)", content)
+    title_m = re.search(r"任務名稱:\s*([^\n\r]+)", content)
+    if id_m and title_m:
+        tid = id_m.group(1).strip()
+        ttitle = title_m.group(1).strip().split("\\n")[0].split("\\r")[0].strip()[:50]
+        base = f"[{tid}] {ttitle}"
+        title = base
+        suffix = 1
+        while True:
+            cur.execute("SELECT id FROM sessions WHERE title = ? AND id != ?", (title, sid))
+            if not cur.fetchone():
+                break
+            suffix += 1
+            time_part = sid.split("_")[1][:4] if "_" in sid else str(suffix)
+            title = f"{base} (#{suffix}·{time_part})"
+        cur.execute("UPDATE sessions SET title = ? WHERE id = ?", (title, sid))
+        if tid not in results:
+            results[tid] = sid
+
+conn.commit()
+conn.close()
+print(json.dumps(results))
+`;
+      exec(`python3 -c ${JSON.stringify(pyScript)}`, { timeout: 4000 }, (err, stdout) => {
+        if (!err && stdout && stdout.trim()) {
+          try {
+            const mapped = JSON.parse(stdout.trim());
+            for (const [tId, sId] of Object.entries(mapped)) {
+              updateTaskConversationId(tId, sId);
+            }
+          } catch (e) {}
+        }
+      });
+      return;
+    }
+  }
+
+  // 2. Claude Code 專屬適配器：掃描 ~/.claude/ 或正則提取
+  if (binName.includes('claude')) {
+    const claudeMatch = (liveOutputBuffer || '').match(/(?:Session ID|session_id|session)\s*[:=]\s*([a-zA-Z0-9_-]{6,64})/i);
+    if (claudeMatch) {
+      updateTaskConversationId(taskId, claudeMatch[1]);
+      return;
+    }
+    try {
+      const claudeProjectsDir = path.join(USER_HOME, '.claude', 'projects');
+      if (fs.existsSync(claudeProjectsDir)) {
+        const slug = path.basename(projPath);
+        const targetProjDir = path.join(claudeProjectsDir, slug);
+        if (fs.existsSync(targetProjDir)) {
+          const files = fs.readdirSync(targetProjDir)
+            .filter(f => f.endsWith('.json') || f.endsWith('.jsonl'))
+            .map(f => ({ name: f, time: fs.statSync(path.join(targetProjDir, f)).mtimeMs }))
+            .sort((a, b) => b.time - a.time);
+          if (files.length > 0 && files[0].time >= (startTime - 15000)) {
+            const sid = files[0].name.replace(/\.(json|jsonl)$/, '');
+            updateTaskConversationId(taskId, sid);
+            return;
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 3. 通用 / Codex 適配器：輸出日誌多模式正則提取
+  if (liveOutputBuffer) {
+    const patterns = [
+      /\b(thread_[a-zA-Z0-9]+)\b/,
+      /\b(run_[a-zA-Z0-9]+)\b/,
+      /(?:session[_-]?id|conversation[_-]?id)\s*[:=]\s*([a-zA-Z0-9_-]{6,64})/i,
+      /Session\s*ID\s*:\s*([a-zA-Z0-9_-]+)/i,
+      /\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b/
+    ];
+
+    for (const pat of patterns) {
+      const match = liveOutputBuffer.match(pat);
+      if (match) {
+        const sid = match[1] || match[0];
+        updateTaskConversationId(taskId, sid);
+        break;
+      }
+    }
+  }
+}
+
 // 觸發 CLI Agent 執行任務 (改為串流 Spawn + 實體日誌 + Smart Git 交付閘門)
 function executeTaskWithCliAgent(taskId) {
   const settings = readSettings();
@@ -678,15 +853,36 @@ function executeTaskWithCliAgent(taskId) {
       stdio: ['ignore', 'pipe', 'pipe']
     });
 
+    const procStartTime = Date.now();
     activeCliProcesses.set(taskId, {
       child,
-      startTime: Date.now(),
+      startTime: procStartTime,
       logFile,
       projPath,
       recentLines: ['[System] CLI Agent 行程已啟動...'],
       lastLine: 'CLI Agent 行程已啟動，開始分析任務...',
       liveModifiedFiles: []
     });
+
+    // 延遲 3 秒為 CLI Session 自動辨識並回寫（確保 SQLite / 專案檔案已生成）
+    setTimeout(() => {
+      captureAndTagCliSession(bin, task.id, task.title, projPath, procStartTime, liveOutputBuffer);
+    }, 3000);
+
+    // 設定行程超時保護 (預設 10 分鐘)
+    const CLI_TIMEOUT_MS = 10 * 60 * 1000;
+    let isTimedOut = false;
+    const timeoutTimer = setTimeout(() => {
+      isTimedOut = true;
+      console.warn('⚠️ [CLI Agent 引擎] 任務 ' + taskId + ' 執行逾時 (' + (CLI_TIMEOUT_MS / 1000) + ' 秒)，強制中止行程...');
+      logStream.write('\n⚠️ 行程執行逾時 (' + (CLI_TIMEOUT_MS / 1000) + ' 秒)，已被系統強制中止。\n');
+      try {
+        child.kill('SIGTERM');
+        setTimeout(() => {
+          try { child.kill('SIGKILL'); } catch (e) {}
+        }, 3000);
+      } catch (e) {}
+    }, CLI_TIMEOUT_MS);
 
     let liveOutputBuffer = '';
     const MAX_BUFFER_SIZE = 100 * 1024; // 100KB cap to prevent unbounded memory growth
@@ -720,13 +916,16 @@ function executeTaskWithCliAgent(taskId) {
     child.stderr.on('data', handleChunk);
 
     child.on('error', (err) => {
+      clearTimeout(timeoutTimer);
       console.error(' [CLI Agent 引擎] 行程啟動錯誤 (Task: ' + taskId + '):', err);
       logStream.write('\n 行程啟動錯誤: ' + err.message + '\n');
     });
 
     child.on('close', (code, signal) => {
+      clearTimeout(timeoutTimer);
       activeCliProcesses.delete(taskId);
       logStream.end();
+      captureAndTagCliSession(bin, taskId, task.title, projPath, procStartTime, liveOutputBuffer);
 
       console.log(' [CLI Agent 引擎] 任務 ' + taskId + ' 行程結束 (Code: ' + code + ', Signal: ' + signal + ')，執行智慧交付驗收...');
 
@@ -740,17 +939,25 @@ function executeTaskWithCliAgent(taskId) {
         curTask.updatedAt = new Date().toISOString();
 
         const hasGitChanges = Array.isArray(modifiedList) && modifiedList.length > 0;
-        const isSuccess = (code === 0) || hasGitChanges;
+
+        // 檢驗是否有上游 API 報錯或常見致命錯誤 (如 HTTP 429/401/500、額度不足、未定義異常等)
+        const hasErrorKeywords = /API call failed|HTTP (?:429|401|403|500|502|503|529)|rate limit|Traceback \(most recent call last\)|AuthenticationError|quota exceeded|Fatal error|model is temporarily at capacity/i.test(liveOutputBuffer);
+
+        // 成功判定條件：
+        // 1. 未逾時
+        // 2. 產出實質 Git 變更且無致命報錯，或者 (無變更但 Exit Code 0 且明確無報錯)
+        // 注意：若 Exit Code 0 但 liveOutputBuffer 含有 429/API failed 等致命錯誤，不得判定為成功
+        const isSuccess = !isTimedOut && (code === 0) && (hasGitChanges || !hasErrorKeywords) && !hasErrorKeywords;
 
         let logTail = liveOutputBuffer.trim();
         if (logTail.length > 2000) {
           logTail = logTail.slice(-2000);
         }
 
-        if (isSuccess) {
-          // 判定成功：推進至 review
+        if (isSuccess && hasGitChanges) {
+          // 判定成功且有檔案修改：推進至 review
           const endLog = '\n[' + new Date().toISOString() + ']  CLI Agent 執行完畢 (Exit code: ' + (code !== null ? code : '0') + ')\n' +
-            '變更檔案: ' + (hasGitChanges ? modifiedList.join(', ') : '無檔案變更 (代碼檢核/測試無誤)') + '\n' +
+            '變更檔案: ' + modifiedList.join(', ') + '\n' +
             (logTail ? '\n--- 執行日誌末端摘要 ---\n' + logTail + '\n' : '') +
             '----------------------------------------\n';
           curTask.executionLog = (curTask.executionLog || '') + endLog;
@@ -761,18 +968,35 @@ function executeTaskWithCliAgent(taskId) {
           writeTasks(updatedTasks);
           syncToMarkdown(updatedTasks);
           console.log(' [CLI Agent 引擎] 任務 ' + taskId + ' 驗收通過，已推進至 Review！');
+        } else if (isSuccess && !hasGitChanges) {
+          // 判定成功但無代碼變更 (例如純代碼檢核/分析任務)
+          const endLog = '\n[' + new Date().toISOString() + ']  CLI Agent 執行完畢 (Exit code: ' + (code !== null ? code : '0') + ')\n' +
+            '變更檔案: 無檔案變更 (代碼檢核/測試無誤)\n' +
+            (logTail ? '\n--- 執行日誌末端摘要 ---\n' + logTail + '\n' : '') +
+            '----------------------------------------\n';
+          curTask.executionLog = (curTask.executionLog || '') + endLog;
+          curTask.status = 'review';
+          curTask.modifiedFiles = [];
+          curTask.diff = '';
+          curTask._retryCount = 0;
+          writeTasks(updatedTasks);
+          syncToMarkdown(updatedTasks);
+          console.log(' [CLI Agent 引擎] 任務 ' + taskId + ' 執行完畢 (無檔案變更)，已推進至 Review。');
         } else {
-          // 失敗且完全無任何變更產出
+          // 失敗 (包括有 API 429 報錯、超時或無產出且異常)
+          const reasonMsg = isTimedOut ? '執行逾時' : (hasErrorKeywords ? '上游 API 或模型報錯 (如 Rate Limit / HTTP 429)' : `Exit code: ${code}`);
           const retryCount = (curTask._retryCount || 0);
           if (retryCount < 2) {
-            const retryLog = '\n[' + new Date().toISOString() + ']  CLI Agent 執行異常 (Exit code: ' + code + ') 且無代碼產出，正在重試 (' + (retryCount + 1) + '/2)...\n----------------------------------------\n';
+            const retryLog = '\n[' + new Date().toISOString() + '] ⚠️ CLI Agent 執行異常 (' + reasonMsg + ') 且無有效代碼產出，正在重試 (' + (retryCount + 1) + '/2)...\n' +
+              (logTail ? '\n--- 異常輸出摘要 ---\n' + logTail + '\n' : '') +
+              '----------------------------------------\n';
             curTask.executionLog = (curTask.executionLog || '') + retryLog;
             curTask._retryCount = retryCount + 1;
             writeTasks(updatedTasks);
             syncToMarkdown(updatedTasks);
             setTimeout(() => executeTaskWithCliAgent(taskId), 5000);
           } else {
-            const failLog = '\n[' + new Date().toISOString() + ']  CLI Agent 執行失敗 (Exit code: ' + code + ')，無變更產出。\n' +
+            const failLog = '\n[' + new Date().toISOString() + '] ❌ CLI Agent 執行失敗 (' + reasonMsg + ')，無有效變更產出。\n' +
               (logTail ? '\n--- 錯誤日誌摘要 ---\n' + logTail + '\n' : '') +
               '----------------------------------------\n';
             curTask.executionLog = (curTask.executionLog || '') + failLog;
@@ -811,27 +1035,64 @@ function reconcileTasks() {
       collectGitDiff(projPath, customEnv, (modifiedList, diffContent) => {
         const freshTasks = readTasks();
         const target = freshTasks.find(item => item.id === t.id && item.status === 'in_progress');
-        if (target) {
-          const logFile = path.join(getLogsDir(), `${t.id}.log`);
-          let logContent = '';
-          if (fs.existsSync(logFile)) {
-            try { logContent = fs.readFileSync(logFile, 'utf8'); } catch (e) {}
-          }
+        if (!target) return;
 
-          if (logContent.includes('CLI Agent 執行完畢') || logContent.includes(' CLI Agent 執行完畢')) {
-            target.status = 'review';
-            target.modifiedFiles = modifiedList || [];
-            target.diff = diffContent || '';
-            target.updatedAt = new Date().toISOString();
-            target.executionLog = (target.executionLog || '') +
-              '\n[' + new Date().toISOString() + ']  [Auto-Reconcile] 偵測到 CLI Agent 已完成執行，狀態對齊推進至 Review。\n----------------------------------------\n';
-            writeTasks(freshTasks);
-            syncToMarkdown(freshTasks);
-            console.log(' [Auto-Reconcile] 任務 ' + t.id + ' 狀態自動對齊推進至 Review！');
+        const logFile = path.join(getLogsDir(), `${t.id}.log`);
+        let logContent = '';
+        if (fs.existsSync(logFile)) {
+          try { logContent = fs.readFileSync(logFile, 'utf8'); } catch (e) {}
+        }
+
+        const hasGitChanges = Array.isArray(modifiedList) && modifiedList.length > 0;
+        const isDoneLogged = logContent.includes('CLI Agent 執行完畢') || logContent.includes(' CLI Agent 執行完畢');
+
+        if (isDoneLogged && hasGitChanges) {
+          target.status = 'review';
+          target.modifiedFiles = modifiedList || [];
+          target.diff = diffContent || '';
+          target.updatedAt = new Date().toISOString();
+          target.executionLog = (target.executionLog || '') +
+            '\n[' + new Date().toISOString() + '] 🔄 [Auto-Reconcile] 偵測到 CLI Agent 已完成執行，狀態對齊推進至 Review。\n----------------------------------------\n';
+          writeTasks(freshTasks);
+          syncToMarkdown(freshTasks);
+          console.log(' [Auto-Reconcile] 任務 ' + t.id + ' 狀態自動對齊推進至 Review！');
+        } else {
+          // 行程已不存在且未標記完工（例如伺服器重啟或中斷遺留的孤立任務）
+          const updatedTime = new Date(target.updatedAt || target.createdAt || 0).getTime();
+          const now = Date.now();
+          // 若距今超過 45 秒仍處於無行程 in_progress 狀態
+          if (now - updatedTime > 45000) {
+            if (hasGitChanges) {
+              target.status = 'review';
+              target.modifiedFiles = modifiedList;
+              target.diff = diffContent;
+              target.updatedAt = new Date().toISOString();
+              target.executionLog = (target.executionLog || '') +
+                '\n[' + new Date().toISOString() + '] 🔄 [Auto-Reconcile] 偵測到背景行程已終止但存在代碼變更，自動對齊至 Review。\n----------------------------------------\n';
+              writeTasks(freshTasks);
+              syncToMarkdown(freshTasks);
+              console.log(' [Auto-Reconcile] 孤立任務 ' + t.id + ' 具備 Git 變更，推進至 Review。');
+            } else {
+              target.status = 'todo';
+              target._retryCount = 0;
+              target.updatedAt = new Date().toISOString();
+              target.executionLog = (target.executionLog || '') +
+                '\n[' + new Date().toISOString() + '] ⚠️ [Auto-Reconcile] 偵測到背景行程已終止或伺服器重啟中斷，重置為 Todo。\n----------------------------------------\n';
+              writeTasks(freshTasks);
+              syncToMarkdown(freshTasks);
+              console.log(' [Auto-Reconcile] 孤立任務 ' + t.id + ' 無變更產出，已自動重置為 Todo。');
+            }
           }
         }
       });
     }
+  });
+
+  // 自動為未綁定 conversationId 的 CLI 任務進行 Hermes SQLite 比對與標籤對齊
+  tasks.filter(t => !t.conversationId && (t.assignee === 'CLI' || t.status !== 'todo')).forEach(t => {
+    const proj = projects.find(p => p.id === t.project);
+    const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, t.project || '');
+    captureAndTagCliSession('hermes', t.id, t.title, projPath, 0, '');
   });
 }
 
