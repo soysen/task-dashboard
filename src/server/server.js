@@ -558,6 +558,20 @@ function cleanAnsi(str) {
   return str.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[-/]*[@-~])/g, '').replace(/[\r\x00-\x09\x0B-\x1F\x7F]/g, ' ').trim();
 }
 
+function consumeTaskFeedback(task) {
+  if (task && task.feedback && typeof task.feedback === 'string' && task.feedback.trim().length > 0) {
+    const timeStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const feedbackText = task.feedback.trim();
+    const historyHeader = '\n\n--- 【歷次審查意見 / Feedback 記錄】 ---';
+    if (!(task.description || '').includes('--- 【歷次審查意見 / Feedback 記錄】 ---')) {
+      task.description = (task.description || '').trim() + historyHeader + `\n[${timeStr}]\n- ${feedbackText}`;
+    } else {
+      task.description = (task.description || '').trim() + `\n\n[${timeStr}]\n- ${feedbackText}`;
+    }
+    task.feedback = '';
+  }
+}
+
 const activeCliProcesses = new Map();
 
 // 週期性對所有活躍中 CLI 任務執行輕量 Git 變更探針
@@ -984,6 +998,7 @@ function executeTaskWithCliAgent(taskId) {
             '----------------------------------------\n';
           curTask.executionLog = (curTask.executionLog || '') + endLog;
           curTask.status = 'review';
+          consumeTaskFeedback(curTask);
           curTask.modifiedFiles = modifiedList || [];
           curTask.diff = diffContent || '';
           curTask._retryCount = 0;
@@ -998,6 +1013,7 @@ function executeTaskWithCliAgent(taskId) {
             '----------------------------------------\n';
           curTask.executionLog = (curTask.executionLog || '') + endLog;
           curTask.status = 'review';
+          consumeTaskFeedback(curTask);
           curTask.modifiedFiles = [];
           curTask.diff = '';
           curTask._retryCount = 0;
@@ -1070,6 +1086,7 @@ function reconcileTasks() {
 
         if (isDoneLogged && hasGitChanges) {
           target.status = 'review';
+          consumeTaskFeedback(target);
           target.modifiedFiles = modifiedList || [];
           target.diff = diffContent || '';
           target.updatedAt = new Date().toISOString();
@@ -1082,10 +1099,12 @@ function reconcileTasks() {
           // 行程已不存在且未標記完工（例如伺服器重啟或中斷遺留的孤立任務）
           const updatedTime = new Date(target.updatedAt || target.createdAt || 0).getTime();
           const now = Date.now();
-          // 若距今超過 45 秒仍處於無行程 in_progress 狀態
-          if (now - updatedTime > 45000) {
+          const hasFeedback = Boolean(target.feedback && target.feedback.trim().length > 0);
+          // 若距今超過 45 秒仍處於無行程 in_progress 狀態且沒有待處理的 feedback
+          if (now - updatedTime > 45000 && !hasFeedback) {
             if (hasGitChanges) {
               target.status = 'review';
+              consumeTaskFeedback(target);
               target.modifiedFiles = modifiedList;
               target.diff = diffContent;
               target.updatedAt = new Date().toISOString();
@@ -1093,7 +1112,7 @@ function reconcileTasks() {
                 '\n[' + new Date().toISOString() + '] 🔄 [Auto-Reconcile] 偵測到背景行程已終止但存在代碼變更，自動對齊至 Review。\n----------------------------------------\n';
               writeTasks(freshTasks);
               syncToMarkdown(freshTasks);
-              console.log(' [Auto-Reconcile] 孤立任務 ' + t.id + ' 具備 Git 變更，推進至 Review。');
+              console.log(' [Auto-Reconcile] 孤立任務 ' + t.id + ' 具備 Git 變更且無待處理 Feedback，推進至 Review。');
             } else {
               target.status = 'todo';
               target._retryCount = 0;

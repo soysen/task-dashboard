@@ -55,8 +55,9 @@
    // 回寫 tasks.json
    '
    ```
-4. 將任務狀態推進為 `status: "review"`。
-5. 僅將任務記錄寫入唯一真實資料庫（`~/Library/Application Support/TaskDashboard/tasks.json` 或透過 REST API），**嚴禁覆寫專案倉庫內的 `data/tasks.json` 範本檔案**。同步更新 `dashboard.md`。
+4. 若本輪處理包含 `task.feedback`，完成前須將 feedback 內容附加寫入 `task.description` 尾端（保留原始需求，並以 `\n\n--- 【歷次審查意見 / Feedback 記錄】 ---\n[Timestamp]\n- <feedback>` 區分歷次回饋），隨後將 `task.feedback` 欄位清空。
+5. 將任務狀態推進為 `status: "review"`。
+6. 僅將任務記錄寫入唯一真實資料庫（`~/Library/Application Support/TaskDashboard/tasks.json` 或透過 REST API），**嚴禁覆寫專案倉庫內的 `data/tasks.json` 範本檔案**。同步更新 `dashboard.md`。
 
 ---
 
