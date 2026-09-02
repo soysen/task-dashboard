@@ -344,18 +344,40 @@ function readProjects() {
     if (fs.existsSync(file)) {
       const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
       if (Array.isArray(saved)) {
-        // 動態注入最新的 .github skills 與 harness 資訊
-        return saved.map(p => {
-          const projPath = p.path || (p.id ? path.join(PROJECTS_ROOT, p.id) : '');
+        let hasRedundantKeys = false;
+        const cleaned = saved.map(p => {
+          const projPath = p.path || p.projectPath || (p.id ? path.join(PROJECTS_ROOT, p.id) : '');
           const githubInfo = scanProjectGithubInfo(projPath);
+
+          if ('projectPath' in p || 'projectDocs' in p || 'projectSkills' in p || 'projectHarness' in p) {
+            hasRedundantKeys = true;
+          }
+
+          const { projectPath, projectDocs, projectSkills, projectHarness, ...cleanItem } = p;
+
           return {
-            ...p,
+            ...cleanItem,
+            id: p.id,
+            name: p.name || p.id,
+            description: p.description || '',
+            path: projPath,
+            color: p.color || 'indigo',
+            conversations: p.conversations || [],
+            docs: githubInfo.docs,
             skills: githubInfo.skills,
             prompts: githubInfo.prompts,
-            harness: githubInfo.harness,
-            docs: githubInfo.docs
+            harness: githubInfo.harness
           };
         });
+
+        // 移除 projects.json 內的重複贅餘 key 並自動寫回檔案
+        if (hasRedundantKeys) {
+          try {
+            fs.writeFileSync(file, JSON.stringify(cleaned, null, 2), 'utf8');
+          } catch (e) {}
+        }
+
+        return cleaned;
       }
     }
   } catch (err) {
@@ -952,11 +974,16 @@ function runNativeFolderPicker(promptText, callback) {
       const projects = readProjects();
       let proj = projects.find(p => p.path === selectedPath || p.id === folderName);
       if (!proj) {
+        const githubInfo = scanProjectGithubInfo(selectedPath);
         proj = {
           id: folderName,
           name: folderName,
           description: `自訂專案路徑: ${selectedPath}`,
           path: selectedPath,
+          docs: githubInfo.docs,
+          skills: githubInfo.skills,
+          prompts: githubInfo.prompts,
+          harness: githubInfo.harness,
           color: 'teal',
           conversations: []
         };
@@ -1020,11 +1047,17 @@ function runNativeFolderPicker(promptText, callback) {
           res.end(JSON.stringify({ error: 'Project ID already exists' }));
           return;
         }
+        const projPath = data.path || data.projectPath || path.join(PROJECTS_ROOT, data.id);
+        const githubInfo = scanProjectGithubInfo(projPath);
         const newProj = {
           id: data.id,
           name: data.name || data.id,
           description: data.description || '',
-          path: data.path || path.join(PROJECTS_ROOT, data.id),
+          path: projPath,
+          docs: githubInfo.docs,
+          skills: githubInfo.skills,
+          prompts: githubInfo.prompts,
+          harness: githubInfo.harness,
           color: data.color || 'indigo',
           conversations: data.conversations || []
         };
@@ -1158,24 +1191,36 @@ function runNativeFolderPicker(promptText, callback) {
   // 任務列表
   if (pathname === '/api/tasks' && req.method === 'GET') {
     const tasks = readTasks();
+    const projects = readProjects();
     const enriched = tasks.map(t => {
+      const proj = projects.find(p => p.id === t.project);
+      const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, t.project || '');
+      const docs = proj ? (proj.docs || []) : scanProjectGithubInfo(projPath).docs;
+      const skills = proj ? (proj.skills || []) : scanProjectGithubInfo(projPath).skills;
+      const harness = proj ? (proj.harness || {}) : scanProjectGithubInfo(projPath).harness;
+
+      let item = {
+        ...t,
+        projectPath: projPath,
+        projectDocs: docs,
+        projectSkills: skills,
+        projectHarness: harness
+      };
+
       if (t.status === 'in_progress') {
         const proc = activeCliProcesses.get(t.id);
         if (proc) {
           const elapsed = Math.max(0, Math.floor((Date.now() - proc.startTime) / 1000));
-          return {
-            ...t,
-            liveStatus: {
-              isRunning: true,
-              elapsedSeconds: elapsed,
-              currentAction: proc.lastLine || 'CLI Agent 正在執行中...',
-              liveModifiedFiles: proc.liveModifiedFiles || [],
-              recentTail: (proc.recentLines || []).slice(-20).join('\n')
-            }
+          item.liveStatus = {
+            isRunning: true,
+            elapsedSeconds: elapsed,
+            currentAction: proc.lastLine || 'CLI Agent 正在執行中...',
+            liveModifiedFiles: proc.liveModifiedFiles || [],
+            recentTail: (proc.recentLines || []).slice(-20).join('\n')
           };
         }
       }
-      return t;
+      return item;
     });
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(enriched));
