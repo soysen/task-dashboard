@@ -594,7 +594,7 @@
 
               <div>
                 <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 負責人</label>
-                <input type="text" id="formAssignee" value="Antigravity" class="w-full h-9 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500">
+                <input type="text" id="formAssignee" value="" placeholder="指定負責人 (例如 Antigravity / CLI)" class="w-full h-9 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500">
               </div>
             </div>
 
@@ -872,7 +872,7 @@
             </button>
             <button type="button" id="tabBtnDesktopAi" onclick="selectAutomationMode('desktop_ai')" class="flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-semibold transition">
               <i data-lucide="bot" class="w-3.5 h-3.5"></i>
-              <span> Desktop AI 對話輪巡</span>
+              <span> Desktop AI 哨兵待命</span>
             </button>
           </div>
 
@@ -902,22 +902,30 @@
             </div>
           </div>
 
-          <!-- Panel 2: Desktop AI 輪巡模式 (通用 IDE / 對話型 AI) -->
-          <div id="panelDesktopAiMode" class="space-y-2 p-3 bg-purple-50/50 dark:bg-purple-950/30 border border-purple-200/80 dark:border-purple-900/50 rounded-xl hidden">
+          <!-- Panel 2: Desktop AI 哨兵待命模式 (通用 IDE / 對話型 AI) -->
+          <div id="panelDesktopAiMode" class="space-y-2.5 p-3 bg-purple-50/50 dark:bg-purple-950/30 border border-purple-200/80 dark:border-purple-900/50 rounded-xl hidden">
             <div class="flex items-center justify-between">
               <div>
-                <span class="text-xs font-bold text-purple-950 dark:text-purple-200 flex items-center gap-1"> 定時巡檢模式 (IDE / Desktop AI)
+                <span class="text-xs font-bold text-purple-950 dark:text-purple-200 flex items-center gap-1.5">
+                  <i data-lucide="shield-check" class="w-3.5 h-3.5 text-purple-600 dark:text-purple-400"></i> 哨兵待命模式 (Desktop AI 即時喚醒)
                 </span>
-                <p class="text-[10px] text-slate-500 dark:text-slate-400"> 適用於 Antigravity、Claude Desktop、Cursor、Windsurf、Cline 等所有桌面 AI 助理</p>
+                <p class="text-[10px] text-slate-500 dark:text-slate-400"> 透過 watch-task-gate.js 背景靜默守候 (0 Token 消耗)，任務切換時即時喚醒開工</p>
               </div>
-              <button onclick="copyAiInspectionPrompt()" class="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 transition shadow-sm">
+              <button type="button" onclick="copyAiInspectionPrompt()" class="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 transition shadow-sm">
                 <i data-lucide="copy" class="w-3 h-3"></i> 複製開工 Prompt
               </button>
             </div>
 
-            <div id="aiPromptTextDisplay" class="p-2.5 bg-white dark:bg-slate-900 border border-purple-100 dark:border-purple-900/60 rounded-lg font-mono text-[10px] text-slate-700 dark:text-slate-300 select-all break-all max-h-24 overflow-y-auto leading-relaxed"> 請建立定時/背景巡檢任務，監控任務檔案...
+            <!-- Agent 目標切換器 -->
+            <div class="flex items-center justify-between gap-1 p-0.5 bg-purple-100/70 dark:bg-purple-900/40 rounded-lg text-[10px]">
+              <button type="button" onclick="selectDesktopAgentTarget('universal')" id="btnAgentTarget_universal" class="flex-1 py-1 px-1.5 rounded-md text-center transition bg-white dark:bg-slate-900 text-purple-700 dark:text-purple-300 shadow-xs font-bold">跨平台通用</button>
+              <button type="button" onclick="selectDesktopAgentTarget('antigravity')" id="btnAgentTarget_antigravity" class="flex-1 py-1 px-1.5 rounded-md text-center transition text-slate-600 dark:text-slate-400 hover:text-purple-600 font-medium">Antigravity</button>
+              <button type="button" onclick="selectDesktopAgentTarget('claude')" id="btnAgentTarget_claude" class="flex-1 py-1 px-1.5 rounded-md text-center transition text-slate-600 dark:text-slate-400 hover:text-purple-600 font-medium">Claude</button>
+              <button type="button" onclick="selectDesktopAgentTarget('codex')" id="btnAgentTarget_codex" class="flex-1 py-1 px-1.5 rounded-md text-center transition text-slate-600 dark:text-slate-400 hover:text-purple-600 font-medium">Codex / Cursor</button>
             </div>
-            <p class="text-[10px] text-purple-700 dark:text-purple-300"> 提示：將此 Prompt 複製貼給您的 AI 桌面軟體或 IDE 助理，AI 將自動掛載定時排程持續巡檢任務並自主開工。</p>
+
+            <div id="aiPromptTextDisplay" class="p-2.5 bg-white dark:bg-slate-900 border border-purple-100 dark:border-purple-900/60 rounded-lg font-mono text-[10px] text-slate-700 dark:text-slate-300 select-all break-all max-h-32 overflow-y-auto leading-relaxed whitespace-pre-wrap">請使用終端執行工具...</div>
+            <p id="aiPromptTip" class="text-[10px] text-purple-700 dark:text-purple-300"> 提示：將此 Prompt 複製貼給對話視窗裡的 AI 助理，AI 將呼叫背景命令工具進入 0 Token 靜默待命，任務切換瞬間自動喚醒。</p>
           </div>
         </div>
       </div>
@@ -1364,9 +1372,39 @@
       await toggleCliAgent(next);
     }
 
+    let currentDesktopAgentTarget = 'universal';
+
+    function selectDesktopAgentTarget(target) {
+      currentDesktopAgentTarget = target;
+      const targets = ['universal', 'antigravity', 'claude', 'codex'];
+      targets.forEach(t => {
+        const btn = document.getElementById(`btnAgentTarget_${t}`);
+        if (!btn) return;
+        if (t === target) {
+          btn.className = 'flex-1 py-1 px-1.5 rounded-md text-center transition bg-white dark:bg-slate-900 text-purple-700 dark:text-purple-300 shadow-xs font-bold';
+        } else {
+          btn.className = 'flex-1 py-1 px-1.5 rounded-md text-center transition text-slate-600 dark:text-slate-400 hover:text-purple-600 font-medium';
+        }
+      });
+      updateAiPromptDisplay();
+    }
+
     function updateAiPromptDisplay() {
-      const configDir = (settings.dataDirectoryPath || settings.defaultDataDir || 'data').replace(/\/+$/, '');
-      const promptText = `請建立定時/背景巡檢任務（建議每 2 分鐘一次），監控任務檔案：${configDir}/tasks.json。一旦偵測到 status === "in_progress" 的任務，請嚴格遵循專案內的架構規範文檔（如 AGENTS.md / README.md）自主開工，完成實作與測試後將異動記錄（modifiedFiles, diff, executionLog）寫回 tasks.json 並推進至 review 階段。`;
+      const configDir = (settings.dataDirectoryPath || settings.defaultDataDir || '~/Library/Application Support/TaskDashboard').replace(/\/+$/, '');
+      const gateScriptPath = `${configDir}/watch-task-gate.js`;
+
+      let promptText = '';
+      if (currentDesktopAgentTarget === 'antigravity') {
+        promptText = `請使用 run_command 工具在背景執行以下指令以啟動任務哨兵待命：\nnode "${gateScriptPath}"\n\n【運作機制與開工指示】：\n1. 該腳本將在背景靜默等待（0 Token 消耗）。當 tasks.json 出現 status === "in_progress" 任務時將立即 exit(0)，系統會透過 Reactive Wakeup 自動喚醒本對話視窗。\n2. 喚醒後請嚴格依序執行 3-Phase Gate：\n   - Phase 1 (Pre-Flight)：優先讀取 task.feedback、AGENTS.md、CLAUDE.md，執行前置驗證與 harness 指令。\n   - Phase 2 (Implementation)：遵循專案規範修改代碼並補齊測試，嚴禁產生跨專案副作用。\n   - Phase 3 (Review Promotion)：執行專案測試，收集包含已追蹤 (git diff HEAD) 與未追蹤 (diff --no-index /dev/null) 檔案之全量 diff，更新 tasks.json 並推入 review。\n3. 完成並推入 review 後，請再次呼叫 run_command 執行上述指令重新掛起待命，形成自動化閉環。`;
+      } else if (currentDesktopAgentTarget === 'claude') {
+        promptText = `請使用 bash / execute_command 工具在背景執行以下指令以啟動任務哨兵待命：\nnode "${gateScriptPath}"\n\n【運作機制與開工指示】：\n1. 該腳本在背景靜默等待檔案異動，當 tasks.json 出現 status === "in_progress" 時將退出行程以喚醒你（0 Token 待命）。\n2. 喚醒後請讀取該任務需求與 CLAUDE.md / AGENTS.md 架構規範，自主完成程式碼實作與測試驗證。\n3. 實作完成後收集完整無截斷之 git diff 與異動記錄寫回 tasks.json，並將任務狀態更新為 "review"。\n4. 交付至 review 後，請再次於背景執行上述 node 指令，繼續待命守候下一項任務。`;
+      } else if (currentDesktopAgentTarget === 'codex') {
+        promptText = `請使用終端執行工具（如 run_terminal_command 或 bash）在背景執行以下指令以啟動任務哨兵待命：\nnode "${gateScriptPath}"\n\n【運作機制與開工指示】：\n1. 腳本於背景靜默監聽，一旦 tasks.json 出現 status === "in_progress" 任務立即結束行程以喚醒 Agent。\n2. 喚醒後請遵循專案內 AGENTS.md 或架構規範文檔自主開工，完成實作與單元測試。\n3. 將成果與完整 git diff (含已追蹤與未追蹤檔案) 寫入 tasks.json 並將狀態推入 review 待審查。\n4. 推進後請再次於背景執行上述 node 指令重新進入待命。`;
+      } else {
+        // universal
+        promptText = `請使用終端執行工具（如 Antigravity 的 run_command、Claude 的 bash、或 Codex / Cursor 的 terminal 工具）在背景執行以下指令以啟動任務哨兵待命：\nnode "${gateScriptPath}"\n\n【運作機制與開工指示】：\n1. 該腳本在背景靜默守候（0 Token 消耗）。當偵測到 tasks.json 出現 status === "in_progress" 的任務時，腳本將自動退出以觸發 Reactive Wakeup 喚醒您。\n2. 被喚醒後，請立即檢閱該任務需求與專案架構規範（如 AGENTS.md / CLAUDE.md / HARNESS.md），自主開工完成實作與測試。\n3. 驗收完成後將異動記錄（modifiedFiles, diff, executionLog）寫回 tasks.json 並將狀態推進至 review。\n4. 交付至 review 後，請再次於背景執行上述 node 指令重新進入待命，形成持續自動化循環。`;
+      }
+
       const promptEl = document.getElementById('aiPromptTextDisplay');
       if (promptEl) {
         promptEl.innerText = promptText;
@@ -1376,8 +1414,15 @@
 
     function copyAiInspectionPrompt() {
       const promptText = updateAiPromptDisplay();
+      const agentLabels = {
+        universal: '通用跨平台',
+        antigravity: 'Antigravity (run_command)',
+        claude: 'Claude (bash)',
+        codex: 'Codex / Cursor'
+      };
+      const label = agentLabels[currentDesktopAgentTarget] || 'Desktop AI';
       navigator.clipboard.writeText(promptText).then(() => {
-        showToast('已複製 Desktop AI 輪巡開工 Prompt！');
+        showToast(`已複製【${label}】哨兵待命 Prompt！`);
       }).catch(() => {
         showToast('複製失敗，請手動選取文字');
       });
@@ -1566,6 +1611,17 @@
     }
 
     function setFormProject(projId) {
+      if (!projId) {
+        const formProj = document.getElementById('formProject');
+        const formProjInput = document.getElementById('formProjectInput');
+        if (formProj) formProj.value = '';
+        if (formProjInput) formProjInput.value = '';
+        updateProjectClearButtonVisibility('');
+        hideProjectAutocomplete();
+        initSelect2Dropdown('');
+        renderSelect2Chips();
+        return;
+      }
       const proj = projects.find(p => p.id === projId) || { id: projId, name: projId };
       const formProj = document.getElementById('formProject');
       const formProjInput = document.getElementById('formProjectInput');
@@ -1754,7 +1810,7 @@
       const projectSkillSection = document.getElementById('select2ProjectSkillSection');
       if (!groupGit || !groupSkill) return;
 
-      const currentProjId = (document.getElementById('formProject') ? document.getElementById('formProject').value : '') || currentFilter;
+      const currentProjId = document.getElementById('formProject') ? document.getElementById('formProject').value : '';
       const currentProj = projects.find(p => p.id === currentProjId);
       const projectSkills = (currentProj && Array.isArray(currentProj.skills)) ? currentProj.skills : [];
 
@@ -1908,7 +1964,7 @@
       const input = document.getElementById('select2Input');
       if (!chipsContainer) return;
 
-      const currentProjId = (document.getElementById('formProject') ? document.getElementById('formProject').value : '') || currentFilter;
+      const currentProjId = document.getElementById('formProject') ? document.getElementById('formProject').value : '';
       const currentProj = projects.find(p => p.id === currentProjId);
       const projectSkills = (currentProj && Array.isArray(currentProj.skills)) ? currentProj.skills : [];
 
@@ -2160,7 +2216,7 @@
 
         colEl.innerHTML = colTasks.map(t => {
           const proj = projects.find(p => p.id === t.project);
-          const projName = proj ? proj.name : t.project;
+          const projName = proj ? proj.name : (t.project || '未指定專案');
           const priorityColor = t.priority === 'P0' ? 'bg-rose-50 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-500/40' :
                                 t.priority === 'P1' ? 'bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-500/40' :
                                 t.priority === 'P2' ? 'bg-blue-50 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-500/40' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300';
@@ -2350,7 +2406,7 @@
       if (initialData.status) {
         document.getElementById('formStatus').value = initialData.status;
       }
-      const defaultProj = initialData.project || (currentProject !== 'ALL' ? currentProject : (projects[0] && projects[0].id) || 'task-dashboard');
+      const defaultProj = initialData.project || '';
       setFormProject(defaultProj);
 
       document.getElementById('formAssignee').value = initialData.assignee || (settings.enableCliAgent ? 'CLI' : 'Antigravity');
@@ -2459,7 +2515,7 @@
       }`;
 
       document.getElementById('formTitle').value = task.title || '';
-      setFormProject(task.project || (projects[0] && projects[0].id) || 'task-dashboard');
+      setFormProject(task.project || '');
       document.getElementById('formPriority').value = task.priority || 'P1';
       document.getElementById('formStatus').value = task.status || 'todo';
       document.getElementById('formAssignee').value = task.assignee || (settings.enableCliAgent ? 'CLI' : 'Antigravity');
@@ -2863,7 +2919,7 @@
       await withButtonLoading(btnSubmit, '儲存中...', async () => {
         const id = document.getElementById('formTaskId').value;
         const title = document.getElementById('formTitle').value.trim();
-        const project = document.getElementById('formProject').value.trim() || 'task-dashboard';
+        const project = document.getElementById('formProject').value.trim();
         const priority = document.getElementById('formPriority').value;
         const status = document.getElementById('formStatus').value;
         const assignee = document.getElementById('formAssignee').value.trim() || 'Antigravity';
@@ -3252,7 +3308,7 @@ ${feedback || '請根據最新的需求進行調整與修復。'}
 
       listEl.innerHTML = archived.map(t => {
         const proj = projects.find(p => p.id === t.project);
-        const projName = proj ? proj.name : t.project;
+        const projName = proj ? proj.name : (t.project || '未指定專案');
         const isChecked = selectedArchiveTaskIds.has(t.id);
         const dateStr = t.updatedAt ? new Date(t.updatedAt).toLocaleString('zh-TW', { hour12: false }) : (t.createdAt || '');
 

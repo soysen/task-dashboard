@@ -60,8 +60,15 @@ node -e '
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const appSupportFile = path.join(os.homedir(), "Library/Application Support/TaskDashboard/tasks.json");
-const tasksFile = fs.existsSync(appSupportFile) ? appSupportFile : "data/tasks.json";
+let tasksFile = "data/tasks.json";
+try {
+  if (fs.existsSync(appSupportFile)) {
+    fs.readFileSync(appSupportFile, "utf8");
+    tasksFile = appSupportFile;
+  }
+} catch (e) {
+  tasksFile = "data/tasks.json";
+}
 const tasks = JSON.parse(fs.readFileSync(tasksFile, "utf8"));
 for (const task of tasks) {
   if ((task.status === "review" || task.status === "done") && Array.isArray(task.modifiedFiles) && task.modifiedFiles.length > 0) {

@@ -4,9 +4,12 @@
 
 本專案支援 **Antigravity IDE / Desktop** 與 **獨立 CLI Agent** 兩種自動化驅動模式：
 
-### 模式 A：Antigravity IDE / Desktop (背景 2 分鐘 Cronjob 巡檢)
-- 當 Antigravity 啟動或 App 觸發 Web Server 後，Antigravity 會掛載 2 分鐘一次的循環排程 (`schedule`) 監控 `~/Library/Application Support/TaskDashboard/tasks.json`（或 `http://localhost:3030/api/tasks`）。
-- 一旦偵測到 `status === "in_progress"` 任務，Antigravity 將自動執行以下 **3-Phase Execution Gate**。
+### 模式 A：Desktop AI 哨兵待命 (Reactive Wakeup 即時喚醒 / 或 2 分鐘排程)
+- **推薦（即時零延遲）**：透過 `run_command`（Antigravity）、`bash`（Claude）或 terminal（Codex/Cursor）在背景啟動哨兵腳本：
+  `node "$HOME/Library/Application Support/TaskDashboard/watch-task-gate.js"`
+  腳本透過 macOS 原生 FSEvents 在背景靜默守候（0 Token 開銷）。一旦偵測到 `tasks.json` 有任務變更為 `in_progress`，立即 exit(0) 觸發系統 Reactive Wakeup 喚醒 Agent 自動開工！
+- **備用（傳統排程）**：若環境無背景終端權限，亦可掛載 2 分鐘一次的循環排程 (`schedule`) 監控 `tasks.json`。
+- 一旦偵測到 `status === "in_progress"` 任務，Agent 將自動執行以下 **3-Phase Execution Gate**，完成推進至 `review` 後再次啟動哨兵進入下一輪待命。
 
 ### 模式 B：本機 CLI Agent 自動即時觸發
 - 若使用者在 Dashboard 設定中啟用了 **「CLI Agent 模式」**：
@@ -79,3 +82,48 @@
 2. **顯式完工信號**：任務推進必須由執行者（CLI 行程明確輸出完工標記、或 Antigravity 走完 Phase 1~3 門禁）主動發出指令，後端定時巡檢不得因工作區有未提交 diff 就自動推入 `review`。
 3. **產物隔離**：任務切換至 `in_progress` 時自動重置前次殘留之 `diff` 與 `modifiedFiles`，避免跨任務殘留造成誤判。
 
+<!-- gitnexus:start -->
+# GitNexus — Code Intelligence
+
+This project is indexed by GitNexus as **task-dashboard** (266 symbols, 913 relationships, 11 execution flows).
+
+> Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
+
+## Always Do
+
+- **MUST run impact analysis before editing.** Use `impact({target: "symbolName", direction: "upstream"})` (MCP) or `node .gitnexus/run.cjs impact "symbolName" --direction upstream --repo .` (CLI fallback); report callers, processes, and risk. Never substitute grep for graph analysis.
+- **MUST analyze graph changes before committing.** Use `detect_changes({scope: "all"})` (MCP) or `node .gitnexus/run.cjs detect-changes --scope all --repo .` (CLI fallback). `partial: true` or `truncated: true` is not a clean check — a zero means unseen, not unaffected; re-run it. For regression review: `detect_changes({scope: "compare", base_ref: "main"})` or `node .gitnexus/run.cjs detect-changes --scope compare --base-ref "main" --repo .`.
+- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+- **MUST treat `risk: UNKNOWN` as unresolved, not as low.** An empty caller set is not evidence the symbol is unused — it can also mean the callers are not resolvable by the index (plain-object property access, dynamic dispatch, cross-language calls). `impact` pairs `UNKNOWN` with a `riskNote` saying so. Confirm with a text search before treating the symbol as safe to change or delete; do not proceed on the strength of a zero.
+- When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
+- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
+
+## Never Do
+
+- NEVER edit a function, class, or method before MCP/CLI impact analysis.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis, and never read `UNKNOWN` as an all-clear — it means the walk could not answer, which is the one verdict that requires confirming by other means.
+- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
+- NEVER commit before MCP/CLI graph change analysis.
+
+## Resources
+
+| Resource | Use for |
+| --- | --- |
+| `gitnexus://repo/task-dashboard/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/task-dashboard/clusters` | All functional areas |
+| `gitnexus://repo/task-dashboard/processes` | All execution flows |
+| `gitnexus://repo/task-dashboard/process/{name}` | Step-by-step execution trace |
+
+## CLI
+
+| Task | Read this skill file |
+| --- | --- |
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus-cli/SKILL.md` |
+
+<!-- gitnexus:end -->

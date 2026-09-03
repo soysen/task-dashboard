@@ -11,11 +11,17 @@ echo "  ✅ server.js 語法檢查通過"
 
 # 測試啟動伺服器並驗證 API
 TEST_PORT=3039
-PORT=$TEST_PORT node "$PROJECT_DIR/src/server/server.js" > "/tmp/server_test.log" 2>&1 &
+TEST_DATA_DIR="$PROJECT_DIR/.tmp_test_data"
+rm -rf "$TEST_DATA_DIR"
+mkdir -p "$TEST_DATA_DIR"
+cp -R "$PROJECT_DIR/data/"* "$TEST_DATA_DIR/"
+
+PORT=$TEST_PORT TASK_DASHBOARD_DATA_DIR="$TEST_DATA_DIR" node "$PROJECT_DIR/src/server/server.js" > "/tmp/server_test.log" 2>&1 &
 SERVER_PID=$!
 
 cleanup() {
   kill -9 $SERVER_PID 2>/dev/null || true
+  rm -rf "$TEST_DATA_DIR" 2>/dev/null || true
 }
 trap cleanup EXIT
 

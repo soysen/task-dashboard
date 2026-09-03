@@ -9,6 +9,7 @@
     "build:app": "bash scripts/build_app.sh",
     "install:desktop": "bash scripts/install_to_desktop.sh",
     "harness:check": "bash scripts/harness_check.sh",
+    "watch:gate": "node scripts/watch-task-gate.js",
     "test": "bash scripts/test_server.sh"
   },
   "dependencies": {},

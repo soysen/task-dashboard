@@ -25,6 +25,9 @@ fi
 
 mkdir -p "$APP_DIR/Contents/Resources/web"
 cp -R "$PROJECT_DIR/src" "$APP_DIR/Contents/Resources/web/"
+if [ -d "$PROJECT_DIR/scripts" ]; then
+  cp -R "$PROJECT_DIR/scripts" "$APP_DIR/Contents/Resources/web/"
+fi
 if [ -d "$PROJECT_DIR/data" ]; then
   cp -R "$PROJECT_DIR/data" "$APP_DIR/Contents/Resources/web/"
 fi

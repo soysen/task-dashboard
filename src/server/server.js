@@ -8,7 +8,7 @@ const os = require('os');
 
 const PORT = process.env.PORT || 3030;
 const USER_HOME = process.env.HOME || os.homedir();
-const APP_SUPPORT_DATA_DIR = path.join(USER_HOME, 'Library/Application Support/TaskDashboard');
+const APP_SUPPORT_DATA_DIR = process.env.TASK_DASHBOARD_DATA_DIR || path.join(USER_HOME, 'Library/Application Support/TaskDashboard');
 
 // 單一真實來源 (Single Source of Truth)
 const ROOT_DIR = path.resolve(__dirname, '../..');
@@ -26,7 +26,6 @@ if (!fs.existsSync(BASE_DATA_DIR)) {
   fs.mkdirSync(BASE_DATA_DIR, { recursive: true });
 }
 
-// 若 Application Support 尚未有資料，且專案目錄下有 data，自動遷移/複製過來作為初始資料
 ['tasks.json', 'projects.json', 'settings.json'].forEach(file => {
   const dest = path.join(BASE_DATA_DIR, file);
   const src = path.join(PROJECT_DATA_DIR, file);
@@ -36,6 +35,25 @@ if (!fs.existsSync(BASE_DATA_DIR)) {
     } catch (e) {}
   }
 });
+
+// 自動釋出並同步 watch-task-gate.js 哨兵腳本至 Application Support
+const GATE_SCRIPT_NAME = 'watch-task-gate.js';
+const destGateScript = path.join(BASE_DATA_DIR, GATE_SCRIPT_NAME);
+const candidateGateSources = [
+  path.join(ROOT_DIR, 'scripts', GATE_SCRIPT_NAME),
+  path.join(__dirname, '../../scripts', GATE_SCRIPT_NAME),
+  path.join(__dirname, '../scripts', GATE_SCRIPT_NAME),
+  path.join(ROOT_DIR, GATE_SCRIPT_NAME)
+];
+const srcGateScript = candidateGateSources.find(p => fs.existsSync(p));
+if (srcGateScript) {
+  try {
+    fs.copyFileSync(srcGateScript, destGateScript);
+    fs.chmodSync(destGateScript, 0o755);
+  } catch (err) {
+    console.error('[Gate Script] 同步至 Application Support 失敗:', err);
+  }
+}
 
 let lastInspectionTime = null;
 let lastInspectionResult = { inspectedAt: null, updatedCount: 0, inProgressCount: 0, status: 'idle' };
@@ -131,7 +149,7 @@ function migrateConfigDirectory(oldDir, newDir) {
     if (!fs.existsSync(newDir)) {
       fs.mkdirSync(newDir, { recursive: true });
     }
-    const filesToMove = ['tasks.json', 'projects.json', 'settings.json'];
+    const filesToMove = ['tasks.json', 'projects.json', 'settings.json', 'watch-task-gate.js'];
     filesToMove.forEach(file => {
       const oldPath = path.join(oldDir, file);
       const newPath = path.join(newDir, file);
@@ -1522,9 +1540,9 @@ function runNativeFolderPicker(promptText, callback) {
           description: data.description || '',
           status: data.status || 'todo',
           priority: data.priority || 'P1',
-          project: data.project || 'task-dashboard',
+          project: data.project !== undefined ? data.project : '',
           conversationId: data.conversationId || '',
-          assignee: data.assignee || 'Antigravity',
+          assignee: data.assignee !== undefined ? data.assignee : '',
           tags: Array.isArray(data.tags) ? data.tags : (data.tags ? data.tags.split(',').map(s => s.trim()).filter(Boolean) : []),
           dependencies: Array.isArray(data.dependencies) ? data.dependencies : (data.dependencies ? [data.dependencies] : []),
           modifiedFiles: data.modifiedFiles || [],
