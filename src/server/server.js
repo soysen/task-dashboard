@@ -278,12 +278,19 @@ function scanProjectGithubInfo(projPath) {
 
   info.harness.hasHarness = hasHarnessScript || info.harness.files.length > 0;
 
-  // 4. 檢測架構文檔
-  ['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md', 'README.md'].forEach(doc => {
+  // 4. 檢測架構文檔與 RFC 規範
+  ['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md', 'README.md', 'docs/STATE_MACHINE_RFC.md'].forEach(doc => {
     if (fs.existsSync(path.join(projPath, doc))) {
       info.docs.push(doc);
     }
   });
+  const docsDir = path.join(projPath, 'docs');
+  if (fs.existsSync(docsDir)) {
+    try {
+      const docFiles = fs.readdirSync(docsDir).filter(f => f.endsWith('.md') && f !== 'STATE_MACHINE_RFC.md');
+      docFiles.forEach(f => info.docs.push(`docs/${f}`));
+    } catch (e) {}
+  }
 
   return info;
 }
@@ -1084,6 +1091,7 @@ function reconcileTasks() {
         const hasGitChanges = Array.isArray(modifiedList) && modifiedList.length > 0;
         const isDoneLogged = logContent.includes('CLI Agent 執行完畢') || logContent.includes(' CLI Agent 執行完畢');
 
+        // 僅當 CLI Agent 明確標記完工日誌且存在有效代碼產出時，才自動推進至 Review
         if (isDoneLogged && hasGitChanges) {
           target.status = 'review';
           consumeTaskFeedback(target);
@@ -1096,33 +1104,26 @@ function reconcileTasks() {
           syncToMarkdown(freshTasks);
           console.log(' [Auto-Reconcile] 任務 ' + t.id + ' 狀態自動對齊推進至 Review！');
         } else {
+          // 若為 Antigravity 或非 CLI 派發之外部任務，由代理人自主管理狀態，後端絕不因工作區殘留 diff 盲目推進
+          if (t.assignee !== 'CLI') {
+            return;
+          }
+
           // 行程已不存在且未標記完工（例如伺服器重啟或中斷遺留的孤立任務）
           const updatedTime = new Date(target.updatedAt || target.createdAt || 0).getTime();
           const now = Date.now();
           const hasFeedback = Boolean(target.feedback && target.feedback.trim().length > 0);
-          // 若距今超過 45 秒仍處於無行程 in_progress 狀態且沒有待處理的 feedback
-          if (now - updatedTime > 45000 && !hasFeedback) {
-            if (hasGitChanges) {
-              target.status = 'review';
-              consumeTaskFeedback(target);
-              target.modifiedFiles = modifiedList;
-              target.diff = diffContent;
-              target.updatedAt = new Date().toISOString();
-              target.executionLog = (target.executionLog || '') +
-                '\n[' + new Date().toISOString() + '] 🔄 [Auto-Reconcile] 偵測到背景行程已終止但存在代碼變更，自動對齊至 Review。\n----------------------------------------\n';
-              writeTasks(freshTasks);
-              syncToMarkdown(freshTasks);
-              console.log(' [Auto-Reconcile] 孤立任務 ' + t.id + ' 具備 Git 變更且無待處理 Feedback，推進至 Review。');
-            } else {
-              target.status = 'todo';
-              target._retryCount = 0;
-              target.updatedAt = new Date().toISOString();
-              target.executionLog = (target.executionLog || '') +
-                '\n[' + new Date().toISOString() + '] ⚠️ [Auto-Reconcile] 偵測到背景行程已終止或伺服器重啟中斷，重置為 Todo。\n----------------------------------------\n';
-              writeTasks(freshTasks);
-              syncToMarkdown(freshTasks);
-              console.log(' [Auto-Reconcile] 孤立任務 ' + t.id + ' 無變更產出，已自動重置為 Todo。');
-            }
+          // 若距今超過 60 秒仍處於無行程 in_progress 狀態且沒有待處理的 feedback
+          // 嚴格準則：工作區殘留 diff 不得作為推進 review 的基準，避免誤抓其他任務之未提交變更
+          if (now - updatedTime > 60000 && !hasFeedback) {
+            target.status = 'todo';
+            target._retryCount = 0;
+            target.updatedAt = new Date().toISOString();
+            target.executionLog = (target.executionLog || '') +
+              '\n[' + new Date().toISOString() + '] 🔄 [Auto-Reconcile] 偵測到 CLI 行程已終止且未輸出完工信號，安全退回 Todo（防止工作區殘留 diff 被誤判完工）。\n----------------------------------------\n';
+            writeTasks(freshTasks);
+            syncToMarkdown(freshTasks);
+            console.log(' [Auto-Reconcile] 孤立 CLI 任務 ' + t.id + ' 行程消失且未完工，安全退回 Todo。');
           }
         }
       });
@@ -1578,8 +1579,11 @@ function runNativeFolderPicker(promptText, callback) {
         };
         writeTasks(tasks);
 
-        // 若狀態切換為 in_progress，立即啟動 CLI Agent 執行！
+        // 若狀態切換為 in_progress，清除前次殘留產出物，並啟動 CLI Agent 執行！
         if (tasks[index].status === 'in_progress' && prevStatus !== 'in_progress') {
+          if (data.diff === undefined) tasks[index].diff = '';
+          if (data.modifiedFiles === undefined) tasks[index].modifiedFiles = [];
+          writeTasks(tasks);
           executeTaskWithCliAgent(taskId);
         }
 

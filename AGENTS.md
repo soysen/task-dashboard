@@ -70,3 +70,12 @@
 - **資料庫**：`~/Library/Application Support/TaskDashboard/`（或透過 REST API `http://localhost:3030/api/tasks`）。專案目錄下的 `data/` 僅作為全新檢出時的初始結構範本，執行時不得污染或覆寫。
 - **macOS App**：原生 App 將直接載入本地 Web Server，修改原始碼即可即時熱更新。
 
+---
+
+## 4. 狀態機流轉與 Git Diff 判定準則 (State Machine & Diff Criteria)
+
+詳見架構文件 [`docs/STATE_MACHINE_RFC.md`](docs/STATE_MACHINE_RFC.md)：
+1. **Diff 為交付成果物而非觸發條件**：Git Diff 絕不得單獨作為任務推進至 `review` 的自動判斷基準。
+2. **顯式完工信號**：任務推進必須由執行者（CLI 行程明確輸出完工標記、或 Antigravity 走完 Phase 1~3 門禁）主動發出指令，後端定時巡檢不得因工作區有未提交 diff 就自動推入 `review`。
+3. **產物隔離**：任務切換至 `in_progress` 時自動重置前次殘留之 `diff` 與 `modifiedFiles`，避免跨任務殘留造成誤判。
+
