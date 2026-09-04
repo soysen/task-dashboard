@@ -257,7 +257,7 @@
     </aside>
 
     <!-- Top Header -->
-    <header id="mainTopHeader" class="flex-shrink-0 border-b border-slate-300 dark:border-slate-700 bg-white/95 dark:bg-slate-900/90 backdrop-blur py-1.5 px-3 md:py-2.5 md:px-6">
+    <header id="mainTopHeader" class="relative z-40 flex-shrink-0 border-b border-slate-300 dark:border-slate-700 bg-white/95 dark:bg-slate-900/90 backdrop-blur py-1.5 px-3 md:py-2.5 md:px-6">
       <div class="flex flex-row items-center justify-between gap-1.5 sm:gap-3">
         <div class="flex items-center gap-1.5 sm:gap-3 min-w-0">
           <button id="headerSidebarToggle" onclick="toggleSidebar()" title="開啟專案列表抽屜" class="text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white p-1.5 sm:p-2 rounded-xl bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 transition flex-shrink-0">
@@ -298,11 +298,102 @@
             <option value="P3"> P3</option>
           </select>
 
-          <!-- 一鍵複製派工指令 -->
-          <button onclick="triggerExecutionNow()" title="一鍵複製派工指令" class="h-7 sm:h-8 flex items-center gap-1 bg-amber-600 hover:bg-amber-500 text-white text-[11px] sm:text-xs font-semibold px-2 sm:px-2.5 rounded-lg border border-amber-500/50 shadow transition flex-shrink-0">
-            <i data-lucide="zap" class="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-200"></i>
-            <span class="hidden sm:inline"> 立即指派</span>
-          </button>
+          <!-- 開工引擎 Popover / 下拉選單按鈕 -->
+          <div class="relative inline-block text-left z-50" id="engineDropdownContainer">
+            <button id="headerEngineBtn" onclick="toggleEnginePopover(event)" title="自動化開工引擎設定" class="h-7 sm:h-8 flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] sm:text-xs font-semibold px-2 sm:px-2.5 rounded-lg border border-indigo-500/50 shadow transition flex-shrink-0">
+              <i data-lucide="cpu" class="w-3 h-3 sm:w-3.5 sm:h-3.5 text-indigo-200"></i>
+              <span class="hidden sm:inline">開工引擎</span>
+              <i data-lucide="chevron-down" class="w-3 h-3 text-indigo-200 opacity-80"></i>
+            </button>
+
+            <!-- 開工引擎 Popover -->
+            <div id="enginePopover" class="hidden absolute right-0 top-full mt-2 w-[340px] sm:w-[420px] max-w-[90vw] z-[70] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl p-3.5 sm:p-4 space-y-3 text-slate-800 dark:text-slate-100">
+              <!-- Popover Header -->
+              <div class="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                <div class="flex items-center gap-2">
+                  <div class="p-1.5 bg-indigo-50 dark:bg-indigo-950/60 rounded-lg text-indigo-600 dark:text-indigo-400">
+                    <i data-lucide="cpu" class="w-4 h-4"></i>
+                  </div>
+                  <div>
+                    <h4 class="text-xs font-bold text-slate-900 dark:text-white">自動化開工引擎</h4>
+                    <p class="text-[10px] text-slate-500 dark:text-slate-400">選擇並配置自動化派工驅動模式</p>
+                  </div>
+                </div>
+                <button type="button" onclick="closeEnginePopover()" class="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition">
+                  <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
+
+              <!-- Pill Tab Control -->
+              <div class="grid grid-cols-2 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl gap-1 border border-slate-200 dark:border-slate-700/60">
+                <button type="button" id="tabBtnCli" onclick="selectAutomationMode('cli')" class="flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-semibold transition">
+                  <i data-lucide="terminal" class="w-3.5 h-3.5"></i>
+                  <span>本機 CLI Agent</span>
+                </button>
+                <button type="button" id="tabBtnDesktopAi" onclick="selectAutomationMode('desktop_ai')" class="flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-semibold transition">
+                  <i data-lucide="bot" class="w-3.5 h-3.5"></i>
+                  <span>Desktop AI 哨兵</span>
+                </button>
+              </div>
+
+              <!-- Panel 1: 本機 CLI Agent 模式 -->
+              <div id="panelCliMode" class="space-y-2.5 p-3 bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-200/80 dark:border-indigo-900/50 rounded-xl">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <span class="text-xs font-bold text-indigo-950 dark:text-indigo-200 flex items-center gap-1">即時自動開工</span>
+                    <p class="text-[10px] text-slate-500 dark:text-slate-400">任務拖入「進行中」時，系統立即在目標專案調用 CLI 開工</p>
+                  </div>
+                  <span class="text-[10px] font-mono bg-indigo-600/15 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full font-bold">已啟用</span>
+                </div>
+
+                <div class="space-y-1">
+                  <div class="flex items-center justify-between">
+                    <label class="block text-[11px] font-semibold text-slate-700 dark:text-slate-300">CLI 執行指令 (Command)</label>
+                    <span class="text-[10px] text-slate-400">支援 hermes, agy, claude 等</span>
+                  </div>
+                  <input type="text" id="settingCliCommand" placeholder="例如: hermes 或 agy 或 claude -p {prompt}" class="w-full h-8 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-mono">
+                  <p class="text-[10px] text-slate-500 dark:text-slate-400">輸入 <code class="text-indigo-500 font-mono">hermes</code> 會自動適配為 <code class="text-indigo-500 font-mono">hermes -z {prompt}</code>，亦可自訂佔位符 <code class="text-indigo-500 font-mono">{prompt}</code>。</p>
+                </div>
+
+                <div class="flex items-center justify-between pt-1 border-t border-indigo-100 dark:border-indigo-900/40">
+                  <span class="text-[11px] text-slate-600 dark:text-slate-400">移入進行中時自動觸發 CLI</span>
+                  <input type="checkbox" id="settingAutoTrigger" class="rounded text-indigo-600">
+                </div>
+
+                <div class="pt-1 flex justify-end">
+                  <button type="button" id="btnSaveCliSettings" onclick="saveCliEngineSettings(event)" class="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shadow-sm transition">
+                    儲存 CLI 設定
+                  </button>
+                </div>
+              </div>
+
+              <!-- Panel 2: Desktop AI 哨兵待命模式 (通用 IDE / 對話型 AI) -->
+              <div id="panelDesktopAiMode" class="space-y-2.5 p-3 bg-purple-50/50 dark:bg-purple-950/30 border border-purple-200/80 dark:border-purple-900/50 rounded-xl hidden">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <span class="text-xs font-bold text-purple-950 dark:text-purple-200 flex items-center gap-1.5">
+                      <i data-lucide="shield-check" class="w-3.5 h-3.5 text-purple-600 dark:text-purple-400"></i> 哨兵待命 (0 Token 即時喚醒)
+                    </span>
+                    <p class="text-[10px] text-slate-500 dark:text-slate-400">透過 watch-task-gate.js 背景守候，任務切換時喚醒</p>
+                  </div>
+                  <button type="button" onclick="copyAiInspectionPrompt()" class="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 transition shadow-sm flex-shrink-0">
+                    <i data-lucide="copy" class="w-3 h-3"></i> 複製 Prompt
+                  </button>
+                </div>
+
+                <!-- Agent 目標切換器 -->
+                <div class="flex items-center justify-between gap-1 p-0.5 bg-purple-100/70 dark:bg-purple-900/40 rounded-lg text-[10px]">
+                  <button type="button" onclick="selectDesktopAgentTarget('universal')" id="btnAgentTarget_universal" class="flex-1 py-1 px-1.5 rounded-md text-center transition bg-white dark:bg-slate-900 text-purple-700 dark:text-purple-300 shadow-xs font-bold">跨平台通用</button>
+                  <button type="button" onclick="selectDesktopAgentTarget('antigravity')" id="btnAgentTarget_antigravity" class="flex-1 py-1 px-1.5 rounded-md text-center transition text-slate-600 dark:text-slate-400 hover:text-purple-600 font-medium">Antigravity</button>
+                  <button type="button" onclick="selectDesktopAgentTarget('claude')" id="btnAgentTarget_claude" class="flex-1 py-1 px-1.5 rounded-md text-center transition text-slate-600 dark:text-slate-400 hover:text-purple-600 font-medium">Claude</button>
+                  <button type="button" onclick="selectDesktopAgentTarget('codex')" id="btnAgentTarget_codex" class="flex-1 py-1 px-1.5 rounded-md text-center transition text-slate-600 dark:text-slate-400 hover:text-purple-600 font-medium">Codex / Cursor</button>
+                </div>
+
+                <div id="aiPromptTextDisplay" class="p-2.5 bg-white dark:bg-slate-900 border border-purple-100 dark:border-purple-900/60 rounded-lg font-mono text-[10px] text-slate-700 dark:text-slate-300 select-all break-all max-h-28 overflow-y-auto leading-relaxed whitespace-pre-wrap">請使用終端執行工具...</div>
+                <p id="aiPromptTip" class="text-[10px] text-purple-700 dark:text-purple-300">提示：將此 Prompt 複製貼給對話視窗裡的 AI 助理，AI 將進入 0 Token 待命並在任務切換時自動喚醒。</p>
+              </div>
+            </div>
+          </div>
 
           <!-- 封存任務庫按鈕 -->
           <button id="headerArchiveBtn" onclick="openArchiveModal()" title="查看已封存任務庫" class="h-7 sm:h-8 flex items-center gap-1 bg-slate-100 dark:bg-slate-800/90 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 px-2 sm:px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 shadow-sm transition flex-shrink-0">
@@ -478,6 +569,31 @@
       <!-- Modal Body -->
       <div class="p-5 space-y-4">
         <input type="hidden" id="commitTaskId">
+
+        <!-- Skill & Agent Trigger Banner (若專案具備 git-commit skill 時顯示) -->
+        <div id="commitSkillBanner" class="p-3 bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-xl space-y-2">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="p-1.5 bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-lg flex-shrink-0">
+                <i data-lucide="sparkles" class="w-4 h-4"></i>
+              </span>
+              <div class="min-w-0">
+                <span id="commitSkillBadgeText" class="text-xs font-bold text-emerald-900 dark:text-emerald-200 block truncate">專案已配備 Commit 規範技能</span>
+                <p id="commitSkillDescText" class="text-[10px] text-emerald-700/80 dark:text-emerald-400/80 truncate">遵循 Conventional Commit 格式化標準並自動推導 scope</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5 flex-shrink-0">
+              <button id="btnGenerateCommitWithAgent" type="button" onclick="generateCommitMessageWithAgent(event)" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-sm" title="透過 Agent / Skill 規範自動推導產生 Commit 訊息">
+                <i data-lucide="bot" class="w-3.5 h-3.5"></i>
+                <span>Agent 產出</span>
+              </button>
+              <button id="btnCopyCommitAgentPrompt" type="button" onclick="copyCommitAgentPrompt(event)" class="px-2 py-1 bg-slate-200/90 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-medium flex items-center gap-1 transition shadow-xs" title="複製 Agent 提交 Prompt 貼給對話視窗 AI">
+                <i data-lucide="copy" class="w-3 h-3"></i>
+                <span>複製 Prompt</span>
+              </button>
+            </div>
+          </div>
+        </div>
         
         <div>
           <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Commit 標題 (Subject)</label>
@@ -516,6 +632,14 @@
           <div id="modalSessionBadge" onclick="copySessionId(document.getElementById('formConversationId').value, event)" class="hidden items-center gap-1 bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 px-2 py-0.5 rounded-md text-[11px] font-mono cursor-pointer hover:bg-indigo-100 hover:text-indigo-600 dark:hover:bg-indigo-950/60 dark:hover:text-indigo-300 transition" title="點擊複製 Hermes Session ID">
             <i data-lucide="terminal" class="w-3 h-3 text-indigo-500"></i>
             <span id="modalSessionIdText"></span>
+          </div>
+          <!-- 專案 Proxy Server / Web 畫面確認連結徽章 -->
+          <div id="modalProxyBadge" class="hidden items-center gap-1.5 bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 dark:border-emerald-500/40 px-2.5 py-0.5 rounded-md text-[11px] font-semibold transition flex-shrink-0">
+            <i data-lucide="globe" class="w-3 h-3 text-emerald-500"></i>
+            <a id="modalProxyHeaderLink" href="#" onclick="openCurrentProxyUrl(event)" class="flex items-center gap-1 hover:underline cursor-pointer">
+              <span id="modalProxyHeaderText">Proxy 網頁確認</span>
+              <i data-lucide="external-link" class="w-2.5 h-2.5"></i>
+            </a>
           </div>
         </div>
         <button onclick="closeModal()" class="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition">
@@ -647,6 +771,36 @@
               <textarea id="formDescription" rows="12" placeholder="描述任務背景、具體需求或待辦重點..." class="w-full bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500 custom-scrollbar"></textarea>
             </div>
 
+            <!-- 待驗收 Proxy Server 畫面驗證卡片 -->
+            <div id="reviewProxyCard" class="hidden bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-indigo-500/10 border border-emerald-500/30 dark:border-emerald-500/40 rounded-xl p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="p-1.5 bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-lg flex-shrink-0">
+                    <i data-lucide="globe" class="w-4 h-4"></i>
+                  </div>
+                  <div class="min-w-0">
+                    <span class="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                      專案 Proxy Server / Web 畫面確認
+                    </span>
+                    <p class="text-[10px] text-slate-500 dark:text-slate-400 truncate">開啟專案本機 Web Proxy Server 進行畫面與功能驗收</p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-1.5 flex-shrink-0">
+                  <button type="button" onclick="editProjectProxyUrl(event)" title="修改 Proxy Server 網址" class="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-200/50 dark:hover:bg-slate-800 transition">
+                    <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                  </button>
+                  <button type="button" id="btnOpenProxyServer" onclick="openCurrentProxyUrl(event)" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition">
+                    <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                    <span>開啟網頁確認</span>
+                  </button>
+                </div>
+              </div>
+              <div class="flex items-center justify-between text-[10px] font-mono text-slate-600 dark:text-slate-400 bg-white/70 dark:bg-slate-950/70 px-2.5 py-1 rounded-lg border border-emerald-500/20">
+                <span class="truncate">目標網址: <span id="reviewProxyUrlText" class="text-indigo-600 dark:text-indigo-400 font-semibold">http://localhost:3000</span></span>
+                <span class="text-emerald-600 dark:text-emerald-400 font-bold">點擊按鈕開啟</span>
+              </div>
+            </div>
+
             <!-- 審查意見與修改回饋 (Review Feedback) -->
             <div id="reviewFeedbackBox" class="bg-purple-50 dark:bg-[#131b2e] border border-purple-200 dark:border-purple-800/60 rounded-xl p-3 space-y-1.5">
               <div class="flex items-center justify-between">
@@ -723,6 +877,9 @@
             </button>
             <button type="button" id="btnApproveTask" onclick="approveTaskAsDone()" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-emerald-500/25 transition flex items-center gap-1.5">
               <i data-lucide="check-circle" class="w-4 h-4"></i> 驗收通過
+            </button>
+            <button type="button" id="btnCommitTaskModal" onclick="openCommitModalFromTaskModal(event)" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-md shadow-emerald-500/20 transition flex items-center gap-1.5" title="以專案 Commit Skill / Agent 產出並提交 Git Commit">
+              <i data-lucide="git-commit" class="w-3.5 h-3.5"></i> Commit
             </button>
             <button type="button" id="btnArchiveTaskModal" onclick="archiveCurrentTaskFromModal()" class="hidden bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold px-3 py-1.5 rounded-lg transition flex items-center gap-1">
               <i data-lucide="archive" class="w-3.5 h-3.5 text-indigo-500"></i> 封存任務
@@ -854,80 +1011,6 @@
             </button>
           </div>
         </div>
-
-        <!-- 自動化執行引擎切換 (Pill Tab) -->
-        <div class="space-y-2 border-t border-slate-200 dark:border-slate-700 pt-3">
-          <label class="block font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between text-xs">
-            <span class="flex items-center gap-1.5">
-              <i data-lucide="cpu" class="w-3.5 h-3.5 text-indigo-500"></i> 自動化開工引擎 (二選一)
-            </span>
-            <span class="text-[10px] text-slate-400 font-normal"> 選擇您偏好的開工模式</span>
-          </label>
-
-          <!-- Pill Tab Control -->
-          <div class="grid grid-cols-2 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl gap-1 border border-slate-200 dark:border-slate-700/60">
-            <button type="button" id="tabBtnCli" onclick="selectAutomationMode('cli')" class="flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-semibold transition">
-              <i data-lucide="terminal" class="w-3.5 h-3.5"></i>
-              <span> 本機 CLI Agent</span>
-            </button>
-            <button type="button" id="tabBtnDesktopAi" onclick="selectAutomationMode('desktop_ai')" class="flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-semibold transition">
-              <i data-lucide="bot" class="w-3.5 h-3.5"></i>
-              <span> Desktop AI 哨兵待命</span>
-            </button>
-          </div>
-
-          <!-- Panel 1: 本機 CLI Agent 模式 -->
-          <div id="panelCliMode" class="space-y-2.5 p-3 bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-200/80 dark:border-indigo-900/50 rounded-xl">
-            <div class="flex items-center justify-between">
-              <div>
-                <span class="text-xs font-bold text-indigo-950 dark:text-indigo-200 flex items-center gap-1"> 即時自動開工
-                </span>
-                <p class="text-[10px] text-slate-500 dark:text-slate-400"> 任務拖入「進行中」時，系統立即在目標專案調用 CLI 開工</p>
-              </div>
-              <span class="text-[10px] font-mono bg-indigo-600/15 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full font-bold"> 已啟用</span>
-            </div>
-
-            <div class="space-y-1">
-              <div class="flex items-center justify-between">
-                <label class="block text-[11px] font-semibold text-slate-700 dark:text-slate-300"> CLI 執行指令 (Command)</label>
-                <span class="text-[10px] text-slate-400"> 支援 hermes, agy, claude 等</span>
-              </div>
-              <input type="text" id="settingCliCommand" placeholder="例如: hermes 或 agy 或 claude -p {prompt}" class="w-full h-8 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-mono">
-              <p class="text-[10px] text-slate-500 dark:text-slate-400"> 輸入 <code class="text-indigo-500 font-mono"> hermes</code> 會自動適配為 <code class="text-indigo-500 font-mono"> hermes -z {prompt}</code>，亦可自訂佔位符 <code class="text-indigo-500 font-mono">{prompt}</code>。</p>
-            </div>
-
-            <div class="flex items-center justify-between pt-1 border-t border-indigo-100 dark:border-indigo-900/40">
-              <span class="text-[11px] text-slate-600 dark:text-slate-400"> 移入進行中時自動觸發 CLI</span>
-              <input type="checkbox" id="settingAutoTrigger" class="rounded text-indigo-600">
-            </div>
-          </div>
-
-          <!-- Panel 2: Desktop AI 哨兵待命模式 (通用 IDE / 對話型 AI) -->
-          <div id="panelDesktopAiMode" class="space-y-2.5 p-3 bg-purple-50/50 dark:bg-purple-950/30 border border-purple-200/80 dark:border-purple-900/50 rounded-xl hidden">
-            <div class="flex items-center justify-between">
-              <div>
-                <span class="text-xs font-bold text-purple-950 dark:text-purple-200 flex items-center gap-1.5">
-                  <i data-lucide="shield-check" class="w-3.5 h-3.5 text-purple-600 dark:text-purple-400"></i> 哨兵待命模式 (Desktop AI 即時喚醒)
-                </span>
-                <p class="text-[10px] text-slate-500 dark:text-slate-400"> 透過 watch-task-gate.js 背景靜默守候 (0 Token 消耗)，任務切換時即時喚醒開工</p>
-              </div>
-              <button type="button" onclick="copyAiInspectionPrompt()" class="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 transition shadow-sm">
-                <i data-lucide="copy" class="w-3 h-3"></i> 複製開工 Prompt
-              </button>
-            </div>
-
-            <!-- Agent 目標切換器 -->
-            <div class="flex items-center justify-between gap-1 p-0.5 bg-purple-100/70 dark:bg-purple-900/40 rounded-lg text-[10px]">
-              <button type="button" onclick="selectDesktopAgentTarget('universal')" id="btnAgentTarget_universal" class="flex-1 py-1 px-1.5 rounded-md text-center transition bg-white dark:bg-slate-900 text-purple-700 dark:text-purple-300 shadow-xs font-bold">跨平台通用</button>
-              <button type="button" onclick="selectDesktopAgentTarget('antigravity')" id="btnAgentTarget_antigravity" class="flex-1 py-1 px-1.5 rounded-md text-center transition text-slate-600 dark:text-slate-400 hover:text-purple-600 font-medium">Antigravity</button>
-              <button type="button" onclick="selectDesktopAgentTarget('claude')" id="btnAgentTarget_claude" class="flex-1 py-1 px-1.5 rounded-md text-center transition text-slate-600 dark:text-slate-400 hover:text-purple-600 font-medium">Claude</button>
-              <button type="button" onclick="selectDesktopAgentTarget('codex')" id="btnAgentTarget_codex" class="flex-1 py-1 px-1.5 rounded-md text-center transition text-slate-600 dark:text-slate-400 hover:text-purple-600 font-medium">Codex / Cursor</button>
-            </div>
-
-            <div id="aiPromptTextDisplay" class="p-2.5 bg-white dark:bg-slate-900 border border-purple-100 dark:border-purple-900/60 rounded-lg font-mono text-[10px] text-slate-700 dark:text-slate-300 select-all break-all max-h-32 overflow-y-auto leading-relaxed whitespace-pre-wrap">請使用終端執行工具...</div>
-            <p id="aiPromptTip" class="text-[10px] text-purple-700 dark:text-purple-300"> 提示：將此 Prompt 複製貼給對話視窗裡的 AI 助理，AI 將呼叫背景命令工具進入 0 Token 靜默待命，任務切換瞬間自動喚醒。</p>
-          </div>
-        </div>
       </div>
 
       <!-- Footer (Pinned) -->
@@ -1036,10 +1119,10 @@
               </div>
             </div>
             <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 flex items-start gap-2.5">
-              <i data-lucide="zap" class="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0"></i>
+              <i data-lucide="cpu" class="w-4 h-4 text-indigo-500 mt-0.5 flex-shrink-0"></i>
               <div>
-                <strong class="text-slate-800 dark:text-slate-200">立即指派 (AI 派工)</strong>
-                <p class="text-slate-500 dark:text-slate-400 mt-0.5">一鍵複製巡檢指令或觸發 AI 開工，將任務直接推入執行管道。</p>
+                <strong class="text-slate-800 dark:text-slate-200">開工引擎 (自動化派工)</strong>
+                <p class="text-slate-500 dark:text-slate-400 mt-0.5">點擊頂部「開工引擎」選單，切換本機 CLI Agent 自動開工或複製 Desktop AI 哨兵 0 Token 即時喚醒 Prompt。</p>
               </div>
             </div>
             <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 flex items-start gap-2.5">
@@ -1053,7 +1136,7 @@
               <i data-lucide="settings" class="w-4 h-4 text-indigo-500 mt-0.5 flex-shrink-0"></i>
               <div>
                 <strong class="text-slate-800 dark:text-slate-200">系統與偏好設定</strong>
-                <p class="text-slate-500 dark:text-slate-400 mt-0.5">自訂資料庫儲存目錄、深淺外觀主題、統一字級調整與切換 CLI Agent / AI 輪巡雙軌開工引擎。</p>
+                <p class="text-slate-500 dark:text-slate-400 mt-0.5">自訂資料庫儲存目錄、深淺外觀主題與統一字級大小調整。</p>
               </div>
             </div>
           </div>
@@ -1554,22 +1637,75 @@
       if (window.lucide) lucide.createIcons();
     }
 
-    function openSettingsModal() {
+    function toggleEnginePopover(e) {
+      if (e) {
+        e.stopPropagation();
+        e.preventDefault();
+      }
+      const popover = document.getElementById('enginePopover');
+      if (!popover) return;
+      if (popover.classList.contains('hidden')) {
+        openEnginePopover();
+      } else {
+        closeEnginePopover();
+      }
+    }
+
+    function openEnginePopover() {
+      const popover = document.getElementById('enginePopover');
+      if (!popover) return;
       const cliCmdEl = document.getElementById('settingCliCommand');
       if (cliCmdEl) cliCmdEl.value = settings.cliCommand || 'hermes';
       const autoEl = document.getElementById('settingAutoTrigger');
       if (autoEl) autoEl.checked = settings.autoTriggerOnInProgress !== false;
+      updateAiPromptDisplay();
+      selectAutomationMode(settings.enableCliAgent ? 'cli' : 'antigravity', false);
+      popover.classList.remove('hidden');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function closeEnginePopover() {
+      const popover = document.getElementById('enginePopover');
+      if (popover) popover.classList.add('hidden');
+    }
+
+    async function saveCliEngineSettings(event) {
+      const btn = event ? event.currentTarget : document.getElementById('btnSaveCliSettings');
+      await withButtonLoading(btn, '儲存中...', async () => {
+        const cliCmdEl = document.getElementById('settingCliCommand');
+        const cliCmd = (cliCmdEl ? cliCmdEl.value.trim() : '') || settings.cliCommand || 'hermes';
+        const autoEl = document.getElementById('settingAutoTrigger');
+        const autoTrigger = autoEl ? autoEl.checked : (settings.autoTriggerOnInProgress !== false);
+        try {
+          const res = await fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              enableCliAgent: true,
+              cliCommand: cliCmd,
+              autoTriggerOnInProgress: autoTrigger,
+              dataDirectoryPath: settings.dataDirectoryPath,
+              fontSize: localStorage.getItem('fontSize') || (settings && settings.fontSize) || 'small',
+              initialized: true
+            })
+          });
+          const updated = await res.json();
+          settings = updated;
+          renderCliAgentBadge();
+          showToast('CLI 開工引擎設定已成功儲存！');
+        } catch (err) {
+          showToast(`儲存失敗: ${err.message}`);
+        }
+      });
+    }
+
+    function openSettingsModal() {
       updateThemeButtons();
       updateFontSizeButtons();
       const pathDisplay = document.getElementById('settingConfigPathDisplay');
       if (pathDisplay) {
         pathDisplay.innerText = settings.dataDirectoryPath || settings.defaultDataDir || '預設專案 data 目錄';
       }
-      updateAiPromptDisplay();
-
-      // 根據當前 settings.enableCliAgent 設定 Pill Tab 初始狀態
-      selectAutomationMode(settings.enableCliAgent ? 'cli' : 'antigravity', false);
-
       document.getElementById('settingsModal').classList.remove('hidden');
       if (window.lucide) lucide.createIcons();
     }
@@ -1581,9 +1717,11 @@
     async function saveSettingsFromModal(event) {
       const btn = event ? event.currentTarget : document.getElementById('btnSaveSettings');
       await withButtonLoading(btn, '儲存中...', async () => {
-        const cliCmd = document.getElementById('settingCliCommand').value.trim() || 'hermes';
-        const autoTrigger = document.getElementById('settingAutoTrigger').checked;
-        const enableAgent = (currentAutomationMode === 'cli');
+        const cliCmdEl = document.getElementById('settingCliCommand');
+        const cliCmd = (cliCmdEl ? cliCmdEl.value.trim() : '') || settings.cliCommand || 'hermes';
+        const autoEl = document.getElementById('settingAutoTrigger');
+        const autoTrigger = autoEl ? autoEl.checked : (settings.autoTriggerOnInProgress !== false);
+        const enableAgent = !!settings.enableCliAgent;
         
         try {
           const res = await fetch('/api/settings', {
@@ -1633,6 +1771,7 @@
       // 切換或選擇專案時：重置下拉選單選項，讓該專案資料夾下的 .github skills 呈現於下拉清單供使用者手動勾選
       initSelect2Dropdown('');
       renderSelect2Chips();
+      updateProxyServerView(proj.id);
     }
 
     function clearFormProject(e) {
@@ -1647,6 +1786,7 @@
       showProjectAutocomplete();
       initSelect2Dropdown('');
       updateProjectClearButtonVisibility('');
+      updateProxyServerView('');
       if (window.lucide) lucide.createIcons();
     }
 
@@ -2818,6 +2958,119 @@
       }
     }
 
+    function getProjectProxyUrl(projId) {
+      if (!projId) return 'http://localhost:3000';
+      const proj = projects.find(p => p.id === projId);
+      if (proj && proj.proxyUrl) return proj.proxyUrl;
+      if (proj && proj.previewUrl) return proj.previewUrl;
+      if (proj && proj.devUrl) return proj.devUrl;
+
+      // 預設常見專案對應
+      if (projId === 'fetnet-eservice-f2e') return 'http://localhost:8082';
+      if (projId === 'tool-static-portal' || projId === 'tool-static-web') return 'http://localhost:8080';
+      if (projId === 'fetnet-digital-f2e' || projId === 'plan-to-build') return 'http://localhost:3000';
+      if (projId === 'task-dashboard') return 'http://localhost:3030';
+      return 'http://localhost:3000';
+    }
+
+    function openExternalUrl(url, event) {
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      if (!url || url === '#' || url === 'javascript:void(0)') return;
+
+      try {
+        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.openExternalUrl) {
+          window.webkit.messageHandlers.openExternalUrl.postMessage(url);
+          return;
+        }
+      } catch (e) {}
+
+      window.open(url, '_blank');
+    }
+
+    function openCurrentProxyUrl(event) {
+      const targetProjId = (document.getElementById('formProject') ? document.getElementById('formProject').value : '') || (currentModalEditingTask && currentModalEditingTask.project);
+      const url = getProjectProxyUrl(targetProjId);
+      openExternalUrl(url, event);
+    }
+
+    function updateProxyServerView(projId) {
+      const targetProjId = projId || (document.getElementById('formProject') ? document.getElementById('formProject').value : '') || (currentModalEditingTask && currentModalEditingTask.project);
+      const proxyUrl = getProjectProxyUrl(targetProjId);
+      const headerBadge = document.getElementById('modalProxyBadge');
+      const headerLink = document.getElementById('modalProxyHeaderLink');
+      const reviewCard = document.getElementById('reviewProxyCard');
+      const reviewLink = document.getElementById('btnOpenProxyServer');
+      const reviewText = document.getElementById('reviewProxyUrlText');
+
+      if (headerLink) {
+        headerLink.href = proxyUrl;
+      }
+      if (reviewLink) {
+        reviewLink.href = proxyUrl;
+      }
+      if (reviewText) {
+        reviewText.innerText = proxyUrl;
+      }
+
+      const status = document.getElementById('formStatus') ? document.getElementById('formStatus').value : '';
+      const taskId = document.getElementById('formTaskId') ? document.getElementById('formTaskId').value : '';
+
+      if (headerBadge) {
+        if (taskId && targetProjId) {
+          headerBadge.classList.remove('hidden');
+          headerBadge.classList.add('flex');
+        } else {
+          headerBadge.classList.add('hidden');
+          headerBadge.classList.remove('flex');
+        }
+      }
+
+      if (reviewCard) {
+        if (status === 'review' && taskId) {
+          reviewCard.classList.remove('hidden');
+        } else {
+          reviewCard.classList.add('hidden');
+        }
+      }
+    }
+
+    async function editProjectProxyUrl(event) {
+      if (event) event.stopPropagation();
+      const projId = document.getElementById('formProject').value || (currentModalEditingTask && currentModalEditingTask.project);
+      if (!projId) {
+        showToast('請先選擇所屬專案');
+        return;
+      }
+      const proj = projects.find(p => p.id === projId) || { id: projId, name: projId };
+      const currentUrl = getProjectProxyUrl(projId);
+      const newUrl = prompt(`請輸入專案【${proj.name}】的 Proxy Server / Web 畫面確認網址：`, currentUrl);
+      if (newUrl === null) return;
+      const trimmed = newUrl.trim();
+      if (!trimmed) return;
+
+      proj.proxyUrl = trimmed;
+
+      try {
+        const res = await fetch(`/api/projects/${encodeURIComponent(projId)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ proxyUrl: trimmed })
+        });
+        if (res.ok) {
+          const updatedProj = await res.json();
+          const pIndex = projects.findIndex(p => p.id === projId);
+          if (pIndex !== -1) projects[pIndex] = updatedProj;
+          showToast(`已更新【${proj.name}】Proxy Server 網址為: ${trimmed}`);
+        }
+      } catch (err) {
+        console.error('Failed to update project proxy url:', err);
+      }
+      updateProxyServerView(projId);
+    }
+
     function updateModalButtonState() {
       const status = document.getElementById('formStatus').value;
       const taskId = document.getElementById('formTaskId').value;
@@ -2859,7 +3112,28 @@
         }
       }
 
+      // 同步更新 Proxy Server 畫面驗證按鈕與卡片狀態
+      updateProxyServerView();
+
       const btnArchiveModal = document.getElementById('btnArchiveTaskModal');
+      const btnCommitModal = document.getElementById('btnCommitTaskModal');
+      const currentProjectVal = document.getElementById('formProject').value || 'task-dashboard';
+      const proj = projects.find(p => p.id === currentProjectVal);
+      const projSkills = (proj && Array.isArray(proj.skills)) ? proj.skills : [];
+      const hasCommitSkill = projSkills.some(s => 
+        (s.id && (s.id.includes('commit') || s.id.includes('git-workflow') || s.id.includes('versioning'))) ||
+        (s.label && (s.label.includes('commit') || s.label.includes('git-workflow'))) ||
+        (s.desc && /commit|conventional/i.test(s.desc))
+      );
+
+      if (btnCommitModal) {
+        if ((status === 'done' || status === 'review') && taskId) {
+          btnCommitModal.classList.remove('hidden');
+          btnCommitModal.title = hasCommitSkill ? '專案配備 Commit 規範技能，點擊開啟 Agent 產出與提交' : '提交 Git Commit 並封存';
+        } else {
+          btnCommitModal.classList.add('hidden');
+        }
+      }
 
       if (status === 'review') {
         btnApprove.classList.remove('hidden');
@@ -2873,7 +3147,6 @@
         if (btnArchiveModal) btnArchiveModal.classList.remove('hidden');
 
         // 檢查是否為該專案最新任務且有未提交之異動
-        const currentProjectVal = document.getElementById('formProject').value || 'task-dashboard';
         const newestDoneTaskIdByProject = {};
         const allDoneTasks = tasks.filter(t => t.status === 'done');
         allDoneTasks.forEach(t => {
@@ -2903,6 +3176,14 @@
         btnSubmit.className = 'bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-indigo-500/25 transition';
       }
       if (window.lucide) lucide.createIcons();
+    }
+
+    function openCommitModalFromTaskModal(event) {
+      if (event) event.stopPropagation();
+      const taskId = document.getElementById('formTaskId').value;
+      if (taskId) {
+        openCommitModal(taskId, event);
+      }
     }
 
     async function saveTask(e) {
@@ -3130,6 +3411,9 @@ ${feedback || '請根據最新的需求進行調整與修復。'}
       });
     }
 
+    let currentCommitAgentPrompt = '';
+    let currentCommitCliCommand = '';
+
     function openCommitModal(id, event) {
       if (event) event.stopPropagation();
       const task = tasks.find(t => t.id === id);
@@ -3137,9 +3421,27 @@ ${feedback || '請根據最新的需求進行調整與修復。'}
 
       const proj = projects.find(p => p.id === task.project);
       const projName = proj ? proj.name : (task.project || '預設專案');
+      const projSkills = (proj && Array.isArray(proj.skills)) ? proj.skills : (task.projectSkills || []);
+      const commitSkill = projSkills.find(s => 
+        (s.id && (s.id.includes('commit') || s.id.includes('git-workflow') || s.id.includes('versioning'))) ||
+        (s.label && (s.label.includes('commit') || s.label.includes('git-workflow'))) ||
+        (s.desc && /commit|conventional/i.test(s.desc))
+      );
 
       document.getElementById('commitTaskId').value = task.id;
       document.getElementById('commitModalSubtitle').innerText = `${task.id} · ${projName}`;
+
+      const skillBanner = document.getElementById('commitSkillBanner');
+      const skillNameText = document.getElementById('commitSkillBadgeText');
+      const skillDescText = document.getElementById('commitSkillDescText');
+
+      if (commitSkill) {
+        if (skillBanner) skillBanner.classList.remove('hidden');
+        if (skillNameText) skillNameText.innerText = `專案已配備 Commit 規範技能：${commitSkill.label || commitSkill.id}`;
+        if (skillDescText) skillDescText.innerText = commitSkill.desc || '遵循 Conventional Commit 格式化標準並自動推導 scope';
+      } else {
+        if (skillBanner) skillBanner.classList.add('hidden');
+      }
 
       // 1. 決定 Type
       let type = '';
@@ -3160,12 +3462,15 @@ ${feedback || '請根據最新的需求進行調整與修復。'}
 
       let cleanTitle = (task.title || 'Update task').replace(/^(feat|fix|refactor|style|perf|test|docs|chore|revert)(\([^)]+\))?:\s*/i, '').trim();
 
-      // 2. 決定 Scope
+      // 2. 決定 Scope (依專案 Skill 建議 scope)
       let scope = '';
-      const descLower = ((task.description || '') + ' ' + (task.title || '') + ' ' + (task.modifiedFiles || []).join(' ')).toLowerCase();
-      if (descLower.includes('order-management') || descLower.includes('訂單') || descLower.includes('order')) scope = 'order';
-      else if (descLower.includes('server') || descLower.includes('後端') || descLower.includes('api')) scope = 'server';
-      else if (descLower.includes('ui') || descLower.includes('樣式') || descLower.includes('畫面') || descLower.includes('按鈕') || descLower.includes('彈窗')) scope = 'ui';
+      const descLower = ((task.description || '') + ' ' + (task.title || '') + ' ' + (task.modifiedFiles || []).map(f => typeof f === 'string' ? f : (f && f.path) ? f.path : '').join(' ')).toLowerCase();
+      if (descLower.includes('src/native') || descLower.includes('.m') || descLower.includes('webkit')) scope = 'native';
+      else if (descLower.includes('server.js') || descLower.includes('src/server') || descLower.includes('後端') || descLower.includes('api')) scope = 'server';
+      else if (descLower.includes('index.html') || descLower.includes('src/public') || descLower.includes('樣式') || descLower.includes('畫面') || descLower.includes('按鈕') || descLower.includes('彈窗') || descLower.includes('ui')) scope = 'ui';
+      else if (descLower.includes('harness') || descLower.includes('test_server.sh') || descLower.includes('scripts/test')) scope = 'harness';
+      else if (descLower.includes('.github/skills') || descLower.includes('skill.md')) scope = 'skills';
+      else if (descLower.includes('order-management') || descLower.includes('訂單') || descLower.includes('order')) scope = 'order';
       else if (descLower.includes('router') || descLower.includes('路由')) scope = 'router';
       else if (descLower.includes('store') || descLower.includes('狀態')) scope = 'store';
       else if (descLower.includes('build') || descLower.includes('打包') || descLower.includes('腳本')) scope = 'build';
@@ -3174,8 +3479,64 @@ ${feedback || '請根據最新的需求進行調整與修復。'}
       document.getElementById('commitSubjectInput').value = subject;
       document.getElementById('commitBodyInput').value = task.description || '';
 
+      currentCommitAgentPrompt = `請依據專案技能「${commitSkill ? (commitSkill.label || commitSkill.id) : 'git-workflow-and-versioning'}」之 Conventional Commit 規範，完成以下任務的提交：\n- 專案路徑: ${(proj && proj.path) ? proj.path : (task.projectPath || '')}\n- 任務 ID: ${task.id}\n- 任務標題: ${task.title}\n- 建議 Commit 標題: ${subject}\n\n建議內文：\n${task.description || '- 更新內容'}\n\n請執行必要驗證並完成 git commit。`;
+
       document.getElementById('commitModal').classList.remove('hidden');
       if (window.lucide) lucide.createIcons();
+    }
+
+    async function generateCommitMessageWithAgent(event) {
+      if (event) event.stopPropagation();
+      const taskId = document.getElementById('commitTaskId').value;
+      if (!taskId) return;
+      const btn = document.getElementById('btnGenerateCommitWithAgent');
+
+      await withButtonLoading(btn, '生成中...', async () => {
+        try {
+          const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/generate-commit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+          });
+          if (!res.ok) throw new Error(`伺服器回應 ${res.status}`);
+          const data = await res.json();
+          if (data.subject) {
+            document.getElementById('commitSubjectInput').value = data.subject;
+          }
+          if (data.body) {
+            document.getElementById('commitBodyInput').value = data.body;
+          }
+          if (data.agentPrompt) {
+            currentCommitAgentPrompt = data.agentPrompt;
+          }
+          if (data.cliCommand) {
+            currentCommitCliCommand = data.cliCommand;
+          }
+          showToast(`已依據專案技能「${data.skillName || 'Commit 規範'}」自動生成 Commit 訊息！`);
+        } catch (err) {
+          showToast(`生成失敗: ${err.message}`);
+        }
+      });
+    }
+
+    function copyCommitAgentPrompt(event) {
+      if (event) event.stopPropagation();
+      const taskId = document.getElementById('commitTaskId').value;
+      const subject = document.getElementById('commitSubjectInput').value.trim();
+      const body = document.getElementById('commitBodyInput').value.trim();
+      const task = tasks.find(t => t.id === taskId);
+      const proj = task ? projects.find(p => p.id === task.project) : null;
+      const projPath = (proj && proj.path) ? proj.path : (task ? task.projectPath || '' : '');
+
+      let promptText = currentCommitAgentPrompt;
+      if (!promptText) {
+        promptText = `請依據專案 Conventional Commit 規範完成以下任務提交：\n- 專案路徑: ${projPath || '本專案'}\n- 任務 ID: ${taskId}\n- Commit 標題: ${subject || 'feat: update'}\n\nCommit 內文:\n${body || '- 更新內容'}\n\n請執行必要驗證並完成 git commit。`;
+      }
+
+      navigator.clipboard.writeText(promptText).then(() => {
+        showToast('已複製 Agent Commit 提示詞至剪貼簿！可直接貼至 AI 對話視窗。');
+      }).catch(() => {
+        showToast('複製失敗，請手動選取複製');
+      });
     }
 
     function closeCommitModal() {
@@ -3804,7 +4165,7 @@ ${task.description || '無詳細說明'}
 
     // 全域鍵盤操作與快捷鍵監聽器
     window.addEventListener('keydown', (e) => {
-      // 1. Esc 關閉所有彈窗與抽屜
+      // 1. Esc 關閉所有彈窗、抽屜與開工引擎選單
       if (e.key === 'Escape') {
         closeModal();
         closeSettingsModal();
@@ -3812,6 +4173,7 @@ ${task.description || '無詳細說明'}
         closeHelpModal();
         closeArchiveModal();
         closeSidebar();
+        closeEnginePopover();
         return;
       }
 
@@ -4022,6 +4384,11 @@ ${task.description || '無詳細說明'}
       const projDropdown = document.getElementById('formProjectDropdown');
       if (projInput && projDropdown && !projInput.contains(e.target) && !projDropdown.contains(e.target)) {
         projDropdown.classList.add('hidden');
+      }
+      const engineContainer = document.getElementById('engineDropdownContainer');
+      const enginePopover = document.getElementById('enginePopover');
+      if (engineContainer && enginePopover && !engineContainer.contains(e.target)) {
+        enginePopover.classList.add('hidden');
       }
     });
 

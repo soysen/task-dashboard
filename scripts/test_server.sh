@@ -33,20 +33,36 @@ for i in {1..10}; do
 done
 
 # 測試 API 響應
-echo "  [1/4] 測試 GET /api/tasks ..."
+echo "  [1/5] 測試 GET /api/tasks ..."
 curl -s -f "http://localhost:$TEST_PORT/api/tasks" > /dev/null
 echo "    ✅ /api/tasks 正常"
 
-echo "  [2/4] 測試 GET /api/projects ..."
+echo "  [2/5] 測試 GET /api/projects ..."
 curl -s -f "http://localhost:$TEST_PORT/api/projects" > /dev/null
 echo "    ✅ /api/projects 正常"
 
-echo "  [3/4] 測試 GET /api/settings ..."
+echo "  [3/5] 測試 GET /api/settings ..."
 curl -s -f "http://localhost:$TEST_PORT/api/settings" > /dev/null
 echo "    ✅ /api/settings 正常"
 
-echo "  [4/4] 測試 GET / (靜態首頁) ..."
+echo "  [4/5] 測試 GET / (靜態首頁) ..."
 curl -s -f "http://localhost:$TEST_PORT/" > /dev/null
 echo "    ✅ 首頁靜態資源託管正常"
+
+echo "  [5/5] 測試 POST /api/tasks (建立任務) 與 generate-commit ..."
+CREATE_RES=$(curl -s -f -X POST "http://localhost:$TEST_PORT/api/tasks" -H "Content-Type: application/json" -d '{"title":"測試 commit 功能","project":"task-dashboard","status":"done","tags":["feat"]}')
+TASK_ID=$(node -e 'const r = JSON.parse(process.argv[1]); console.log(r.id || "");' "$CREATE_RES")
+if [ -n "$TASK_ID" ]; then
+  GEN_RES=$(curl -s -f -X POST "http://localhost:$TEST_PORT/api/tasks/$TASK_ID/generate-commit")
+  if echo "$GEN_RES" | grep -q '"subject"'; then
+    echo "    ✅ /api/tasks/:id/generate-commit 智慧生成正常"
+  else
+    echo "    ❌ /api/tasks/:id/generate-commit 回應異常: $GEN_RES"
+    exit 1
+  fi
+else
+  echo "    ❌ 建立測試任務失敗: $CREATE_RES"
+  exit 1
+fi
 
 echo "🎉 所有 API 整合測試順利通過！"

@@ -228,7 +228,53 @@
         [self.window performZoom:nil];
     } else if ([message.name isEqualToString:@"restartServer"]) {
         [self restartServerAndReload];
+    } else if ([message.name isEqualToString:@"openExternalUrl"]) {
+        if ([message.body isKindOfClass:[NSString class]]) {
+            NSURL *url = [NSURL URLWithString:message.body];
+            if (url) {
+                [[NSWorkspace sharedWorkspace] openURL:url];
+            }
+        }
     }
+}
+
+// 支援外部連結與 target="_blank" 呼叫系統預設瀏覽器開啟 (解決 Proxy Server 驗證連結無反應問題)
+- (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
+    NSURL *url = navigationAction.request.URL;
+    if (!url) {
+        decisionHandler(WKNavigationActionPolicyAllow);
+        return;
+    }
+
+    // 點選 target="_blank" 或新視窗連結
+    if (navigationAction.targetFrame == nil) {
+        [[NSWorkspace sharedWorkspace] openURL:url];
+        decisionHandler(WKNavigationActionPolicyCancel);
+        return;
+    }
+
+    // 非本機主 Dashboard (非 localhost:3030 或 127.0.0.1:3030) 的外部連結或 proxy 網址，一律用系統預設瀏覽器開啟
+    NSString *host = url.host.lowercaseString;
+    NSNumber *port = url.port;
+
+    BOOL isLocalDashboard = (([host isEqualToString:@"localhost"] || [host isEqualToString:@"127.0.0.1"]) &&
+                             (port == nil || [port intValue] == 3030));
+
+    if (!isLocalDashboard && navigationAction.navigationType == WKNavigationTypeLinkActivated) {
+        [[NSWorkspace sharedWorkspace] openURL:url];
+        decisionHandler(WKNavigationActionPolicyCancel);
+        return;
+    }
+
+    decisionHandler(WKNavigationActionPolicyAllow);
+}
+
+// 支援 window.open 與 target="_blank" 建立新視窗請求
+- (WKWebView *)webView:(WKWebView *)webView createWebViewWithConfiguration:(WKWebViewConfiguration *)configuration forNavigationAction:(WKNavigationAction *)navigationAction windowFeatures:(WKWindowFeatures *)windowFeatures {
+    if (navigationAction.request.URL) {
+        [[NSWorkspace sharedWorkspace] openURL:navigationAction.request.URL];
+    }
+    return nil;
 }
 
 - (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error {
@@ -294,6 +340,7 @@
     [userContentController addScriptMessageHandler:self name:@"dragWindow"];
     [userContentController addScriptMessageHandler:self name:@"zoomWindow"];
     [userContentController addScriptMessageHandler:self name:@"restartServer"];
+    [userContentController addScriptMessageHandler:self name:@"openExternalUrl"];
 
     WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
     config.userContentController = userContentController;

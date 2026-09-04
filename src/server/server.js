@@ -1372,6 +1372,42 @@ function runNativeFolderPicker(promptText, callback) {
     return;
   }
 
+  // 更新專案資訊 (例如 proxyUrl, name, description)
+  if ((pathname === '/api/projects' || pathname.startsWith('/api/projects/')) && !pathname.endsWith('/conversations') && req.method === 'PUT') {
+    let projId = (query.id || '').trim();
+    if (!projId && pathname.startsWith('/api/projects/')) {
+      projId = decodeURIComponent(pathname.replace('/api/projects/', '')).trim();
+    }
+    let body = '';
+    req.on('data', chunk => (body += chunk));
+    req.on('end', () => {
+      try {
+        const updateData = JSON.parse(body);
+        const targetId = projId || (updateData.id || '').trim();
+        if (!targetId) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing project ID' }));
+          return;
+        }
+        let projects = readProjects();
+        const idx = projects.findIndex(p => p.id === targetId || p.id === decodeURIComponent(targetId));
+        if (idx === -1) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Project not found' }));
+          return;
+        }
+        projects[idx] = { ...projects[idx], ...updateData, id: projects[idx].id };
+        writeProjects(projects);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(projects[idx]));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+      }
+    });
+    return;
+  }
+
   // 刪除專案 (僅從 Task Dashboard 取消追蹤，不刪除本機實體檔案)
   if ((pathname === '/api/projects' || pathname.startsWith('/api/projects/')) && !pathname.endsWith('/conversations') && req.method === 'DELETE') {
     let projId = (query.id || '').trim();
@@ -1660,15 +1696,76 @@ function runNativeFolderPicker(promptText, callback) {
 
 const GIT_COMMIT_TYPES = ['feat', 'fix', 'refactor', 'perf', 'test', 'chore', 'docs', 'style', 'ci', 'build'];
 
-function formatCommitMessageFromSkill(projPath, task, diffStat, modifiedFiles) {
-  const skillFile = path.join(projPath, '.github/skills/git-workflow-and-versioning/SKILL.md');
-  const promptFile = path.join(projPath, '.github/prompts/commit.prompt.md');
-  let skillName = null;
-  if (fs.existsSync(skillFile)) {
-    skillName = '.github/skills/git-workflow-and-versioning';
-  } else if (fs.existsSync(promptFile)) {
-    skillName = '.github/prompts/commit.prompt.md';
+function findProjectCommitSkill(projPath) {
+  if (!projPath || !fs.existsSync(projPath)) return null;
+
+  // 1. 檢測 .github/skills/
+  const skillsDir = path.join(projPath, '.github', 'skills');
+  if (fs.existsSync(skillsDir)) {
+    try {
+      const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const lowerName = entry.name.toLowerCase();
+          if (lowerName.includes('commit') || lowerName.includes('git-workflow') || lowerName.includes('versioning')) {
+            const skillFile = path.join(skillsDir, entry.name, 'SKILL.md');
+            let desc = '遵循 Conventional Commit 格式化標準';
+            let label = entry.name;
+            if (fs.existsSync(skillFile)) {
+              try {
+                const content = fs.readFileSync(skillFile, 'utf8');
+                const nameM = content.match(/name:\s*([^\n\r]+)/i);
+                const descM = content.match(/description:\s*([^\n\r]+)/i);
+                if (nameM) label = nameM[1].replace(/^["']|["']$/g, '').trim();
+                if (descM) desc = descM[1].replace(/^["']|["']$/g, '').trim();
+              } catch (e) {}
+            }
+            return {
+              hasSkill: true,
+              id: entry.name,
+              label,
+              desc,
+              path: `.github/skills/${entry.name}`,
+              type: 'github_skill'
+            };
+          }
+        }
+      }
+    } catch (e) {}
   }
+
+  // 2. 檢測 .github/prompts/commit.prompt.md
+  const promptFile = path.join(projPath, '.github/prompts/commit.prompt.md');
+  if (fs.existsSync(promptFile)) {
+    return {
+      hasSkill: true,
+      id: 'commit.prompt',
+      label: 'commit.prompt.md',
+      desc: 'GitHub Commit Prompt 規範',
+      path: '.github/prompts/commit.prompt.md',
+      type: 'github_prompt'
+    };
+  }
+
+  // 3. 檢測 scripts/commit.sh
+  const scriptFile = path.join(projPath, 'scripts/commit.sh');
+  if (fs.existsSync(scriptFile)) {
+    return {
+      hasSkill: true,
+      id: 'commit-script',
+      label: 'scripts/commit.sh',
+      desc: '專案自訂 Commit 腳本',
+      path: 'scripts/commit.sh',
+      type: 'script'
+    };
+  }
+
+  return null;
+}
+
+function formatCommitMessageFromSkill(projPath, task, diffStat, modifiedFiles) {
+  const commitSkill = findProjectCommitSkill(projPath);
+  const skillName = commitSkill ? commitSkill.path : null;
 
   const rawTitle = (task.title || 'Update task').trim();
 
@@ -1688,31 +1785,50 @@ function formatCommitMessageFromSkill(projPath, task, diffStat, modifiedFiles) {
     else type = 'feat';
   }
 
-  // 2. 決定 scope (依據 .github/skills 的建議 scope: ui, api, store, router, auth, event, order, report, build, deps, server...)
+  // 2. 決定 scope (依據 .github/skills 的建議 scope: native, server, ui, harness, skills, build, order, api...)
   let scope = '';
-  const filesStr = ((modifiedFiles || []).join(' ') + ' ' + (diffStat || '')).toLowerCase();
-  if (filesStr.includes('order-management') || filesStr.includes('order')) scope = 'order';
-  else if (filesStr.includes('server.js') || filesStr.includes('/server/')) scope = 'server';
-  else if (filesStr.includes('index.html') || filesStr.includes('views') || filesStr.includes('scss') || filesStr.includes('css') || filesStr.includes('component')) scope = 'ui';
+  const filesStr = ((modifiedFiles || []).map(f => typeof f === 'string' ? f : (f && f.path) ? f.path : '').join(' ') + ' ' + (diffStat || '')).toLowerCase();
+  if (filesStr.includes('src/native') || filesStr.includes('.m') || filesStr.includes('webkit')) scope = 'native';
+  else if (filesStr.includes('server.js') || filesStr.includes('src/server')) scope = 'server';
+  else if (filesStr.includes('index.html') || filesStr.includes('src/public') || filesStr.includes('views') || filesStr.includes('component')) scope = 'ui';
+  else if (filesStr.includes('harness') || filesStr.includes('test_server.sh') || filesStr.includes('scripts/test')) scope = 'harness';
+  else if (filesStr.includes('.github/skills') || filesStr.includes('skill.md')) scope = 'skills';
+  else if (filesStr.includes('order-management') || filesStr.includes('order')) scope = 'order';
   else if (filesStr.includes('router')) scope = 'router';
   else if (filesStr.includes('store') || filesStr.includes('redux') || filesStr.includes('vuex')) scope = 'store';
   else if (filesStr.includes('api') || filesStr.includes('service')) scope = 'api';
   else if (filesStr.includes('auth') || filesStr.includes('login') || filesStr.includes('permission')) scope = 'auth';
-  else if (filesStr.includes('package.json') || filesStr.includes('scripts') || filesStr.includes('build')) scope = 'build';
+  else if (filesStr.includes('package.json') || filesStr.includes('scripts/build') || filesStr.includes('build_app')) scope = 'build';
 
   // 3. 處理 subject (去除既有 conventional 前綴，保留乾淨主旨)
   let cleanTitle = rawTitle.replace(/^(feat|fix|refactor|style|perf|test|docs|chore|revert)(\([^)]+\))?:\s*/i, '').trim();
 
   let finalMsg = '';
-  if (skillName && scope) {
-    finalMsg = `${type}(${scope}): ${cleanTitle}`;
-  } else if (scope && !rawTitle.startsWith(`${type}(`)) {
+  if (scope) {
     finalMsg = `${type}(${scope}): ${cleanTitle}`;
   } else {
     finalMsg = `${type}: ${cleanTitle}`;
   }
 
-  return { message: finalMsg, skillName, type, scope };
+  // 4. 產生結構化 Body 項目
+  let bodyLines = [];
+  if (task.description) {
+    const rawLines = task.description.split('\n').map(l => l.trim()).filter(Boolean);
+    for (const line of rawLines) {
+      if (line.startsWith('---')) break; // 忽略歷次回饋區塊
+      if (line.startsWith('-') || line.startsWith('*') || line.startsWith('•')) {
+        bodyLines.push(line);
+      } else if (line.length > 0 && !line.startsWith('#')) {
+        bodyLines.push(`- ${line}`);
+      }
+    }
+  }
+  if (bodyLines.length === 0 && Array.isArray(modifiedFiles) && modifiedFiles.length > 0) {
+    bodyLines = modifiedFiles.map(f => `- 異動模組: ${typeof f === 'string' ? f : (f && f.path) ? f.path : ''}`);
+  }
+  const bodyText = bodyLines.join('\n');
+
+  return { message: finalMsg, skillName, commitSkill, type, scope, body: bodyText };
 }
 
 function formatCommitMessage(task) {
@@ -1887,6 +2003,51 @@ function executeProjectCommit(projPath, task, customData = {}) {
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: true, message: commitOutput, archivedTaskIds: archivedIds }));
+    });
+    return;
+  }
+
+  // 透過 Agent / Skill 產生 Commit Message
+  if (pathname.match(/^\/api\/tasks\/([^/]+)\/generate-commit$/) && (req.method === 'POST' || req.method === 'GET')) {
+    const taskId = decodeURIComponent(pathname.split('/')[3] || '').trim();
+    const tasks = readTasks();
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Task not found' }));
+      return;
+    }
+
+    const projects = readProjects();
+    const proj = projects.find(p => p.id === task.project);
+    const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, task.project || '');
+
+    const commitSkill = findProjectCommitSkill(projPath);
+
+    // 取得當前專案的最新 diff 與 modifiedFiles
+    collectGitDiff(projPath, buildCustomEnv(), (modifiedFiles, diffContent) => {
+      const mergedModified = (modifiedFiles && modifiedFiles.length > 0) ? modifiedFiles : (task.modifiedFiles || []);
+      const { message: subject, type, scope, body, skillName } = formatCommitMessageFromSkill(projPath, task, diffContent, mergedModified);
+
+      const agentPrompt = `請依據專案技能「${skillName || 'git-workflow-and-versioning'}」之 Conventional Commit 規範，完成以下任務的提交：\n\n- 專案路徑: ${projPath}\n- 任務 ID: ${task.id}\n- 任務標題: ${task.title}\n- 建議 Commit 標題: ${subject}\n\n建議內文：\n${body || '- (依實際異動補充)'}\n\n請執行必要驗證並完成 git commit。`;
+
+      const cliCommand = `agy "依據專案技能 ${skillName || 'git-workflow-and-versioning'} 規範提交 commit: ${subject}"`;
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        taskId: task.id,
+        hasSkill: !!commitSkill,
+        skill: commitSkill,
+        skillName: commitSkill ? commitSkill.label : null,
+        skillPath: commitSkill ? commitSkill.path : null,
+        type,
+        scope,
+        subject,
+        body,
+        agentPrompt,
+        cliCommand
+      }));
     });
     return;
   }
