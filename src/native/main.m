@@ -311,6 +311,28 @@
     }];
 }
 
+// 支援 JavaScript window.prompt 原生輸入對話框 (支援修改 Proxy Server 網址等自訂輸入)
+- (void)webView:(WKWebView *)webView runJavaScriptTextInputPanelWithPrompt:(NSString *)prompt defaultText:(NSString *)defaultText initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(NSString * _Nullable result))completionHandler {
+    NSAlert *alert = [[NSAlert alloc] init];
+    alert.messageText = @"設定網址";
+    alert.informativeText = prompt;
+    [alert addButtonWithTitle:@"確定"];
+    [alert addButtonWithTitle:@"取消"];
+    alert.alertStyle = NSAlertStyleInformational;
+
+    NSTextField *input = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 340, 24)];
+    input.stringValue = defaultText ?: @"";
+    alert.accessoryView = input;
+
+    [alert beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse returnCode) {
+        if (returnCode == NSAlertFirstButtonReturn) {
+            completionHandler(input.stringValue);
+        } else {
+            completionHandler(nil);
+        }
+    }];
+}
+
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     [self setupMainMenu];
     [self startServerIfNeeded];

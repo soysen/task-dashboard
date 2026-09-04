@@ -60,3 +60,17 @@ cat << 'PLIST_EOF' > "$APP_DIR/Contents/Info.plist"
 PLIST_EOF
 
 echo "✅ 打包完成！獨立 App 路徑: $APP_DIR"
+
+# 4. 同步更新至本機系統應用程式目錄 (若存在)
+if [ -d "/Applications/TaskDashboard.app" ]; then
+  echo "🚚 同步更新至 /Applications/TaskDashboard.app ..."
+  rm -rf "/Applications/TaskDashboard.app"
+  cp -R "$APP_DIR" "/Applications/"
+fi
+
+if [ -d "$HOME/Desktop/TaskDashboard.app" ]; then
+  echo "🚚 同步更新至 $HOME/Desktop/TaskDashboard.app ..."
+  rm -rf "$HOME/Desktop/TaskDashboard.app"
+  cp -R "$APP_DIR" "$HOME/Desktop/"
+fi
+echo "🎉 原生 macOS 應用程式打包與安裝同步完成！"

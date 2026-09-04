@@ -548,7 +548,7 @@
   </div>
 
   <!-- Commit Message Confirmation & Edit Modal (方式 B) -->
-  <div id="commitModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-4">
+  <div id="commitModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[90] hidden flex items-center justify-center p-3 sm:p-4">
     <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-xl flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100 transition-all">
       <!-- Modal Header -->
       <div class="p-3.5 px-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
@@ -2980,6 +2980,14 @@
       }
       if (!url || url === '#' || url === 'javascript:void(0)') return;
 
+      // 1. 透過後端 Node.js 在 macOS 呼叫原生 open (100% 可穿透 App 外殼與 WebView 沙盒)
+      fetch('/api/open-browser', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      }).catch(() => {});
+
+      // 2. 原生 WebKit MessageHandler 支援
       try {
         if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.openExternalUrl) {
           window.webkit.messageHandlers.openExternalUrl.postMessage(url);
@@ -2987,7 +2995,10 @@
         }
       } catch (e) {}
 
-      window.open(url, '_blank');
+      // 3. 一般瀏覽器 fallback
+      try {
+        window.open(url, '_blank');
+      } catch (e) {}
     }
 
     function openCurrentProxyUrl(event) {
@@ -3126,10 +3137,27 @@
         (s.desc && /commit|conventional/i.test(s.desc))
       );
 
+      // 檢查是否為該專案最新已完成任務且有未提交之異動
+      const newestDoneTaskIdByProject = {};
+      const allDoneTasks = tasks.filter(t => t.status === 'done');
+      allDoneTasks.forEach(t => {
+        const projKey = t.project || 'default';
+        const cur = newestDoneTaskIdByProject[projKey];
+        const tTime = new Date(t.updatedAt || t.createdAt || 0).getTime();
+        if (!cur || tTime > cur.time) {
+          newestDoneTaskIdByProject[projKey] = { id: t.id, time: tTime };
+        }
+      });
+      const isLatestInProj = (!taskId) || (newestDoneTaskIdByProject[currentProjectVal]?.id === taskId);
+      const projGit = projectGitStatus[currentProjectVal];
+      const hasDiff = projGit ? projGit.hasDiff : false;
+
+      // 只有「已完成 (done)」且為該專案最新任務且有異動時，才在彈窗顯示 Commit 按鈕
+      // 尚未驗收 (todo, in_progress, review) 絕不顯示 Commit 按鈕
       if (btnCommitModal) {
-        if ((status === 'done' || status === 'review') && taskId) {
+        if (status === 'done' && isLatestInProj && hasDiff && taskId) {
           btnCommitModal.classList.remove('hidden');
-          btnCommitModal.title = hasCommitSkill ? '專案配備 Commit 規範技能，點擊開啟 Agent 產出與提交' : '提交 Git Commit 並封存';
+          btnCommitModal.title = hasCommitSkill ? '專案配備 Commit 規範技能，點擊開啟 Agent 產出與提交確認' : '點擊開啟 Git Commit 提交確認彈窗';
         } else {
           btnCommitModal.classList.add('hidden');
         }
@@ -3145,29 +3173,8 @@
         btnApprove.classList.add('hidden');
         btnReject.classList.add('hidden');
         if (btnArchiveModal) btnArchiveModal.classList.remove('hidden');
-
-        // 檢查是否為該專案最新任務且有未提交之異動
-        const newestDoneTaskIdByProject = {};
-        const allDoneTasks = tasks.filter(t => t.status === 'done');
-        allDoneTasks.forEach(t => {
-          const projKey = t.project || 'default';
-          const cur = newestDoneTaskIdByProject[projKey];
-          const tTime = new Date(t.updatedAt || t.createdAt || 0).getTime();
-          if (!cur || tTime > cur.time) {
-            newestDoneTaskIdByProject[projKey] = { id: t.id, time: tTime };
-          }
-        });
-        const isLatestInProj = (!taskId) || (newestDoneTaskIdByProject[currentProjectVal]?.id === taskId);
-        const projGit = projectGitStatus[currentProjectVal];
-        const hasDiff = projGit ? projGit.hasDiff : false;
-
-        if (isLatestInProj && hasDiff) {
-          btnSubmit.innerHTML = '<span class="flex items-center gap-1.5"><i data-lucide="git-commit" class="w-3.5 h-3.5"></i> Commit</span>';
-          btnSubmit.className = 'bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-emerald-500/25 transition';
-        } else {
-          btnSubmit.innerHTML = '儲存變更';
-          btnSubmit.className = 'bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-indigo-500/25 transition';
-        }
+        btnSubmit.innerHTML = '儲存變更';
+        btnSubmit.className = 'bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-indigo-500/25 transition';
       } else {
         btnApprove.classList.add('hidden');
         btnReject.classList.add('hidden');
@@ -3229,16 +3236,7 @@
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(taskData)
             });
-            if (status === 'done') {
-              const cRes = await fetch(`/api/tasks/${encodeURIComponent(id)}/commit`, { method: 'POST' });
-              const cData = await cRes.json();
-              const arcMsg = cData.archivedTaskIds && cData.archivedTaskIds.length > 0
-                ? `，已將 ${cData.archivedTaskIds.length} 個已完成任務移入封存庫 `
-                : '';
-              showToast(`任務 ${id} 已成功儲存並執行 Commit${arcMsg}`);
-            } else {
-              showToast(`任務 ${id} 已成功更新！`);
-            }
+            showToast(`任務 ${id} 已成功更新！`);
           } else {
             const res = await fetch('/api/tasks', {
               method: 'POST',
@@ -3568,6 +3566,7 @@ ${feedback || '請根據最新的需求進行調整與修復。'}
             : '';
           showToast(`[${taskId}] Commit 成功！${result.message || ''}${arcMsg}`);
           closeCommitModal();
+          closeModal();
           await loadData();
         } catch (err) {
           showToast(`Commit 失敗: ${err.message}`);

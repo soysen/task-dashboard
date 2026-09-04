@@ -2052,6 +2052,30 @@ function executeProjectCommit(projPath, task, customData = {}) {
     return;
   }
 
+  // 透過後端在 macOS 系統預設瀏覽器開啟指定網址 (解決 App WebKit 限制)
+  if (pathname === '/api/open-browser' && req.method === 'POST') {
+    let reqBody = '';
+    req.on('data', chunk => { reqBody += chunk; });
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(reqBody);
+        const targetUrl = (data.url || '').trim();
+        if (targetUrl && (targetUrl.startsWith('http://') || targetUrl.startsWith('https://'))) {
+          const safeUrl = targetUrl.replace(/"/g, '\\"');
+          exec(`open "${safeUrl}"`, (err) => {
+            if (err) console.error('Failed to open browser:', err);
+          });
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, message: `已在預設瀏覽器開啟 ${targetUrl}` }));
+          return;
+        }
+      } catch (e) {}
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid URL' }));
+    });
+    return;
+  }
+
   // 查詢所有專案的 Git Diff 狀態 (是否有未提交異動)
   if (pathname === '/api/git/projects-status' && req.method === 'GET') {
     const projects = readProjects();
