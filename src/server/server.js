@@ -313,6 +313,688 @@ function scanProjectGithubInfo(projPath) {
   return info;
 }
 
+function parseAgentStatusContent(content, statusFilePath) {
+  const lines = content.split('\n');
+  let currentSection = '';
+
+  const activeFields = {};
+  const completedFields = {};
+  const executionFields = {};
+  const resumeFields = {};
+  const activeUpdatedFiles = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.startsWith('## ')) {
+      currentSection = line.substring(3).trim();
+      continue;
+    }
+
+    if (line.startsWith('- ')) {
+      const colonIdx = line.indexOf(':');
+      const altColonIdx = line.indexOf('：');
+      const idx = (colonIdx !== -1 && altColonIdx !== -1)
+        ? Math.min(colonIdx, altColonIdx)
+        : (colonIdx !== -1 ? colonIdx : altColonIdx);
+
+      if (idx !== -1) {
+        const key = line.substring(2, idx).trim().toLowerCase();
+        const value = line.substring(idx + 1).trim();
+
+        if (currentSection === 'Active Task' || currentSection.includes('活躍任務') || currentSection.includes('進行中任務')) {
+          activeFields[key] = value;
+        } else if (currentSection === 'Last Completed Task' || currentSection.includes('前次完成') || currentSection.includes('最近完成')) {
+          completedFields[key] = value;
+        } else if (currentSection === 'Execution Tracking' || currentSection.includes('執行狀態') || currentSection.includes('執行追蹤')) {
+          executionFields[key] = value;
+        } else if (currentSection === 'Resume Entry' || currentSection.includes('恢復入口') || currentSection.includes('進入點')) {
+          resumeFields[key] = value;
+        }
+      } else if ((currentSection === 'Active Task' || currentSection.includes('活躍任務')) && (line.toLowerCase().startsWith('- updated files:') || line.startsWith('- 異動檔案:') || line.startsWith('- 修改檔案:'))) {
+        let j = i + 1;
+        while (j < lines.length && (lines[j].trim().startsWith('  - ') || lines[j].trim().startsWith('\t- ') || lines[j].trim().startsWith('- '))) {
+          activeUpdatedFiles.push(lines[j].trim().replace(/^[- \t]+/, ''));
+          j++;
+        }
+      }
+    }
+  }
+
+  let rawStatus = (activeFields['status'] || activeFields['狀態'] || 'idle').toLowerCase();
+  let status = 'idle';
+  if (rawStatus.includes('進行中') || rawStatus.includes('in_progress') || rawStatus.includes('inprogress') || rawStatus.includes('in progress') || rawStatus.includes('active') || rawStatus.includes('running') || rawStatus.includes('doing')) status = '進行中';
+  else if (rawStatus.includes('阻塞') || rawStatus.includes('blocked')) status = '阻塞';
+  else if (rawStatus.includes('暫停') || rawStatus.includes('paused')) status = '暫停';
+  else if (rawStatus.includes('需補充輸入') || rawStatus.includes('need_input') || rawStatus.includes('waiting')) status = '需補充輸入';
+  else if (rawStatus.includes('review') || rawStatus.includes('待審查') || rawStatus.includes('待驗收')) status = '待審查';
+  else if (rawStatus.includes('已完成') || rawStatus.includes('done') || rawStatus.includes('completed')) status = '已完成';
+  else if (rawStatus.includes('idle')) status = 'idle';
+
+  const currentStep = executionFields['currentstep'] || executionFields['current step'] || executionFields['當前步驟'] || executionFields['當下切片'] || executionFields['當前進度'] || executionFields['步驟'] || executionFields['step'] || undefined;
+  const evidence = executionFields['evidence'] || executionFields['驗證證據'] || executionFields['驗證'] || activeFields['evidence'] || activeFields['驗證證據'] || undefined;
+  const nextStep = executionFields['nextstep'] || executionFields['next step'] || executionFields['下一步'] || executionFields['下個步驟'] || undefined;
+  const resumeEntry = (resumeFields['start here'] || resumeFields['開始位置'] || resumeFields['入口']) ? `Start here: ${resumeFields['start here'] || resumeFields['開始位置'] || resumeFields['入口']}` : (resumeFields['恢復入口'] || undefined);
+
+  const activeTask = {
+    id: activeFields['id'] || activeFields['任務 id'] || activeFields['任務id'] || 'none',
+    title: activeFields['title'] || activeFields['標題'] || activeFields['名稱'] || 'N/A',
+    status,
+    lastUpdated: activeFields['last updated'] || activeFields['lastupdated'] || activeFields['更新時間'] || activeFields['最後更新'] || 'N/A',
+    goal: activeFields['goal'] || activeFields['目標'] || 'N/A',
+    route: activeFields['route'] || activeFields['路由 (skill route)'] || activeFields['路由'] || activeFields['skill route'] || 'none',
+    taskLevel: activeFields['task level'] || activeFields['level'] || activeFields['等級'] || undefined,
+    currentStep,
+    evidence,
+    nextStep,
+    resumeEntry,
+    updatedFiles: activeUpdatedFiles.length > 0 ? activeUpdatedFiles : undefined
+  };
+
+  let lastCompletedTask = undefined;
+  if ((completedFields['id'] && completedFields['id'] !== 'none') || completedFields['任務 id']) {
+    lastCompletedTask = {
+      id: completedFields['id'] || completedFields['任務 id'] || 'none',
+      title: completedFields['title'] || completedFields['標題'] || 'N/A',
+      status: completedFields['status'] || completedFields['狀態'] || '已完成',
+      lastUpdated: completedFields['last updated'] || completedFields['更新時間'] || 'N/A',
+      goal: completedFields['goal'] || completedFields['目標'] || 'N/A',
+      route: completedFields['route'] || completedFields['路由'] || 'none',
+      taskLevel: completedFields['task level'] || completedFields['等級'],
+      evidence: completedFields['evidence'] || completedFields['驗證證據']
+    };
+  }
+
+  return { activeTask, lastCompletedTask };
+}
+
+function parseBuildPlanContent(content, filePath, fallbackRoute) {
+  const lines = content.split('\n');
+  const h1Line = lines.find(l => l.trim().startsWith('# '));
+  const title = h1Line ? h1Line.trim().replace(/^#\s*/, '').trim() : path.basename(filePath);
+
+  let featureName = undefined;
+  let currentTaskId = undefined;
+  let currentSliceGoal = undefined;
+  let taskCard = undefined;
+
+  let currentH2 = '';
+  let currentH3 = '';
+  let currentH4 = '';
+
+  const explicitSlices = [];
+  const tasks = [];
+  let currentTask = null;
+  let currentExplicitSlice = null;
+  let inTaskCard = false;
+  const taskCardFields = {};
+
+  const isIgnoredH3 = (heading) => {
+    const h = heading.toLowerCase();
+    return (
+      h.includes('未完成任務（優先閱讀）') ||
+      h.includes('已重置任務') ||
+      h.includes('已完成任務（摘要）') ||
+      h.includes('本期包含') ||
+      h.includes('本期不包含') ||
+      h.includes('未完成任務詳情') ||
+      h.includes('已完成任務詳情')
+    );
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i];
+    const trimmed = rawLine.trim();
+
+    if (trimmed.startsWith('## ')) {
+      currentH2 = trimmed.substring(3).trim();
+      currentH3 = '';
+      currentH4 = '';
+      inTaskCard = currentH2.includes('任務卡');
+
+      if (currentExplicitSlice && currentExplicitSlice.title) {
+        explicitSlices.push(currentExplicitSlice);
+        currentExplicitSlice = null;
+      }
+      if (currentTask && currentTask.id) {
+        tasks.push(currentTask);
+        currentTask = null;
+      }
+      continue;
+    }
+
+    if (trimmed.startsWith('### ')) {
+      currentH3 = trimmed.substring(4).trim();
+      currentH4 = '';
+
+      if (currentExplicitSlice && currentExplicitSlice.title) {
+        explicitSlices.push(currentExplicitSlice);
+        currentExplicitSlice = null;
+      }
+      if (currentTask && currentTask.id) {
+        tasks.push(currentTask);
+        currentTask = null;
+      }
+
+      if (isIgnoredH3(currentH3)) {
+        continue;
+      }
+
+      if (/^(切片\s*\d+|slice\s*\d+)/i.test(currentH3)) {
+        let status = '進行中';
+        if (currentH3.includes('[已完成]') || currentH3.includes('(已完成)')) status = '已完成';
+        else if (currentH3.includes('[未開始]') || currentH3.includes('(未開始)')) status = '未開始';
+        else if (currentH3.includes('[阻塞]') || currentH3.includes('(阻塞)')) status = '阻塞';
+
+        currentExplicitSlice = {
+          sliceId: `slice-${explicitSlices.length + 1}`,
+          title: currentH3,
+          status,
+          route: fallbackRoute || 'none'
+        };
+        continue;
+      }
+
+      const taskMatch = currentH3.match(/^(TASK-[A-Za-z0-9_-]+|[A-Za-z0-9_-]+)[：:\s]*(.*)$/i);
+      if (taskMatch) {
+        currentTask = {
+          id: taskMatch[1].trim(),
+          title: taskMatch[2] ? taskMatch[2].trim() : taskMatch[1].trim(),
+          status: '進行中',
+          route: fallbackRoute || 'none',
+          acceptanceCriteria: [],
+          slices: []
+        };
+        continue;
+      }
+      continue;
+    }
+
+    if (trimmed.startsWith('#### ')) {
+      currentH4 = trimmed.substring(5).trim();
+      continue;
+    }
+
+    // 支援 Markdown Checkbox 切片清單: - [x] Slice 1: ..., - [ ] Slice 2: ...
+    const checkboxMatch = trimmed.match(/^-\s*\[([ xX\-~])\]\s*(.*)$/);
+    if (checkboxMatch) {
+      const mark = checkboxMatch[1].toLowerCase();
+      const sliceText = checkboxMatch[2].trim();
+      let status = '未開始';
+      if (mark === 'x') status = '已完成';
+      else if (mark === '-') status = '進行中';
+
+      const isSliceHeading = currentH2.toLowerCase().includes('slice') || currentH2.toLowerCase().includes('切片');
+      const hasSlicePrefix = /^(slice\s*\d+|切片\s*\d+)/i.test(sliceText);
+
+      if (isSliceHeading || hasSlicePrefix) {
+        explicitSlices.push({
+          sliceId: `slice-${explicitSlices.length + 1}`,
+          title: sliceText,
+          status,
+          route: fallbackRoute || 'none',
+          goal: sliceText
+        });
+        continue;
+      }
+    }
+
+    // 支援一般列表式切片: - Slice 1: ...
+    if ((currentH2.toLowerCase().includes('slice') || currentH2.toLowerCase().includes('切片')) && /^- (slice\s*\d+|切片\s*\d+)/i.test(trimmed)) {
+      const sliceText = trimmed.substring(2).trim();
+      let status = '進行中';
+      if (sliceText.includes('[已完成]') || sliceText.includes('(已完成)')) status = '已完成';
+      else if (sliceText.includes('[未開始]') || sliceText.includes('(未開始)')) status = '未開始';
+      explicitSlices.push({
+        sliceId: `slice-${explicitSlices.length + 1}`,
+        title: sliceText,
+        status,
+        route: fallbackRoute || 'none',
+        goal: sliceText
+      });
+      continue;
+    }
+
+    if (trimmed.startsWith('- ')) {
+      const colonIdx = trimmed.indexOf(':');
+      const altColonIdx = trimmed.indexOf('：');
+      const idx = (colonIdx !== -1 && altColonIdx !== -1)
+        ? Math.min(colonIdx, altColonIdx)
+        : (colonIdx !== -1 ? colonIdx : altColonIdx);
+
+      if (idx !== -1) {
+        const rawKey = trimmed.substring(2, idx).replace(/\*\*/g, '').trim().toLowerCase();
+        const value = trimmed.substring(idx + 1).replace(/\*\*/g, '').trim();
+
+        if (rawKey === 'feature name') featureName = value;
+        if (rawKey.includes('目前任務 id') || rawKey.includes('任務 id')) currentTaskId = value;
+        if (rawKey.includes('本輪切片目標') || rawKey.includes('切片目標')) currentSliceGoal = value;
+        if (rawKey === 'skill route' || rawKey === 'skill-route' || rawKey === 'route' || rawKey === '路由') {
+          fallbackRoute = value;
+        }
+
+        if (inTaskCard) {
+          taskCardFields[rawKey] = value;
+        }
+
+        if (currentExplicitSlice) {
+          if (rawKey.includes('目標') || rawKey === 'goal') {
+            currentExplicitSlice.goal = value;
+          } else if (rawKey.includes('route') || rawKey.includes('路由')) {
+            currentExplicitSlice.route = value;
+          } else if (rawKey.includes('boundary') || rawKey.includes('範圍') || rawKey.includes('in/out')) {
+            currentExplicitSlice.boundary = value;
+          } else if (rawKey.includes('驗證') || rawKey.includes('evidence') || rawKey.includes('標準')) {
+            currentExplicitSlice.verification = value;
+          } else if (rawKey.includes('狀態') || rawKey === 'status') {
+            currentExplicitSlice.status = value;
+          }
+        }
+
+        if (currentTask) {
+          if (rawKey.includes('狀態') || rawKey === 'status') currentTask.status = value;
+          else if (rawKey.includes('類型') || rawKey === 'type') currentTask.type = value;
+          else if (rawKey.includes('優先') || rawKey === 'priority') currentTask.priority = value;
+          else if (rawKey.includes('估點') || rawKey === 'estimate') currentTask.estimate = value;
+          else if (rawKey.includes('里程碑') || rawKey === 'milestone') currentTask.milestone = value;
+          else if (rawKey.includes('route') || rawKey.includes('路由')) currentTask.route = value;
+        }
+      }
+    }
+
+    if (currentTask && currentH4.includes('描述') && trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('- 狀態')) {
+      if (!currentTask.description) {
+        currentTask.description = trimmed;
+      } else {
+        currentTask.description += ' ' + trimmed;
+      }
+    }
+
+    if (currentTask && currentH4.includes('驗收標準') && (trimmed.startsWith('- [ ]') || trimmed.startsWith('- [x]'))) {
+      if (!currentTask.acceptanceCriteria) currentTask.acceptanceCriteria = [];
+      currentTask.acceptanceCriteria.push(trimmed.substring(2));
+    }
+
+    if (currentTask && currentH4.includes('切片') && trimmed.startsWith('|') && !trimmed.includes('---')) {
+      const parts = trimmed.split('|').map(p => p.trim()).filter(Boolean);
+      if (parts.length >= 3 && !parts[0].includes('切片') && !parts[0].includes('Slice')) {
+        const sliceId = parts[0];
+        const sliceStatus = parts[1] || '進行中';
+        const sliceGoal = parts[2] || '';
+        const sliceVerification = parts[3] || '';
+
+        const subSlice = {
+          sliceId: `${currentTask.id}-${sliceId}`,
+          title: `[${currentTask.id}] 切片 ${sliceId}`,
+          status: sliceStatus,
+          goal: sliceGoal,
+          verification: sliceVerification,
+          route: currentTask.route || fallbackRoute || 'none'
+        };
+        if (!currentTask.slices) currentTask.slices = [];
+        currentTask.slices.push(subSlice);
+      }
+    }
+  }
+
+  if (currentExplicitSlice && currentExplicitSlice.title) {
+    explicitSlices.push(currentExplicitSlice);
+  }
+  if (currentTask && currentTask.id) {
+    tasks.push(currentTask);
+  }
+
+  if (Object.keys(taskCardFields).length > 0) {
+    taskCard = {
+      goal: taskCardFields['目標'] || taskCardFields['goal'],
+      route: taskCardFields['路由 (skill route)'] || taskCardFields['路由'] || taskCardFields['skill route'] || taskCardFields['route'],
+      inOutScope: taskCardFields['範圍 (in/out)'] || taskCardFields['範圍'] || taskCardFields['scope'] || taskCardFields['in/out'],
+      acceptanceCriteria: taskCardFields['驗收標準'] || taskCardFields['criteria'],
+      evidence: taskCardFields['驗證證據'] || taskCardFields['evidence'],
+      resumeEntry: taskCardFields['阻塞/恢復入口'] || taskCardFields['恢復入口']
+    };
+  }
+
+  let finalSlices = [];
+  if (explicitSlices.length > 0) {
+    finalSlices = explicitSlices;
+  } else {
+    const subSlicesFromTasks = [];
+    for (const t of tasks) {
+      if (t.slices && t.slices.length > 0) {
+        for (const s of t.slices) {
+          if (!s.route || s.route === 'none') {
+            s.route = t.route || (taskCard && taskCard.route) || fallbackRoute || 'none';
+          }
+          subSlicesFromTasks.push(s);
+        }
+      }
+    }
+
+    if (subSlicesFromTasks.length > 0) {
+      finalSlices = subSlicesFromTasks;
+    } else if (tasks.length > 0) {
+      finalSlices = tasks.map(t => ({
+        sliceId: t.id,
+        title: `[${t.id}] ${t.title}`,
+        status: t.status,
+        route: t.route || (taskCard && taskCard.route) || fallbackRoute || 'none',
+        goal: t.description || t.title,
+        description: t.description,
+        verification: t.acceptanceCriteria ? t.acceptanceCriteria.join('; ') : ''
+      }));
+    } else if (taskCard || currentSliceGoal) {
+      finalSlices.push({
+        sliceId: currentTaskId || 'active-slice-1',
+        title: currentSliceGoal ? `當前切片：${currentSliceGoal}` : `任務卡工作切片`,
+        status: '進行中',
+        route: (taskCard && taskCard.route) || fallbackRoute || 'none',
+        goal: (taskCard && taskCard.goal) || currentSliceGoal,
+        boundary: taskCard && taskCard.inOutScope,
+        verification: (taskCard && taskCard.acceptanceCriteria) || (taskCard && taskCard.evidence)
+      });
+    }
+  }
+
+  finalSlices = finalSlices.map(s => ({
+    ...s,
+    route: (s.route && s.route !== 'none') ? s.route : ((taskCard && taskCard.route) || fallbackRoute || 'none')
+  }));
+
+  return {
+    title,
+    filePath,
+    featureName,
+    currentTaskId,
+    currentSliceGoal,
+    taskCard,
+    slices: finalSlices,
+    tasks: tasks.length > 0 ? tasks : undefined
+  };
+}
+
+function scanProjectWorklogAndPlan(projPath, taskId) {
+  if (!projPath || !fs.existsSync(projPath)) return null;
+
+  const statusPath = path.join(projPath, '.github', 'worklog', 'agent-status.md');
+  const hasWorklog = fs.existsSync(statusPath);
+
+  let activeTask = null;
+  let lastCompletedTask = null;
+
+  if (hasWorklog) {
+    try {
+      const content = fs.readFileSync(statusPath, 'utf8');
+      const parsed = parseAgentStatusContent(content, statusPath);
+      activeTask = parsed.activeTask;
+      lastCompletedTask = parsed.lastCompletedTask;
+    } catch (e) {
+      console.error(`Error reading ${statusPath}:`, e);
+    }
+  }
+
+  const planDir = path.join(projPath, '.github', 'harness', 'plan');
+  let activeBuildPlan = null;
+  let buildPlanCount = 0;
+
+  if (fs.existsSync(planDir)) {
+    try {
+      const planFiles = fs.readdirSync(planDir)
+        .filter(f => (f.endsWith('-build-plan.md') || f === 'build-plan.md') && f !== 'README.md');
+      buildPlanCount = planFiles.length;
+
+      if (planFiles.length > 0) {
+        const planFilesWithStats = planFiles.map(f => {
+          const fullPath = path.join(planDir, f);
+          const stat = fs.statSync(fullPath);
+          return { file: f, fullPath, mtimeMs: stat.mtimeMs };
+        }).sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+        let selectedPlan = planFilesWithStats[0].file;
+        const targetId = taskId || (activeTask && activeTask.id !== 'none' ? activeTask.id : (lastCompletedTask ? lastCompletedTask.id : ''));
+
+        if (targetId && targetId !== 'none') {
+          const cleanId = targetId.toLowerCase().replace(/^task-/, '');
+          const matchByFile = planFilesWithStats.find(p => p.file.toLowerCase().includes(cleanId));
+          if (matchByFile) {
+            selectedPlan = matchByFile.file;
+          } else {
+            for (const p of planFilesWithStats) {
+              try {
+                const content = fs.readFileSync(p.fullPath, 'utf8');
+                if (content.toLowerCase().includes(cleanId)) {
+                  selectedPlan = p.file;
+                  break;
+                }
+              } catch (e) {}
+            }
+          }
+        }
+
+        const planPath = path.join(planDir, selectedPlan);
+        const planContent = fs.readFileSync(planPath, 'utf8');
+        const fallbackRoute = (activeTask && activeTask.route !== 'none')
+          ? activeTask.route
+          : (lastCompletedTask && lastCompletedTask.route !== 'none')
+          ? lastCompletedTask.route
+          : undefined;
+
+        activeBuildPlan = parseBuildPlanContent(planContent, planPath, fallbackRoute);
+      }
+    } catch (e) {
+      console.error(`Error reading build plan in ${planDir}:`, e);
+    }
+  }
+
+  if (!hasWorklog && !activeBuildPlan) return null;
+
+  const isTargetActiveTask = activeTask && activeTask.id !== 'none' && (!taskId || activeTask.id.toLowerCase() === taskId.toLowerCase());
+  const effectiveActiveTask = isTargetActiveTask ? activeTask : null;
+
+  let resolvedSliceGoal = (activeBuildPlan && activeBuildPlan.currentSliceGoal && activeBuildPlan.currentSliceGoal !== 'N/A')
+    ? activeBuildPlan.currentSliceGoal
+    : (effectiveActiveTask && effectiveActiveTask.goal && effectiveActiveTask.goal !== 'N/A' ? effectiveActiveTask.goal : undefined);
+
+  if (!resolvedSliceGoal && activeBuildPlan && activeBuildPlan.slices && activeBuildPlan.slices.length > 0) {
+    const activeSlice = activeBuildPlan.slices.find(s => s.status === '進行中') ||
+                        activeBuildPlan.slices.find(s => s.status === '未開始') ||
+                        activeBuildPlan.slices[activeBuildPlan.slices.length - 1];
+    if (activeSlice) {
+      resolvedSliceGoal = activeSlice.title;
+    }
+  }
+
+  let resolvedRoute = (effectiveActiveTask && effectiveActiveTask.route && effectiveActiveTask.route !== 'none')
+    ? effectiveActiveTask.route
+    : (activeBuildPlan && activeBuildPlan.taskCard && activeBuildPlan.taskCard.route && activeBuildPlan.taskCard.route !== 'none')
+    ? activeBuildPlan.taskCard.route
+    : (activeBuildPlan && activeBuildPlan.slices && activeBuildPlan.slices.length > 0 && activeBuildPlan.slices[0].route && activeBuildPlan.slices[0].route !== 'none')
+    ? activeBuildPlan.slices[0].route
+    : fallbackRoute;
+
+  let redoFeedback = null;
+  if (taskId) {
+    try {
+      const allTasks = readTasks();
+      const matched = allTasks.find(t => t.id === taskId);
+      if (matched && matched.status === 'in_progress' && matched.feedback && matched.feedback.trim()) {
+        redoFeedback = matched.feedback.trim();
+        syncProjectWorklogForRedo(projPath, matched);
+      }
+    } catch (_) {}
+  }
+
+  if (redoFeedback) {
+    resolvedSliceGoal = `[退回重做] ${redoFeedback}`;
+  }
+
+  let finalPlanSlices = activeBuildPlan ? [...activeBuildPlan.slices] : [];
+  if (redoFeedback) {
+    const hasRedoSlice = finalPlanSlices.some(s => s.title && s.title.includes(redoFeedback));
+    if (!hasRedoSlice) {
+      finalPlanSlices.push({
+        sliceId: `slice-redo-${finalPlanSlices.length + 1}`,
+        title: `[退回重做] ${redoFeedback}`,
+        status: '進行中',
+        route: resolvedRoute,
+        goal: redoFeedback
+      });
+    }
+  }
+
+  const resolvedCurrentStep = redoFeedback
+    ? `根據審查意見修復：${redoFeedback}`
+    : (effectiveActiveTask ? effectiveActiveTask.currentStep : (activeTask ? activeTask.currentStep : undefined));
+
+  const resolvedEvidence = redoFeedback
+    ? '待退回重做驗證'
+    : (effectiveActiveTask ? effectiveActiveTask.evidence : (activeBuildPlan && activeBuildPlan.taskCard ? activeBuildPlan.taskCard.evidence : (activeTask ? activeTask.evidence : undefined)));
+
+  return {
+    hasWorklog,
+    statusFilePath: hasWorklog ? statusPath : undefined,
+    activeTask: effectiveActiveTask || activeTask || undefined,
+    lastCompletedTask: lastCompletedTask || undefined,
+    currentStep: resolvedCurrentStep,
+    evidence: resolvedEvidence,
+    nextStep: effectiveActiveTask ? effectiveActiveTask.nextStep : (activeTask ? activeTask.nextStep : undefined),
+    resumeEntry: (effectiveActiveTask && effectiveActiveTask.resumeEntry) ? effectiveActiveTask.resumeEntry : (activeBuildPlan && activeBuildPlan.taskCard ? activeBuildPlan.taskCard.resumeEntry : (activeTask && activeTask.resumeEntry ? activeTask.resumeEntry : undefined)),
+    route: resolvedRoute,
+    currentSliceGoal: resolvedSliceGoal,
+    inOutScope: activeBuildPlan && activeBuildPlan.taskCard ? activeBuildPlan.taskCard.inOutScope : undefined,
+    acceptanceCriteria: activeBuildPlan && activeBuildPlan.taskCard ? activeBuildPlan.taskCard.acceptanceCriteria : undefined,
+    slices: finalPlanSlices,
+    planTitle: activeBuildPlan ? activeBuildPlan.title : undefined,
+    planFile: activeBuildPlan ? path.basename(activeBuildPlan.filePath) : undefined,
+    buildPlanCount,
+    updatedFiles: (effectiveActiveTask && effectiveActiveTask.updatedFiles) ? effectiveActiveTask.updatedFiles : ((activeTask && activeTask.updatedFiles) ? activeTask.updatedFiles : [])
+  };
+}
+
+// 根據審查退回重做需求，自動同步更新專案的 agent-status.md 與建置藍圖切片清單
+function syncProjectWorklogForRedo(projPath, task) {
+  if (!projPath || !fs.existsSync(projPath) || !task || !task.feedback) return false;
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const feedbackText = task.feedback.trim();
+  if (!feedbackText) return false;
+
+  let hasUpdated = false;
+
+  // 1. 同步更新 .github/worklog/agent-status.md
+  const statusPath = path.join(projPath, '.github', 'worklog', 'agent-status.md');
+  if (fs.existsSync(statusPath)) {
+    try {
+      let content = fs.readFileSync(statusPath, 'utf8');
+
+      content = content.replace(/(## Active Task[\s\S]*?)(## |$)/, (match, activeSection, nextHeading) => {
+        let updatedSection = activeSection;
+        if (/- Status:.*$/m.test(updatedSection)) {
+          updatedSection = updatedSection.replace(/- Status:.*$/m, `- Status: in_progress`);
+        } else {
+          updatedSection += `\n- Status: in_progress`;
+        }
+
+        if (/- Last updated:.*$/m.test(updatedSection)) {
+          updatedSection = updatedSection.replace(/- Last updated:.*$/m, `- Last updated: ${todayStr}`);
+        }
+
+        if (/- Goal:.*$/m.test(updatedSection)) {
+          updatedSection = updatedSection.replace(/- Goal:.*$/m, `- Goal: [退回重做] ${feedbackText}`);
+        } else {
+          updatedSection += `\n- Goal: [退回重做] ${feedbackText}`;
+        }
+        return updatedSection + nextHeading;
+      });
+
+      content = content.replace(/(## Execution Tracking[\s\S]*?)(## |$)/, (match, execSection, nextHeading) => {
+        let updatedSection = execSection;
+        if (/- CurrentStep:.*$/m.test(updatedSection)) {
+          updatedSection = updatedSection.replace(/- CurrentStep:.*$/m, `- CurrentStep: 根據審查意見修復：${feedbackText}`);
+        } else {
+          updatedSection += `\n- CurrentStep: 根據審查意見修復：${feedbackText}`;
+        }
+
+        if (/- Evidence:.*$/m.test(updatedSection)) {
+          updatedSection = updatedSection.replace(/- Evidence:.*$/m, `- Evidence: 待重做驗證`);
+        }
+
+        if (/- NextStep:.*$/m.test(updatedSection)) {
+          updatedSection = updatedSection.replace(/- NextStep:.*$/m, `- NextStep: 完成修復並通過測試後推入 review 交付審查`);
+        }
+        return updatedSection + nextHeading;
+      });
+
+      fs.writeFileSync(statusPath, content, 'utf8');
+      hasUpdated = true;
+    } catch (e) {
+      console.error('Error updating agent-status.md for redo:', e);
+    }
+  }
+
+  // 2. 同步更新 .github/harness/plan/*-build-plan.md
+  const planDir = path.join(projPath, '.github', 'harness', 'plan');
+  if (fs.existsSync(planDir)) {
+    try {
+      const planFiles = fs.readdirSync(planDir)
+        .filter(f => (f.endsWith('-build-plan.md') || f === 'build-plan.md') && f !== 'README.md');
+
+      if (planFiles.length > 0) {
+        const cleanId = (task.id || '').toLowerCase().replace(/^task-/, '');
+        let targetPlanFile = planFiles.find(f => f.toLowerCase().includes(cleanId));
+        if (!targetPlanFile) {
+          for (const f of planFiles) {
+            try {
+              const c = fs.readFileSync(path.join(planDir, f), 'utf8');
+              if (c.toLowerCase().includes(cleanId) || c.includes(task.id)) {
+                targetPlanFile = f;
+                break;
+              }
+            } catch (_) {}
+          }
+        }
+        if (!targetPlanFile) targetPlanFile = planFiles[0];
+
+        const targetPlanPath = path.join(planDir, targetPlanFile);
+        let planContent = fs.readFileSync(targetPlanPath, 'utf8');
+
+        if (/^- Status:.*$/m.test(planContent)) {
+          planContent = planContent.replace(/^- Status:.*$/m, `- Status: in_progress`);
+        }
+
+        planContent = planContent.replace(/(## 任務卡[\s\S]*?)(## |$)/, (match, cardSection, nextHeading) => {
+          let updatedCard = cardSection;
+          if (/- 目標:.*$/m.test(updatedCard)) {
+            updatedCard = updatedCard.replace(/- 目標:.*$/m, `- 目標: [退回重做] ${feedbackText}`);
+          }
+          return updatedCard + nextHeading;
+        });
+
+        const sliceMatch = planContent.match(/(## Slices[\s\S]*?)(## |$)/);
+        if (sliceMatch) {
+          const slicesSection = sliceMatch[1];
+          const lines = slicesSection.split('\n');
+          const sliceLines = lines.filter(l => l.trim().match(/^-\s*\[([ xX\-~])\]\s*(.*)$/));
+          const nextNum = sliceLines.length + 1;
+          const newSliceLine = `- [-] Slice ${nextNum}: [退回重做] ${feedbackText}`;
+
+          if (!slicesSection.includes(`[退回重做] ${feedbackText}`)) {
+            const trimmedSlices = slicesSection.trimEnd();
+            const newSlicesSection = trimmedSlices + '\n' + newSliceLine + '\n\n';
+            planContent = planContent.replace(sliceMatch[0], newSlicesSection + sliceMatch[2]);
+          }
+        }
+
+        fs.writeFileSync(targetPlanPath, planContent, 'utf8');
+        hasUpdated = true;
+      }
+    } catch (e) {
+      console.error('Error updating build plan for redo:', e);
+    }
+  }
+
+  return hasUpdated;
+}
+
 function scanLocalProjects() {
   const scanned = [];
   try {
@@ -1533,13 +2215,15 @@ function runNativeFolderPicker(promptText, callback) {
       const docs = proj ? (proj.docs || []) : scanProjectGithubInfo(projPath).docs;
       const skills = proj ? (proj.skills || []) : scanProjectGithubInfo(projPath).skills;
       const harness = proj ? (proj.harness || {}) : scanProjectGithubInfo(projPath).harness;
+      const sliceInfo = scanProjectWorklogAndPlan(projPath, t.id);
 
       let item = {
         ...t,
         projectPath: projPath,
         projectDocs: docs,
         projectSkills: skills,
-        projectHarness: harness
+        projectHarness: harness,
+        sliceInfo: sliceInfo || undefined
       };
 
       if (t.status === 'in_progress') {
@@ -1549,9 +2233,17 @@ function runNativeFolderPicker(promptText, callback) {
           item.liveStatus = {
             isRunning: true,
             elapsedSeconds: elapsed,
-            currentAction: proc.lastLine || 'CLI Agent 正在執行中...',
-            liveModifiedFiles: proc.liveModifiedFiles || [],
+            currentAction: proc.lastLine || (sliceInfo && sliceInfo.currentStep) || (sliceInfo && sliceInfo.currentSliceGoal) || 'CLI Agent 正在執行中...',
+            liveModifiedFiles: (proc.liveModifiedFiles && proc.liveModifiedFiles.length > 0) ? proc.liveModifiedFiles : (sliceInfo && sliceInfo.updatedFiles) || [],
             recentTail: (proc.recentLines || []).slice(-20).join('\n')
+          };
+        } else if (sliceInfo) {
+          item.liveStatus = {
+            isRunning: true,
+            elapsedSeconds: 0,
+            currentAction: sliceInfo.currentStep || sliceInfo.currentSliceGoal || 'AI Agent 正在執行切片實作...',
+            liveModifiedFiles: sliceInfo.updatedFiles || [],
+            recentTail: sliceInfo.evidence ? `[驗證證據]\n${sliceInfo.evidence}` : ''
           };
         }
       }
@@ -1660,8 +2352,44 @@ function runNativeFolderPicker(promptText, callback) {
           });
         }
 
+        const projects = readProjects();
+        const proj = projects.find(p => p.id === tasks[index].project);
+        const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, tasks[index].project || '');
+        if (tasks[index].status === 'in_progress' && tasks[index].feedback && tasks[index].feedback.trim()) {
+          syncProjectWorklogForRedo(projPath, tasks[index]);
+        }
+        const sliceInfo = scanProjectWorklogAndPlan(projPath, taskId);
+
+        let responseTask = {
+          ...tasks[index],
+          projectPath: projPath,
+          sliceInfo: sliceInfo || undefined
+        };
+
+        if (tasks[index].status === 'in_progress') {
+          const proc = activeCliProcesses.get(taskId);
+          if (proc) {
+            const elapsed = Math.round((Date.now() - proc.startTime) / 1000);
+            responseTask.liveStatus = {
+              isRunning: true,
+              elapsedSeconds: elapsed,
+              currentAction: proc.lastLine || (sliceInfo && sliceInfo.currentStep) || (sliceInfo && sliceInfo.currentSliceGoal) || 'CLI Agent 正在執行中...',
+              liveModifiedFiles: (proc.liveModifiedFiles && proc.liveModifiedFiles.length > 0) ? proc.liveModifiedFiles : (sliceInfo && sliceInfo.updatedFiles) || [],
+              recentTail: (proc.recentLines || []).slice(-20).join('\n')
+            };
+          } else if (sliceInfo) {
+            responseTask.liveStatus = {
+              isRunning: true,
+              elapsedSeconds: 0,
+              currentAction: sliceInfo.currentStep || sliceInfo.currentSliceGoal || 'AI Agent 正在執行切片實作...',
+              liveModifiedFiles: sliceInfo.updatedFiles || [],
+              recentTail: sliceInfo.evidence ? `[驗證證據]\n${sliceInfo.evidence}` : ''
+            };
+          }
+        }
+
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(tasks[index]));
+        res.end(JSON.stringify(responseTask));
       } catch (err) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Invalid JSON' }));
@@ -1682,6 +2410,25 @@ function runNativeFolderPicker(promptText, callback) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Log not found for ' + taskId }));
     }
+    return;
+  }
+
+  // 取得任務切片詳情 (Active Slice & Build Plan)
+  if (pathname.match(/^\/api\/tasks\/([^/]+)\/slice-info$/) && req.method === 'GET') {
+    const taskId = decodeURIComponent(pathname.split('/')[3] || '').trim();
+    const tasks = readTasks();
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Task not found: ' + taskId }));
+      return;
+    }
+    const projects = readProjects();
+    const proj = projects.find(p => p.id === task.project);
+    const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, task.project || '');
+    const sliceInfo = scanProjectWorklogAndPlan(projPath, task.id);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(sliceInfo || {}));
     return;
   }
 
@@ -2252,8 +2999,18 @@ function executeProjectCommit(projPath, task, customData = {}) {
   });
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(` Task Dashboard Server running at http://localhost:${PORT}`);
-  console.log(` Single Source of Truth: ${ROOT_DIR}`);
-  syncToMarkdown(readTasks());
-});
+if (require.main === module) {
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(` Task Dashboard Server running at http://localhost:${PORT}`);
+    console.log(` Single Source of Truth: ${ROOT_DIR}`);
+    syncToMarkdown(readTasks());
+  });
+}
+
+module.exports = {
+  server,
+  parseAgentStatusContent,
+  parseBuildPlanContent,
+  scanProjectWorklogAndPlan,
+  syncProjectWorklogForRedo
+};

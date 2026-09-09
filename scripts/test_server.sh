@@ -49,7 +49,7 @@ echo "  [4/5] 測試 GET / (靜態首頁) ..."
 curl -s -f "http://localhost:$TEST_PORT/" > /dev/null
 echo "    ✅ 首頁靜態資源託管正常"
 
-echo "  [5/5] 測試 POST /api/tasks (建立任務) 與 generate-commit ..."
+echo "  [5/6] 測試 POST /api/tasks (建立任務) 與 generate-commit ..."
 CREATE_RES=$(curl -s -f -X POST "http://localhost:$TEST_PORT/api/tasks" -H "Content-Type: application/json" -d '{"title":"測試 commit 功能","project":"task-dashboard","status":"done","tags":["feat"]}')
 TASK_ID=$(node -e 'const r = JSON.parse(process.argv[1]); console.log(r.id || "");' "$CREATE_RES")
 if [ -n "$TASK_ID" ]; then
@@ -63,6 +63,12 @@ if [ -n "$TASK_ID" ]; then
 else
   echo "    ❌ 建立測試任務失敗: $CREATE_RES"
   exit 1
+fi
+
+echo "  [6/6] 測試 GET /api/tasks/:id/slice-info ..."
+if [ -n "$TASK_ID" ]; then
+  SLICE_RES=$(curl -s -f "http://localhost:$TEST_PORT/api/tasks/$TASK_ID/slice-info")
+  echo "    ✅ /api/tasks/:id/slice-info 呼叫正常"
 fi
 
 echo "🎉 所有 API 整合測試順利通過！"

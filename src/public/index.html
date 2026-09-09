@@ -633,14 +633,6 @@
             <i data-lucide="terminal" class="w-3 h-3 text-indigo-500"></i>
             <span id="modalSessionIdText"></span>
           </div>
-          <!-- 專案 Proxy Server / Web 畫面確認連結徽章 -->
-          <div id="modalProxyBadge" class="hidden items-center gap-1.5 bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 dark:border-emerald-500/40 px-2.5 py-0.5 rounded-md text-[11px] font-semibold transition flex-shrink-0">
-            <i data-lucide="globe" class="w-3 h-3 text-emerald-500"></i>
-            <a id="modalProxyHeaderLink" href="#" onclick="openCurrentProxyUrl(event)" class="flex items-center gap-1 hover:underline cursor-pointer">
-              <span id="modalProxyHeaderText">Proxy 網頁確認</span>
-              <i data-lucide="external-link" class="w-2.5 h-2.5"></i>
-            </a>
-          </div>
         </div>
         <button onclick="closeModal()" class="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition">
           <i data-lucide="x" class="w-4 h-4"></i>
@@ -657,6 +649,12 @@
           <!-- LEFT COLUMN: 任務基本資訊、標籤、需求說明與審查 Log (可滾動) -->
           <div id="modalLeftColumn" class="flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar">
             
+            <!-- 進行中任務唯讀提示 -->
+            <div id="modalInProgressNotice" class="hidden items-center gap-2 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-700 dark:text-amber-300 text-xs font-medium">
+              <span class="w-2 h-2 rounded-full bg-amber-500 animate-ping flex-shrink-0"></span>
+              <span>任務進行中：所有欄位已鎖定唯讀，避免執行中途產生衝突異動。</span>
+            </div>
+
             <!-- 標題 -->
             <div>
               <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 任務標題</label>
@@ -673,7 +671,7 @@
                   <button type="button" id="formProjectClearBtn" onclick="clearFormProject(event)" title="清除專案選擇" class="absolute right-8 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 opacity-0 pointer-events-none transition-opacity">
                     <i data-lucide="x" class="w-3.5 h-3.5"></i>
                   </button>
-                  <button type="button" onclick="toggleProjectAutocomplete(event)" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                  <button type="button" id="formProjectDropdownBtn" onclick="toggleProjectAutocomplete(event)" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
                     <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
                   </button>
                 </div>
@@ -771,37 +769,6 @@
               <textarea id="formDescription" rows="12" placeholder="描述任務背景、具體需求或待辦重點..." class="w-full bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500 custom-scrollbar"></textarea>
             </div>
 
-            <!-- 待驗收 Proxy Server 畫面驗證卡片 -->
-            <div id="reviewProxyCard" class="hidden bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-indigo-500/10 border border-emerald-500/30 dark:border-emerald-500/40 rounded-xl p-3 space-y-2">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <div class="p-1.5 bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-lg flex-shrink-0">
-                    <i data-lucide="globe" class="w-4 h-4"></i>
-                  </div>
-                  <div class="min-w-0">
-                    <span class="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                      專案 Proxy Server / Web 畫面確認
-                    </span>
-                    <p class="text-[10px] text-slate-500 dark:text-slate-400 truncate">開啟專案本機 Web Proxy Server 進行畫面與功能驗收</p>
-                  </div>
-                </div>
-                <div class="flex items-center gap-1.5 flex-shrink-0">
-                  <button type="button" id="btnOpenProxyServer" onclick="openCurrentProxyUrl(event)" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition">
-                    <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
-                    <span>開啟網頁確認</span>
-                  </button>
-                </div>
-              </div>
-              <div class="flex items-center justify-between text-[10px] font-mono text-slate-600 dark:text-slate-400 bg-white/70 dark:bg-slate-950/70 px-2.5 py-1.5 rounded-lg border border-emerald-500/20">
-                <button type="button" onclick="editProjectProxyUrl(event)" class="group flex items-center gap-1.5 truncate text-left hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer" title="點擊自訂 Proxy Server 網址">
-                  <span class="text-slate-500 dark:text-slate-400 font-sans">目標網址:</span>
-                  <span id="reviewProxyUrlText" class="text-indigo-600 dark:text-indigo-400 font-semibold underline decoration-dotted group-hover:decoration-solid">http://localhost:3000</span>
-                  <i data-lucide="edit-3" class="w-3 h-3 text-slate-400 group-hover:text-indigo-500 opacity-60 group-hover:opacity-100 transition-opacity flex-shrink-0"></i>
-                </button>
-                <span class="text-slate-400 dark:text-slate-500 text-[9px] font-sans flex-shrink-0 hidden sm:inline">點擊網址可自訂</span>
-              </div>
-            </div>
-
             <!-- 審查意見與修改回饋 (Review Feedback) -->
             <div id="reviewFeedbackBox" class="bg-purple-50 dark:bg-[#131b2e] border border-purple-200 dark:border-purple-800/60 rounded-xl p-3 space-y-1.5">
               <div class="flex items-center justify-between">
@@ -811,6 +778,73 @@
                 <span class="text-[10px] text-purple-600 dark:text-purple-400/80"> 退回時自動附上此意見</span>
               </div>
               <textarea id="formFeedback" rows="2" placeholder="如需修改或退回重做，請在此輸入修改意見..." class="w-full bg-white dark:bg-slate-950 border border-purple-200 dark:border-purple-900/80 rounded-lg p-2 text-xs text-purple-900 dark:text-purple-100 placeholder-purple-400 focus:outline-none focus:border-purple-500 custom-scrollbar"></textarea>
+            </div>
+
+            <!-- 工作切片與 Agent 藍圖追蹤 (Active Slice & Build Plan) -->
+            <div id="formSliceInfoBox" class="hidden bg-gradient-to-br from-indigo-50/70 via-purple-50/40 to-cyan-50/40 dark:from-indigo-950/30 dark:via-purple-950/20 dark:to-cyan-950/20 border border-indigo-200 dark:border-indigo-800/60 rounded-xl p-3.5 space-y-3 shadow-sm">
+              <div class="flex items-center justify-between border-b border-indigo-100 dark:border-indigo-900/40 pb-2">
+                <div class="flex items-center gap-2 min-w-0">
+                  <div class="p-1 bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-md flex-shrink-0">
+                    <i data-lucide="layers" class="w-3.5 h-3.5"></i>
+                  </div>
+                  <span class="text-xs font-bold text-indigo-950 dark:text-indigo-200 truncate">
+                    當前工作切片與藍圖追蹤
+                  </span>
+                  <span id="sliceInfoPlanBadge" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-800 truncate max-w-[150px] hidden"></span>
+                </div>
+                <div class="flex items-center gap-1.5 flex-shrink-0">
+                  <span id="sliceInfoRouteBadge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-900 text-cyan-300 border border-slate-800 hidden items-center gap-1">
+                    <i data-lucide="route" class="w-2.5 h-2.5 text-cyan-400"></i>
+                    <span id="sliceInfoRouteText"></span>
+                  </span>
+                  <button type="button" id="btnCopyResumePrompt" onclick="copyResumePromptFromModal(event)" class="hidden items-center gap-1 text-[10px] font-medium bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-0.5 rounded shadow-sm transition cursor-pointer" title="複製 Agent 中斷恢復接續指令">
+                    <i data-lucide="copy" class="w-2.5 h-2.5"></i>
+                    <span>恢復指令</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- 切片目標與範圍卡片 -->
+              <div id="sliceGoalSection" class="space-y-1.5">
+                <div class="flex items-center gap-1.5 text-[11px] font-bold text-indigo-900 dark:text-indigo-300">
+                  <i data-lucide="target" class="w-3 h-3 text-indigo-500 flex-shrink-0"></i>
+                  <span id="sliceGoalLabel">本輪切片目標</span>
+                </div>
+                <p id="sliceGoalContent" class="text-xs text-slate-800 dark:text-slate-200 bg-white/90 dark:bg-slate-900/90 p-2.5 rounded-lg border border-indigo-100 dark:border-indigo-900/50 leading-relaxed font-sans"></p>
+                <div id="sliceInOutScope" class="text-[10px] font-mono text-slate-500 dark:text-slate-400 bg-white/60 dark:bg-slate-950/60 p-2 rounded border border-slate-200 dark:border-slate-800/80 hidden">
+                  <strong class="text-slate-600 dark:text-slate-400">範圍 (In/Out):</strong> <span id="sliceInOutScopeText"></span>
+                </div>
+              </div>
+
+              <!-- 執行追蹤 (CurrentStep / Evidence) -->
+              <div id="sliceTrackingSection" class="space-y-2 pt-0.5 hidden">
+                <div id="sliceCurrentStepBox" class="p-2.5 rounded-lg bg-emerald-500/10 dark:bg-emerald-950/30 border border-emerald-500/30 text-xs hidden">
+                  <div class="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400 font-bold mb-1 text-[11px]">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping flex-shrink-0"></span>
+                    <span>當前步驟 (CurrentStep)</span>
+                  </div>
+                  <p id="sliceCurrentStepText" class="text-emerald-900 dark:text-emerald-200 font-mono text-xs leading-relaxed"></p>
+                </div>
+                <div id="sliceEvidenceBox" class="p-2.5 rounded-lg bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs hidden">
+                  <div class="flex items-center gap-1.5 text-slate-700 dark:text-slate-300 font-bold mb-1 text-[11px]">
+                    <i data-lucide="check-circle" class="w-3 h-3 text-emerald-500 flex-shrink-0"></i>
+                    <span>驗證證據 (Evidence)</span>
+                  </div>
+                  <p id="sliceEvidenceText" class="text-slate-700 dark:text-slate-300 font-mono text-[11px] leading-relaxed whitespace-pre-wrap"></p>
+                </div>
+              </div>
+
+              <!-- 藍圖切片清單 (Slices List) -->
+              <div id="slicePlanListSection" class="space-y-1.5 pt-0.5 hidden">
+                <div class="flex items-center justify-between text-[11px] font-bold text-purple-900 dark:text-purple-300">
+                  <span class="flex items-center gap-1">
+                    <i data-lucide="list-checks" class="w-3 h-3 text-purple-500"></i>
+                    <span>藍圖切片清單</span>
+                  </span>
+                  <span id="sliceCountText" class="text-[10px] font-mono text-purple-600 dark:text-purple-400"></span>
+                </div>
+                <div id="sliceListContainer" class="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar"></div>
+              </div>
             </div>
 
             <!-- 執行紀錄與測試 Log (不加滾軸，直接完整展開) -->
@@ -1772,7 +1806,6 @@
       // 切換或選擇專案時：重置下拉選單選項，讓該專案資料夾下的 .github skills 呈現於下拉清單供使用者手動勾選
       initSelect2Dropdown('');
       renderSelect2Chips();
-      updateProxyServerView(proj.id);
     }
 
     function clearFormProject(e) {
@@ -1787,7 +1820,6 @@
       showProjectAutocomplete();
       initSelect2Dropdown('');
       updateProjectClearButtonVisibility('');
-      updateProxyServerView('');
       if (window.lucide) lucide.createIcons();
     }
 
@@ -1895,7 +1927,10 @@
       document.getElementById('formDependenciesSelect').value = '';
     }
 
+    let isCurrentModalReadOnly = false;
+
     function removeDependency(taskId) {
+      if (isCurrentModalReadOnly) return;
       currentTaskDependencies = currentTaskDependencies.filter(id => id !== taskId);
       renderDependencyChips();
     }
@@ -1911,7 +1946,7 @@
         return `
           <span class="inline-flex items-center gap-1 text-[10px] bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 px-2 py-0.5 rounded-md font-mono">
             <span> ${escapeHtml(depId)}</span>
-            <button type="button" onclick="removeDependency('${depId}')" class="text-indigo-400 hover:text-indigo-600 dark:hover:text-white ml-0.5 font-bold">×</button>
+            ${!isCurrentModalReadOnly ? `<button type="button" onclick="removeDependency('${depId}')" class="text-indigo-400 hover:text-indigo-600 dark:hover:text-white ml-0.5 font-bold">×</button>` : ''}
           </span>
         `;
       }).join('');
@@ -2016,6 +2051,7 @@
     }
 
     function toggleSelect2Dropdown(e) {
+      if (isCurrentModalReadOnly) return;
       if (e) e.stopPropagation();
       const dropdown = document.getElementById('select2Dropdown');
       const input = document.getElementById('select2Input');
@@ -2032,12 +2068,14 @@
     }
 
     function onSelect2Search(val) {
+      if (isCurrentModalReadOnly) return;
       const dropdown = document.getElementById('select2Dropdown');
       if (dropdown) dropdown.classList.remove('hidden');
       initSelect2Dropdown(val);
     }
 
     function onSelect2KeyDown(e) {
+      if (isCurrentModalReadOnly) return;
       if (e.key === 'Enter') {
         e.preventDefault();
         const input = document.getElementById('select2Input');
@@ -2058,6 +2096,7 @@
     }
 
     function select2ToggleOption(tagId) {
+      if (isCurrentModalReadOnly) return;
       if (select2SelectedTags.includes(tagId)) {
         select2SelectedTags = select2SelectedTags.filter(t => t !== tagId);
       } else {
@@ -2071,7 +2110,7 @@
     }
 
     function select2AddTag(tagName) {
-      if (!tagName) return;
+      if (isCurrentModalReadOnly || !tagName) return;
       if (!select2SelectedTags.includes(tagName)) {
         select2SelectedTags.push(tagName);
         syncSelect2ToHiddenInput();
@@ -2080,6 +2119,7 @@
     }
 
     function select2RemoveTag(tagToRemove, e) {
+      if (isCurrentModalReadOnly) return;
       if (e) e.stopPropagation();
       select2SelectedTags = select2SelectedTags.filter(t => t !== tagToRemove);
       syncSelect2ToHiddenInput();
@@ -2121,7 +2161,7 @@
           <span class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md border ${colorClass}">
             ${isProjectSkill ? '<i data-lucide="sparkles" class="w-3 h-3 text-purple-500"></i>' : ''}
             <span>#${escapeHtml(tag)}</span>
-            <button type="button" onclick="select2RemoveTag('${escapeHtml(tag)}', event)" class="text-slate-400 hover:text-slate-700 dark:hover:text-white font-bold ml-0.5">×</button>
+            ${!isCurrentModalReadOnly ? `<button type="button" onclick="select2RemoveTag('${escapeHtml(tag)}', event)" class="text-slate-400 hover:text-slate-700 dark:hover:text-white font-bold ml-0.5">×</button>` : ''}
           </span>
         `;
       }).join('');
@@ -2402,18 +2442,42 @@
 
               ${isInProgress ? `
                 <div class="space-y-1.5 pt-0.5">
-                  <div class="bg-indigo-100/80 dark:bg-indigo-950/60 border border-indigo-300 dark:border-indigo-800/80 rounded-md p-1.5 flex items-center justify-between text-[10px] text-indigo-900 dark:text-indigo-200">
-                    <span class="flex items-center gap-1.5 font-bold">
-                      <span class="relative flex h-2 w-2">
-                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                        <span class="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                  <!-- AI 輪巡中 / CLI 執行中 + 當前工作切片 (一體化精簡區塊) -->
+                  <div class="bg-indigo-50/90 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800/80 rounded-md p-2 space-y-1.5 text-[10px] text-indigo-950 dark:text-indigo-200">
+                    <div class="flex items-center justify-between">
+                      <span class="flex items-center gap-1.5 font-bold text-indigo-900 dark:text-indigo-200">
+                        <span class="relative flex h-2 w-2">
+                          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                          <span class="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                        </span>
+                        ${settings.enableCliAgent ? ` CLI (${settings.cliCommand || 'hermes'}) 執行中` : ` AI 輪巡中`}
                       </span>
-                      ${settings.enableCliAgent ? ` CLI (${settings.cliCommand || 'hermes'}) 執行中` : ` AI 輪巡中`}
-                    </span>
-                    ${settings.enableCliAgent ? `
-                    <span class="text-[9px] font-mono font-bold text-indigo-600 dark:text-indigo-300 bg-indigo-200/60 dark:bg-indigo-900/60 px-1.5 py-0.5 rounded border border-indigo-400/30">
-                       ${formatDuration(t.liveStatus?.elapsedSeconds || 0)}
-                    </span>
+                      <div class="flex items-center gap-1.5">
+                        ${settings.enableCliAgent ? `
+                        <span class="text-[9px] font-mono font-bold text-indigo-600 dark:text-indigo-300 bg-indigo-200/60 dark:bg-indigo-900/60 px-1.5 py-0.5 rounded border border-indigo-400/30">
+                           ${formatDuration(t.liveStatus?.elapsedSeconds || 0)}
+                        </span>
+                        ` : ''}
+                        ${(t.sliceInfo?.slices && t.sliceInfo.slices.length > 0) ? `
+                          <span class="text-[9px] font-mono font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900/80 px-1.5 py-0.5 rounded border border-indigo-300/60 dark:border-indigo-700/60">
+                            ${t.sliceInfo.slices.filter(s => s.status && s.status.includes('已完成')).length}/${t.sliceInfo.slices.length} 切片
+                          </span>
+                        ` : ''}
+                      </div>
+                    </div>
+
+                    ${(t.sliceInfo?.currentSliceGoal || t.sliceInfo?.currentStep) ? `
+                      <div class="bg-white/80 dark:bg-slate-900/80 rounded p-1.5 border border-indigo-100 dark:border-indigo-900/40 text-[10px] space-y-1">
+                        <div class="flex items-center gap-1 text-indigo-900 dark:text-indigo-200 font-medium truncate" title="${escapeHtml(t.sliceInfo.currentSliceGoal || t.sliceInfo.currentStep || '')}">
+                          <i data-lucide="target" class="w-3 h-3 text-indigo-500 flex-shrink-0"></i>
+                          <span class="truncate">${escapeHtml(t.sliceInfo.currentSliceGoal || t.sliceInfo.currentStep || '')}</span>
+                        </div>
+                        ${(t.sliceInfo?.slices && t.sliceInfo.slices.length > 0) ? `
+                          <div class="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1 overflow-hidden">
+                            <div class="bg-indigo-600 h-1 rounded-full transition-all duration-300" style="width: ${Math.round((t.sliceInfo.slices.filter(s => s.status && s.status.includes('已完成')).length / t.sliceInfo.slices.length) * 100)}%"></div>
+                          </div>
+                        ` : ''}
+                      </div>
                     ` : ''}
                   </div>
 
@@ -2557,6 +2621,7 @@
 
       // 新增任務時：隱藏審查回饋區塊
       document.getElementById('reviewFeedbackBox').classList.add('hidden');
+      document.getElementById('formSliceInfoBox')?.classList.add('hidden');
 
       // 清空右欄 Diff 與 Modified Files
       document.getElementById('formModifiedFilesList').innerHTML = '<div class="text-center py-2 text-slate-400 text-xs italic"> 尚未有異動檔案紀錄</div>';
@@ -2570,6 +2635,7 @@
       const logVisual = document.getElementById('formLogVisual');
       if (logVisual) logVisual.innerText = '';
 
+      setModalFieldsReadOnly(false);
       updateModalButtonState();
 
       document.getElementById('taskModal').classList.remove('hidden');
@@ -2578,10 +2644,108 @@
 
     let currentModalEditingTask = null;
 
+    function setModalFieldsReadOnly(isReadOnly) {
+      isCurrentModalReadOnly = !!isReadOnly;
+
+      // 1. 進行中唯讀提示橫幅
+      const notice = document.getElementById('modalInProgressNotice');
+      if (notice) {
+        if (isReadOnly) {
+          notice.classList.remove('hidden');
+          notice.classList.add('flex');
+        } else {
+          notice.classList.add('hidden');
+          notice.classList.remove('flex');
+        }
+      }
+
+      // 2. 所有文字與文字區塊欄位全面 readonly
+      const textInputs = ['formTitle', 'formProjectInput', 'formAssignee', 'formDescription', 'formFeedback', 'select2Input'];
+      textInputs.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.readOnly = isReadOnly;
+          if (isReadOnly) {
+            el.classList.add('bg-slate-100/90', 'dark:bg-slate-800/80', 'cursor-not-allowed', 'text-slate-600', 'dark:text-slate-300');
+          } else {
+            el.classList.remove('bg-slate-100/90', 'dark:bg-slate-800/80', 'cursor-not-allowed', 'text-slate-600', 'dark:text-slate-300');
+          }
+        }
+      });
+
+      // 3. 下拉選單欄位 (select 不支援 readOnly，改以 disabled 鎖定)
+      const selects = ['formDependenciesSelect', 'formPriority', 'formStatus'];
+      selects.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.disabled = isReadOnly;
+          if (isReadOnly) {
+            el.classList.add('bg-slate-100/90', 'dark:bg-slate-800/80', 'cursor-not-allowed', 'opacity-75');
+          } else {
+            el.classList.remove('bg-slate-100/90', 'dark:bg-slate-800/80', 'cursor-not-allowed', 'opacity-75');
+          }
+        }
+      });
+
+      // 4. 專案輔助按鈕
+      const projClearBtn = document.getElementById('formProjectClearBtn');
+      const projDropdownBtn = document.getElementById('formProjectDropdownBtn');
+      if (projClearBtn && isReadOnly) {
+        projClearBtn.classList.add('hidden', 'pointer-events-none');
+      }
+      if (projDropdownBtn) {
+        if (isReadOnly) {
+          projDropdownBtn.classList.add('pointer-events-none', 'opacity-40');
+        } else {
+          projDropdownBtn.classList.remove('pointer-events-none', 'opacity-40');
+        }
+      }
+
+      // 5. Select2 標籤控制項
+      const select2Box = document.getElementById('select2ControlBox');
+      if (select2Box) {
+        if (isReadOnly) {
+          select2Box.classList.add('bg-slate-100/90', 'dark:bg-slate-800/80', 'cursor-not-allowed', 'pointer-events-none');
+        } else {
+          select2Box.classList.remove('bg-slate-100/90', 'dark:bg-slate-800/80', 'cursor-not-allowed', 'pointer-events-none');
+        }
+      }
+
+      // 6. 依賴清單與標籤晶片按鈕重整
+      renderDependencyChips();
+      renderSelect2Chips();
+
+      // 7. 隱藏執行紀錄與測試 Log 區塊 (進行中任務不需顯示)
+      const logBox = document.getElementById('formLogBox');
+      if (logBox && isReadOnly) {
+        logBox.classList.add('hidden');
+      }
+
+      // 8. 儲存與刪除按鈕鎖定 (避免中途異動)
+      const btnSubmit = document.getElementById('btnSubmitTask');
+      const btnDelete = document.getElementById('btnDeleteTask');
+      if (btnSubmit) {
+        if (isReadOnly) {
+          btnSubmit.classList.add('hidden');
+        } else {
+          btnSubmit.classList.remove('hidden');
+        }
+      }
+      if (btnDelete) {
+        if (isReadOnly) {
+          btnDelete.classList.add('hidden');
+        } else if (currentModalEditingTask && currentModalEditingTask.id) {
+          btnDelete.classList.remove('hidden');
+        }
+      }
+    }
+
     function updateModalLiveInProgressView(task) {
       if (!task || task.status !== 'in_progress') return;
       const currentTaskIdInForm = document.getElementById('formTaskId')?.value;
       if (!currentTaskIdInForm || currentTaskIdInForm !== task.id) return;
+
+      renderModalSliceInfo(task);
 
       const modFilesList = document.getElementById('formModifiedFilesList');
       if (modFilesList) {
@@ -2611,19 +2775,10 @@
         }
       }
 
+      // 嚴格規定：進行中任務不需顯示執行紀錄與測試 Log 區塊，維持畫面簡潔並聚焦切片
       const logBox = document.getElementById('formLogBox');
-      const logVisual = document.getElementById('formLogVisual');
-      if (logBox && logVisual) {
-        logBox.classList.remove('hidden');
-        if (task.liveStatus && task.liveStatus.recentTail) {
-          const elapsedStr = formatDuration(task.liveStatus.elapsedSeconds || 0);
-          const header = ` [即時日誌串流] 已執行 ${elapsedStr} | 當前動作: ${task.liveStatus.currentAction || '處理中...'}\n========================================\n\n`;
-          logVisual.innerText = header + task.liveStatus.recentTail;
-        } else if (task.executionLog) {
-          logVisual.innerText = task.executionLog;
-        } else {
-          logVisual.innerText = `[即時狀態]  AI Agent 目前正在背景執行此任務...\n   執行完成後日誌將自動同步更新並推進至「待驗收 (Review)」階段。\n========================================\n\n等待 CLI 輸出...`;
-        }
+      if (logBox) {
+        logBox.classList.add('hidden');
       }
     }
 
@@ -2671,6 +2826,9 @@
       currentTaskDependencies = Array.isArray(task.dependencies) ? [...task.dependencies] : [];
       updateDependencyOptions(task.id);
 
+      // 根據任務狀態設定全域欄位唯讀 (進行中任務所有欄位皆改為 readonly，避免中途異動)
+      setModalFieldsReadOnly(task.status === 'in_progress');
+
       // 右欄：異動檔案清單 (可點選互動過濾 Diff)
       currentActiveTaskDiff = task.diff || '';
       const modFilesList = document.getElementById('formModifiedFilesList');
@@ -2679,7 +2837,21 @@
 
       if (task.status === 'in_progress') {
         updateModalLiveInProgressView(task);
+        // 主動向後端拉取最新動態切片與 agent-status 資訊，確保即時呈現最新切片進度
+        fetch(`/api/tasks/${encodeURIComponent(task.id)}/slice-info?t=${Date.now()}`)
+          .then(res => res.ok ? res.json() : null)
+          .then(sliceInfo => {
+            if (sliceInfo && Object.keys(sliceInfo).length > 0) {
+              task.sliceInfo = sliceInfo;
+              if (currentModalEditingTask && currentModalEditingTask.id === task.id) {
+                renderModalSliceInfo(task);
+                updateModalLiveInProgressView(task);
+              }
+            }
+          })
+          .catch(() => {});
       } else {
+        renderModalSliceInfo(task);
         if (task.modifiedFiles && task.modifiedFiles.length > 0) {
           modFilesList.innerHTML = task.modifiedFiles.map(f => {
             const filePath = typeof f === 'string' ? f : f.path;
@@ -2717,6 +2889,198 @@
 
       document.getElementById('taskModal').classList.remove('hidden');
       if (window.lucide) lucide.createIcons();
+    }
+
+    function renderModalSliceInfo(task) {
+      const box = document.getElementById('formSliceInfoBox');
+      if (!box) return;
+
+      // 嚴格規定：待審核 (review) 或已完成 (done) 畫面中僅保留執行紀錄與測試 log，當前工作切片只保留在進行中 (in_progress) 任務
+      if (!task || task.status !== 'in_progress') {
+        box.classList.add('hidden');
+        return;
+      }
+
+      const sliceInfo = task.sliceInfo;
+      if (!sliceInfo || (!sliceInfo.hasWorklog && (!sliceInfo.slices || sliceInfo.slices.length === 0) && !sliceInfo.currentSliceGoal && !sliceInfo.currentStep && !sliceInfo.planTitle)) {
+        box.classList.add('hidden');
+        return;
+      }
+
+      box.classList.remove('hidden');
+
+      // 1. Plan Title & Badge
+      const planBadge = document.getElementById('sliceInfoPlanBadge');
+      if (planBadge) {
+        if (sliceInfo.planTitle || sliceInfo.planFile) {
+          planBadge.innerText = sliceInfo.planTitle || sliceInfo.planFile;
+          planBadge.classList.remove('hidden');
+        } else {
+          planBadge.classList.add('hidden');
+        }
+      }
+
+      // 2. Route Badge
+      const routeBadge = document.getElementById('sliceInfoRouteBadge');
+      const routeText = document.getElementById('sliceInfoRouteText');
+      if (routeBadge && routeText) {
+        if (sliceInfo.route && sliceInfo.route !== 'none') {
+          routeText.innerText = sliceInfo.route;
+          routeBadge.classList.remove('hidden');
+          routeBadge.classList.add('flex');
+        } else {
+          routeBadge.classList.add('hidden');
+          routeBadge.classList.remove('flex');
+        }
+      }
+
+      // 3. Resume Button
+      const resumeBtn = document.getElementById('btnCopyResumePrompt');
+      if (resumeBtn) {
+        resumeBtn.classList.remove('hidden');
+        resumeBtn.classList.add('flex');
+        resumeBtn.dataset.resume = sliceInfo.resumeEntry || '';
+      }
+
+      // 4. Goal & In/Out Scope
+      const goalContent = document.getElementById('sliceGoalContent');
+      const goalLabel = document.getElementById('sliceGoalLabel');
+      const goalSection = document.getElementById('sliceGoalSection');
+      if (goalContent) {
+        const goal = (sliceInfo.currentSliceGoal && sliceInfo.currentSliceGoal !== 'N/A')
+          ? sliceInfo.currentSliceGoal
+          : (sliceInfo.planTitle ? `藍圖主目標：${sliceInfo.planTitle}` : (sliceInfo.activeTask && sliceInfo.activeTask.goal && sliceInfo.activeTask.goal !== 'N/A' ? sliceInfo.activeTask.goal : ''));
+        if (goal) {
+          goalContent.innerText = goal;
+          goalSection.classList.remove('hidden');
+          if (goalLabel) {
+            goalLabel.innerText = (task.status === 'in_progress' ? '🎯 本輪切片目標' : '📌 切片目標紀錄');
+          }
+        } else {
+          goalSection.classList.add('hidden');
+        }
+      }
+
+      const inOutScope = document.getElementById('sliceInOutScope');
+      const inOutScopeText = document.getElementById('sliceInOutScopeText');
+      if (inOutScope && inOutScopeText) {
+        if (sliceInfo.inOutScope) {
+          inOutScopeText.innerText = sliceInfo.inOutScope;
+          inOutScope.classList.remove('hidden');
+        } else {
+          inOutScope.classList.add('hidden');
+        }
+      }
+
+      // 5. Execution Tracking: CurrentStep & Evidence
+      const trackingSection = document.getElementById('sliceTrackingSection');
+      const currentStepBox = document.getElementById('sliceCurrentStepBox');
+      const currentStepText = document.getElementById('sliceCurrentStepText');
+      const evidenceBox = document.getElementById('sliceEvidenceBox');
+      const evidenceText = document.getElementById('sliceEvidenceText');
+
+      let hasTracking = false;
+      if (currentStepBox && currentStepText) {
+        if (sliceInfo.currentStep) {
+          currentStepText.innerText = sliceInfo.currentStep;
+          currentStepBox.classList.remove('hidden');
+          hasTracking = true;
+        } else {
+          currentStepBox.classList.add('hidden');
+        }
+      }
+
+      if (evidenceBox && evidenceText) {
+        if (sliceInfo.evidence) {
+          evidenceText.innerText = sliceInfo.evidence;
+          evidenceBox.classList.remove('hidden');
+          hasTracking = true;
+        } else {
+          evidenceBox.classList.add('hidden');
+        }
+      }
+
+      if (trackingSection) {
+        if (hasTracking) trackingSection.classList.remove('hidden');
+        else trackingSection.classList.add('hidden');
+      }
+
+      // 6. Build Plan Slices List
+      const planListSection = document.getElementById('slicePlanListSection');
+      const sliceCountText = document.getElementById('sliceCountText');
+      const sliceContainer = document.getElementById('sliceListContainer');
+
+      if (planListSection && sliceContainer) {
+        if (Array.isArray(sliceInfo.slices) && sliceInfo.slices.length > 0) {
+          planListSection.classList.remove('hidden');
+          const completedSlices = sliceInfo.slices.filter(s => s.status && s.status.includes('已完成')).length;
+          if (sliceCountText) {
+            sliceCountText.innerText = `${completedSlices}/${sliceInfo.slices.length} 已完成`;
+          }
+
+          sliceContainer.innerHTML = sliceInfo.slices.map((slice, idx) => {
+            const isDone = slice.status && slice.status.includes('已完成');
+            const isActive = slice.status && (slice.status.includes('進行中') || slice.status.includes('Active'));
+            const isBlocked = slice.status && slice.status.includes('阻塞');
+
+            const statusClass = isDone
+              ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+              : isActive
+              ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/40 animate-pulse'
+              : isBlocked
+              ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30'
+              : 'bg-slate-200/60 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700';
+
+            return `
+              <div class="p-2 bg-white dark:bg-slate-900/90 rounded-lg border border-slate-200 dark:border-slate-800 space-y-1 text-xs">
+                <div class="flex items-center justify-between gap-2 flex-wrap">
+                  <div class="flex items-center gap-1.5 truncate">
+                    <span class="text-[10px] font-mono px-1.5 py-0.2 rounded border ${statusClass}">
+                      ${escapeHtml(slice.status || '未開始')}
+                    </span>
+                    <span class="font-bold text-slate-800 dark:text-slate-200 truncate">${escapeHtml(slice.title || `切片 ${idx + 1}`)}</span>
+                  </div>
+                  ${slice.route && slice.route !== 'none' ? `
+                    <span class="text-[9px] font-mono px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
+                      ${escapeHtml(slice.route)}
+                    </span>
+                  ` : ''}
+                </div>
+                ${slice.goal || slice.description ? `
+                  <p class="text-[11px] text-slate-600 dark:text-slate-400 leading-tight">
+                    ${escapeHtml(slice.goal || slice.description)}
+                  </p>
+                ` : ''}
+                ${slice.boundary ? `
+                  <div class="text-[10px] font-mono text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-950 px-1.5 py-0.5 rounded border border-slate-200/60 dark:border-slate-800">
+                    <strong>邊界:</strong> ${escapeHtml(slice.boundary)}
+                  </div>
+                ` : ''}
+                ${slice.verification ? `
+                  <div class="text-[10px] text-emerald-700 dark:text-emerald-400 bg-emerald-50/50 dark:bg-emerald-950/20 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                    <strong>驗證:</strong> ${escapeHtml(slice.verification)}
+                  </div>
+                ` : ''}
+              </div>
+            `;
+          }).join('');
+        } else {
+          planListSection.classList.add('hidden');
+        }
+      }
+
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function copyResumePromptFromModal(event) {
+      if (event) event.stopPropagation();
+      const btn = document.getElementById('btnCopyResumePrompt');
+      const resume = btn ? btn.dataset.resume : '';
+      if (!resume) return;
+
+      const projectPath = currentModalEditingTask?.projectPath || '';
+      const prompt = `請檢閱當前專案工作切片狀態並繼續執行：\n專案路徑: ${projectPath}\n恢復指令: ${resume}\n請遵循 AGENTS.md 進行漸進式實作。`;
+      copyToClipboard(prompt, '已複製 Agent 恢復接續指令！');
     }
 
     function extractFilePathFromDiffSection(lines) {
@@ -2959,21 +3323,6 @@
       }
     }
 
-    function getProjectProxyUrl(projId) {
-      if (!projId) return 'http://localhost:3000';
-      const proj = projects.find(p => p.id === projId);
-      if (proj && proj.proxyUrl) return proj.proxyUrl;
-      if (proj && proj.previewUrl) return proj.previewUrl;
-      if (proj && proj.devUrl) return proj.devUrl;
-
-      // 預設常見專案對應
-      if (projId === 'fetnet-eservice-f2e') return 'http://localhost:8082';
-      if (projId === 'tool-static-portal' || projId === 'tool-static-web') return 'http://localhost:8080';
-      if (projId === 'fetnet-digital-f2e' || projId === 'plan-to-build') return 'http://localhost:3000';
-      if (projId === 'task-dashboard') return 'http://localhost:3030';
-      return 'http://localhost:3000';
-    }
-
     function openExternalUrl(url, event) {
       if (event) {
         event.preventDefault();
@@ -3000,88 +3349,6 @@
       try {
         window.open(url, '_blank');
       } catch (e) {}
-    }
-
-    function openCurrentProxyUrl(event) {
-      const targetProjId = (document.getElementById('formProject') ? document.getElementById('formProject').value : '') || (currentModalEditingTask && currentModalEditingTask.project);
-      const url = getProjectProxyUrl(targetProjId);
-      openExternalUrl(url, event);
-    }
-
-    function updateProxyServerView(projId) {
-      const targetProjId = projId || (document.getElementById('formProject') ? document.getElementById('formProject').value : '') || (currentModalEditingTask && currentModalEditingTask.project);
-      const proxyUrl = getProjectProxyUrl(targetProjId);
-      const headerBadge = document.getElementById('modalProxyBadge');
-      const headerLink = document.getElementById('modalProxyHeaderLink');
-      const reviewCard = document.getElementById('reviewProxyCard');
-      const reviewLink = document.getElementById('btnOpenProxyServer');
-      const reviewText = document.getElementById('reviewProxyUrlText');
-
-      if (headerLink) {
-        headerLink.href = proxyUrl;
-      }
-      if (reviewLink) {
-        reviewLink.href = proxyUrl;
-      }
-      if (reviewText) {
-        reviewText.innerText = proxyUrl;
-      }
-
-      const status = document.getElementById('formStatus') ? document.getElementById('formStatus').value : '';
-      const taskId = document.getElementById('formTaskId') ? document.getElementById('formTaskId').value : '';
-
-      if (headerBadge) {
-        if (taskId && targetProjId) {
-          headerBadge.classList.remove('hidden');
-          headerBadge.classList.add('flex');
-        } else {
-          headerBadge.classList.add('hidden');
-          headerBadge.classList.remove('flex');
-        }
-      }
-
-      if (reviewCard) {
-        if (status === 'review' && taskId) {
-          reviewCard.classList.remove('hidden');
-        } else {
-          reviewCard.classList.add('hidden');
-        }
-      }
-      if (window.lucide) lucide.createIcons();
-    }
-
-    async function editProjectProxyUrl(event) {
-      if (event) event.stopPropagation();
-      const projId = document.getElementById('formProject').value || (currentModalEditingTask && currentModalEditingTask.project);
-      if (!projId) {
-        showToast('請先選擇所屬專案');
-        return;
-      }
-      const proj = projects.find(p => p.id === projId) || { id: projId, name: projId };
-      const currentUrl = getProjectProxyUrl(projId);
-      const newUrl = prompt(`請輸入專案【${proj.name}】的 Proxy Server / Web 畫面確認網址：`, currentUrl);
-      if (newUrl === null) return;
-      const trimmed = newUrl.trim();
-      if (!trimmed) return;
-
-      proj.proxyUrl = trimmed;
-
-      try {
-        const res = await fetch(`/api/projects/${encodeURIComponent(projId)}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ proxyUrl: trimmed })
-        });
-        if (res.ok) {
-          const updatedProj = await res.json();
-          const pIndex = projects.findIndex(p => p.id === projId);
-          if (pIndex !== -1) projects[pIndex] = updatedProj;
-          showToast(`已更新【${proj.name}】Proxy Server 網址為: ${trimmed}`);
-        }
-      } catch (err) {
-        console.error('Failed to update project proxy url:', err);
-      }
-      updateProxyServerView(projId);
     }
 
     function updateModalButtonState() {
@@ -3124,9 +3391,6 @@
           dialogEl.className = 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-6xl h-[90vh] flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100 transition-all';
         }
       }
-
-      // 同步更新 Proxy Server 畫面驗證按鈕與卡片狀態
-      updateProxyServerView();
 
       const btnArchiveModal = document.getElementById('btnArchiveTaskModal');
       const btnCommitModal = document.getElementById('btnCommitTaskModal');
@@ -3184,6 +3448,14 @@
         btnSubmit.innerHTML = '儲存變更';
         btnSubmit.className = 'bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-indigo-500/25 transition';
       }
+
+      // 進行中任務欄位鎖定唯讀與隱藏日誌
+      if (status === 'in_progress' && taskId) {
+        setModalFieldsReadOnly(true);
+      } else if (status !== 'in_progress') {
+        setModalFieldsReadOnly(false);
+      }
+
       if (window.lucide) lucide.createIcons();
     }
 
@@ -3346,6 +3618,11 @@ ${feedback || '請根據最新的需求進行調整與修復。'}
           if (!res.ok) {
             const errData = await res.json().catch(() => ({}));
             throw new Error(errData.error || `伺服器回應 ${res.status}`);
+          }
+          const updatedTask = await res.json().catch(() => null);
+          if (updatedTask) {
+            const idx = tasks.findIndex(t => t.id === id);
+            if (idx !== -1) tasks[idx] = updatedTask;
           }
 
           showToast(`已將 ${id} 退回「進行中」，並將完整修復指令複製到剪貼簿！`);
@@ -4307,11 +4584,19 @@ ${task.description || '無詳細說明'}
               task.status = toStatus;
               task.updatedAt = new Date().toISOString();
               try {
-                await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
+                const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
                   method: 'PUT',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify(task)
                 });
+                if (res.ok) {
+                  const updatedTask = await res.json();
+                  const idx = tasks.findIndex(t => t.id === taskId);
+                  if (idx !== -1) {
+                    tasks[idx] = updatedTask;
+                  }
+                }
+                renderKanban();
                 renderMetrics();
                 if (toStatus === 'in_progress' && settings.enableCliAgent) {
                   showToast(`已將 ${taskId} 移至進行中，CLI Agent 正在執行...`);
