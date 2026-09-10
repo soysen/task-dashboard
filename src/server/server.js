@@ -732,6 +732,12 @@ function scanProjectWorklogAndPlan(projPath, taskId) {
     }
   }
 
+  const fallbackRoute = (activeTask && activeTask.route && activeTask.route !== 'none')
+    ? activeTask.route
+    : (lastCompletedTask && lastCompletedTask.route && lastCompletedTask.route !== 'none')
+    ? lastCompletedTask.route
+    : undefined;
+
   const planDir = path.join(projPath, '.github', 'harness', 'plan');
   let activeBuildPlan = null;
   let buildPlanCount = 0;
@@ -772,11 +778,6 @@ function scanProjectWorklogAndPlan(projPath, taskId) {
 
         const planPath = path.join(planDir, selectedPlan);
         const planContent = fs.readFileSync(planPath, 'utf8');
-        const fallbackRoute = (activeTask && activeTask.route !== 'none')
-          ? activeTask.route
-          : (lastCompletedTask && lastCompletedTask.route !== 'none')
-          ? lastCompletedTask.route
-          : undefined;
 
         activeBuildPlan = parseBuildPlanContent(planContent, planPath, fallbackRoute);
       }

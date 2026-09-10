@@ -1,6 +1,6 @@
 # 📋 專案任務看板 (Task Dashboard)
 
-> 自動同步自 Task Dashboard 資料庫。最後更新時間：2026-09-09T04:03:33.906Z
+> 自動同步自 Task Dashboard 資料庫。最後更新時間：2026-09-10T02:26:23.733Z
 
 | ID | 標題 | 專案 | 狀態 | 優先級 | 負責人 | 標籤 | 異動檔案數 |
 |---|---|---|---|---|---|---|---|
@@ -17,6 +17,7 @@
 | **TASK-011** | 操作優化 | task-dashboard | `archived` | P1 | Antigravity | feat | 3 |
 | **TASK-012** | 驗證機制優化 | task-dashboard | `archived` | P1 | Antigravity | feat | 1 |
 | **TASK-013** | commit 優化 | task-dashboard | `archived` | P1 | Antigravity | refactor | 3 |
-| **TASK-015** | 引入 agent-status.md | task-dashboard | `review` | P1 | Antigravity | feat | 7 |
+| **TASK-015** | 引入 agent-status.md | task-dashboard | `archived` | P1 | Antigravity | feat | 7 |
 | **TASK-016** | 小網按鈕調整 | fetnet-eservice-f2e | `archived` | P1 | Antigravity | frontend-ui-engineering, fix | 1 |
-| **TASK-017** | 刪除 proxy server 連結 | task-dashboard | `review` | P1 | Antigravity | fix | 7 |
+| **TASK-017** | 刪除 proxy server 連結 | task-dashboard | `archived` | P1 | Antigravity | fix | 7 |
+| **TASK-018** | 調整標題 | fetnet-eservice-f2e | `review` | P1 | Antigravity | fix, frontend-ui-engineering | 1 |
