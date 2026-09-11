@@ -2417,18 +2417,6 @@
 
               ${t.description ? `<p class="text-[11px] text-slate-600 dark:text-slate-400 line-clamp-2 leading-relaxed">${escapeHtml(t.description)}</p>` : ''}
 
-              ${(t.feedback && t.feedback.trim() && (isInProgress || t.status === 'todo')) ? `
-                <div class="bg-amber-500/10 border border-amber-500/30 rounded-md p-2 space-y-1 text-amber-800 dark:text-amber-300 shadow-sm">
-                  <div class="flex items-center gap-1 font-bold text-[10px]">
-                    <i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 flex-shrink-0"></i>
-                    <span> 退回審查意見：</span>
-                  </div>
-                  <p class="text-[11px] font-sans leading-relaxed bg-amber-50/80 dark:bg-amber-950/60 p-1.5 rounded border border-amber-500/20 text-amber-900 dark:text-amber-200">
-                    ${escapeHtml(t.feedback)}
-                  </p>
-                </div>
-              ` : ''}
-
               ${isInProgress ? `
                 <div class="space-y-1.5 pt-0.5">
                   <!-- AI 輪巡中 / CLI 執行中 + 當前工作切片 (一體化精簡區塊) -->

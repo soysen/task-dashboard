@@ -16,14 +16,17 @@ rm -rf "$TEST_DATA_DIR"
 mkdir -p "$TEST_DATA_DIR"
 cp -R "$PROJECT_DIR/data/"* "$TEST_DATA_DIR/"
 
-PORT=$TEST_PORT TASK_DASHBOARD_DATA_DIR="$TEST_DATA_DIR" node "$PROJECT_DIR/src/server/server.js" > "/tmp/server_test.log" 2>&1 &
+PORT=$TEST_PORT TASK_DASHBOARD_DATA_DIR="$TEST_DATA_DIR" node "$PROJECT_DIR/src/server/server.js" </dev/null >/dev/null 2>&1 &
 SERVER_PID=$!
 
 cleanup() {
-  kill -9 $SERVER_PID 2>/dev/null || true
+  if [ -n "$SERVER_PID" ]; then
+    kill -9 "$SERVER_PID" 2>/dev/null || true
+    wait "$SERVER_PID" 2>/dev/null || true
+  fi
   rm -rf "$TEST_DATA_DIR" 2>/dev/null || true
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
 for i in {1..10}; do
   if curl -s "http://localhost:$TEST_PORT/api/settings" > /dev/null 2>&1; then
@@ -65,10 +68,83 @@ else
   exit 1
 fi
 
-echo "  [6/6] 測試 GET /api/tasks/:id/slice-info ..."
+echo "  [6/7] 測試 GET /api/tasks/:id/slice-info 隔離性 ..."
 if [ -n "$TASK_ID" ]; then
   SLICE_RES=$(curl -s -f "http://localhost:$TEST_PORT/api/tasks/$TASK_ID/slice-info")
   echo "    ✅ /api/tasks/:id/slice-info 呼叫正常"
 fi
 
-echo "🎉 所有 API 整合測試順利通過！"
+echo "  [7/7] 測試 多任務 agent-status 與切片隔離單元測試 ..."
+node -e '
+const assert = require("assert");
+const { parseAgentStatusContent, parseBuildPlanContent, scanProjectWorklogAndPlan } = require("./src/server/server.js");
+
+const multiTaskWorklog = `# Agent Status
+
+## Active Task
+- ID: TASK-001
+- Title: 任務一
+- Status: in_progress
+- Last updated: 2026-09-11
+- Goal: 目標一
+
+## Active Tasks
+### [TASK-001]
+- ID: TASK-001
+- Title: 任務一
+- Status: in_progress
+- Last updated: 2026-09-11
+- Goal: 目標一
+- Route: route-1
+- CurrentStep: 步驟一
+
+### [TASK-002]
+- ID: TASK-002
+- Title: 任務二
+- Status: in_progress
+- Last updated: 2026-09-11
+- Goal: 目標二
+- Route: route-2
+- CurrentStep: 步驟二
+`;
+
+// 測試精準隔離
+const parsed001 = parseAgentStatusContent(multiTaskWorklog, "dummy.md", "TASK-001");
+assert.strictEqual(parsed001.activeTask.id, "TASK-001");
+assert.strictEqual(parsed001.activeTask.currentStep, "步驟一");
+
+const parsed002 = parseAgentStatusContent(multiTaskWorklog, "dummy.md", "TASK-002");
+assert.strictEqual(parsed002.activeTask.id, "TASK-002");
+assert.strictEqual(parsed002.activeTask.currentStep, "步驟二");
+
+const parsed003 = parseAgentStatusContent(multiTaskWorklog, "dummy.md", "TASK-003");
+assert.strictEqual(parsed003.activeTask, null);
+
+// 測試切片依 taskId 隔離
+const multiTaskPlan = `# Build Plan
+## 任務卡
+- 目前任務 ID: TASK-001
+- 目標: 目標一
+
+## Slices
+- [x] Slice 1: [TASK-001] 完成設計
+- [-] Slice 2: [TASK-001] 實作功能
+- [-] Slice 3: [TASK-002] 任務二專屬切片
+`;
+
+const plan001 = parseBuildPlanContent(multiTaskPlan, "dummy.md", "fallback", "TASK-001");
+assert.strictEqual(plan001.slices.length, 2);
+assert(plan001.slices.every(s => s.goal.includes("TASK-001")));
+
+const plan002 = parseBuildPlanContent(multiTaskPlan, "dummy.md", "fallback", "TASK-002");
+assert.strictEqual(plan002.slices.length, 1);
+assert(plan002.slices[0].goal.includes("TASK-002"));
+
+console.log("    ✅ agent-status 與 build-plan 多任務 taskId 隔離單元測試通過！");
+'
+
+echo "🎉 所有 API 整合測試與隔離單元測試順利通過！"
+
+kill -9 $SERVER_PID 2>/dev/null || true
+rm -rf "$TEST_DATA_DIR" 2>/dev/null || true
+exit 0

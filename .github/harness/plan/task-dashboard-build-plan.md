@@ -6,12 +6,12 @@
 
 ## 任務卡 (Task Card)
 
-- 目前任務 ID: TASK-020
-- 目標: [退回重做] - commit message 區塊不用顯示，只要驗收完成時有帶入 commit 欄位就好 - 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 目前任務 ID: TASK-021
+- 目標: [退回重做] - 切片與 agent-status 會顯示 feedback 了，任務卡牌上的 feedback 內容可移除
 - 路由: dashboard-state-and-sync
-- 範圍 (In/Out): In: .github/worklog, .github/harness/plan, 看板卡片即時呈現 Skill/Route/Slice/CurrentStep / Out: 跨專案副作用
-- 驗收標準: 看板執行中卡片與彈窗可直觀看見切片目標、進度條、Skill標籤、Route標籤與當前步驟
-- 驗證證據: 6項後端 API 測試通過，harness 檢查合格
+- 範圍 (In/Out): In: src/server/server.js, .github/worklog, .github/harness/plan / Out: 跨專案副作用
+- 驗收標準: 任務進入 in_progress 時及時同步 agent-status，且多任務並行時依 taskId 精準隔離切片與當前步驟，絕不串味
+- 驗證證據: scanProjectWorklogAndPlan 測試通過，harness 檢查合格
 - 阻塞/恢復入口: .github/worklog/agent-status.md
 
 ## Slices
@@ -22,4 +22,6 @@
 - [x] Slice 5: 執行全套測試與 macOS App 打包驗收
 - [x] Slice 6: [退回重做] 退回重做時，切片資訊與 agent-status 未根據 退回重做的需求更新
 - [x] Slice 7: [退回重做] commit message 只是帶入 title 與 description，不是 agent 產出的結果
-- [-] Slice 8: [退回重做] 移除 Commit 預覽與多餘按鈕，驗收完成自動填入 commit 欄位
+- [x] Slice 8: [退回重做] 移除 Commit 預覽與多餘按鈕，驗收完成自動填入 commit 欄位
+- [x] Slice 9: [TASK-021] 重構 server.js 核心解析器，依 taskId 嚴格隔離 agent-status 與切片，實作即時合成與狀態流轉雙向同步
+- [x] Slice 10: [退回重做] 移除看板任務卡牌上的 feedback 區塊，保持畫面簡潔並統一由切片與 agent-status 呈現當前目標
