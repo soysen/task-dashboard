@@ -6,63 +6,8 @@
 
 ## 任務卡 (Task Card)
 
-- 目前任務 ID: TASK-015
-- 目標: [退回重做] - commit message 區塊不用顯示，只要驗收完成時有帶入 commit 欄位就好
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 目前任務 ID: TASK-020
+- 目標: [退回重做] - commit message 區塊不用顯示，只要驗收完成時有帶入 commit 欄位就好 - 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
 - 路由: dashboard-state-and-sync
 - 範圍 (In/Out): In: .github/worklog, .github/harness/plan, 看板卡片即時呈現 Skill/Route/Slice/CurrentStep / Out: 跨專案副作用
 - 驗收標準: 看板執行中卡片與彈窗可直觀看見切片目標、進度條、Skill標籤、Route標籤與當前步驟
@@ -76,7 +21,5 @@
 - [x] Slice 4: 強化看板動態獲取最新切片與 agent-status（PUT 回傳、Modal 即時 fetch、即時渲染）
 - [x] Slice 5: 執行全套測試與 macOS App 打包驗收
 - [x] Slice 6: [退回重做] 退回重做時，切片資訊與 agent-status 未根據 退回重做的需求更新
-- [-] Slice 7: [退回重做] commit message 只是帶入 title 與 description，不是 agent 產出的結果
-- [-] Slice 8: [退回重做] - commit message 區塊不用顯示，只要驗收完成時有帶入 commit 欄位就好
-- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
-
+- [x] Slice 7: [退回重做] commit message 只是帶入 title 與 description，不是 agent 產出的結果
+- [-] Slice 8: [退回重做] 移除 Commit 預覽與多餘按鈕，驗收完成自動填入 commit 欄位
