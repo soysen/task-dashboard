@@ -5,8 +5,63 @@
 - ID: TASK-015
 - Title: 引入 agent-status.md
 - Status: in_progress
-- Last updated: 2026-09-09
-- Goal: [退回重做] 退回重做時，切片資訊與 agent-status 未根據 退回重做的需求更新
+- Last updated: 2026-09-11
+- Goal: [退回重做] - commit message 區塊不用顯示，只要驗收完成時有帶入 commit 欄位就好
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
 - Route: dashboard-state-and-sync
 - Scope: 建立 .github/worklog/agent-status.md 與 .github/harness/plan/，並在退回重做與執行中即時呈現最新切片
 - Out of scope: 修改無關專案之業務邏輯
@@ -20,7 +75,62 @@
 
 ## Execution Tracking
 
-- CurrentStep: 根據審查意見修復：退回重做時，切片資訊與 agent-status 未根據 退回重做的需求更新
+- CurrentStep: 根據審查意見修復：- commit message 區塊不用顯示，只要驗收完成時有帶入 commit 欄位就好
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
+- 移除喚醒哨兵、Agent 產生、複製 prompt 區塊
 - Evidence: 待重做驗證
 - NextStep: 完成修復並通過測試後推入 review 交付審查
 

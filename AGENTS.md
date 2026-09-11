@@ -40,6 +40,7 @@
 2. 更新 `tasks.json`（**全量完整度規範**）：
    - 記錄實際修改檔案 `modifiedFiles`
    - 記錄產生的 `diff`：**必須包含已追蹤 (`git diff HEAD`) 與未追蹤 (`git diff --no-index /dev/null <untracked>`) 檔案之全量完整無截斷 diff**。嚴禁使用 `...` 或占位符文字替代。
+   - **依據 Diff 產出標準 Commit 訊息 (`commitMessage`)**：AI 必須根據收集到的全量 `diff` 與專案 Conventional Commit / .github skills 規範，分析實際異動細節，智慧產出包含主旨與條列內文之結構化 Commit 訊息：`task.commitMessage = { "subject": "<type>(<scope>): <clean_subject>", "body": "- <重點 1>\n- <重點 2>" }`。
    - 填寫詳細的 `executionLog`（包含：檢閱文檔、遵循規範、測試結果）
 3. 標準 Tasks 回寫 Node.js 指令範例：
    ```bash
@@ -55,11 +56,11 @@
      catch(e) { untrackedDiff += "\n\n" + (e.stdout || ""); }
    });
    const fullDiff = tracked + untrackedDiff;
-   // 回寫 tasks.json
+   // 回寫 tasks.json (含 modifiedFiles, diff, executionLog, commitMessage)
    '
    ```
 4. 若本輪處理包含 `task.feedback`，完成前須將 feedback 內容附加寫入 `task.description` 尾端（保留原始需求，並以 `\n\n--- 【歷次審查意見 / Feedback 記錄】 ---\n[Timestamp]\n- <feedback>` 區分歷次回饋），隨後將 `task.feedback` 欄位清空。
-5. 將任務狀態推進為 `status: "review"`。
+5. 將任務狀態推進為 `status: "review"`，並將 `requestCommitGen` 重置為 `false`。
 6. 僅將任務記錄寫入唯一真實資料庫（`~/Library/Application Support/TaskDashboard/tasks.json` 或透過 REST API），**嚴禁覆寫專案倉庫內的 `data/tasks.json` 範本檔案**。同步更新 `dashboard.md`。
 
 ---

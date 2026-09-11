@@ -360,6 +360,14 @@
                   <input type="checkbox" id="settingAutoTrigger" class="rounded text-indigo-600">
                 </div>
 
+                <div class="flex items-center justify-between pt-1 border-t border-indigo-100 dark:border-indigo-900/40">
+                  <div>
+                    <span class="text-[11px] text-slate-600 dark:text-slate-400">依據 Diff 自動產出 Commit Message</span>
+                    <p class="text-[9px] text-slate-400">推入 Review 或提交時，自動由 Agent 分析 Diff 產出 Commit</p>
+                  </div>
+                  <input type="checkbox" id="settingAutoCommitGen" class="rounded text-indigo-600" checked>
+                </div>
+
                 <div class="pt-1 flex justify-end">
                   <button type="button" id="btnSaveCliSettings" onclick="saveCliEngineSettings(event)" class="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shadow-sm transition">
                     儲存 CLI 設定
@@ -374,7 +382,7 @@
                     <span class="text-xs font-bold text-purple-950 dark:text-purple-200 flex items-center gap-1.5">
                       <i data-lucide="shield-check" class="w-3.5 h-3.5 text-purple-600 dark:text-purple-400"></i> 哨兵待命 (0 Token 即時喚醒)
                     </span>
-                    <p class="text-[10px] text-slate-500 dark:text-slate-400">透過 watch-task-gate.js 背景守候，任務切換時喚醒</p>
+                    <p class="text-[10px] text-slate-500 dark:text-slate-400">透過 watch-task-gate.js 支援 in_progress 開工與 Diff 產出 Commit</p>
                   </div>
                   <button type="button" onclick="copyAiInspectionPrompt()" class="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 transition shadow-sm flex-shrink-0">
                     <i data-lucide="copy" class="w-3 h-3"></i> 複製 Prompt
@@ -570,31 +578,6 @@
       <div class="p-5 space-y-4">
         <input type="hidden" id="commitTaskId">
 
-        <!-- Skill & Agent Trigger Banner (若專案具備 git-commit skill 時顯示) -->
-        <div id="commitSkillBanner" class="p-3 bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-xl space-y-2">
-          <div class="flex items-center justify-between gap-2">
-            <div class="flex items-center gap-2 min-w-0">
-              <span class="p-1.5 bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-lg flex-shrink-0">
-                <i data-lucide="sparkles" class="w-4 h-4"></i>
-              </span>
-              <div class="min-w-0">
-                <span id="commitSkillBadgeText" class="text-xs font-bold text-emerald-900 dark:text-emerald-200 block truncate">專案已配備 Commit 規範技能</span>
-                <p id="commitSkillDescText" class="text-[10px] text-emerald-700/80 dark:text-emerald-400/80 truncate">遵循 Conventional Commit 格式化標準並自動推導 scope</p>
-              </div>
-            </div>
-            <div class="flex items-center gap-1.5 flex-shrink-0">
-              <button id="btnGenerateCommitWithAgent" type="button" onclick="generateCommitMessageWithAgent(event)" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-sm" title="透過 Agent / Skill 規範自動推導產生 Commit 訊息">
-                <i data-lucide="bot" class="w-3.5 h-3.5"></i>
-                <span>Agent 產出</span>
-              </button>
-              <button id="btnCopyCommitAgentPrompt" type="button" onclick="copyCommitAgentPrompt(event)" class="px-2 py-1 bg-slate-200/90 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-medium flex items-center gap-1 transition shadow-xs" title="複製 Agent 提交 Prompt 貼給對話視窗 AI">
-                <i data-lucide="copy" class="w-3 h-3"></i>
-                <span>複製 Prompt</span>
-              </button>
-            </div>
-          </div>
-        </div>
-        
         <div>
           <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Commit 標題 (Subject)</label>
           <input type="text" id="commitSubjectInput" class="w-full h-9 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:border-emerald-500 transition" placeholder="feat(order): 新增訂單管理介面">
@@ -894,7 +877,6 @@
               </div>
               <input type="hidden" id="formDiff">
             </div>
-
           </div>
         </div>
 
@@ -1414,9 +1396,11 @@
         
         const cliEl = document.getElementById('settingEnableCliAgent');
         const autoEl = document.getElementById('settingAutoTrigger');
+        const autoCommitEl = document.getElementById('settingAutoCommitGen');
         const cliCmdEl = document.getElementById('settingCliCommand');
         if (cliEl) cliEl.checked = !!settings.enableCliAgent;
         if (autoEl) autoEl.checked = settings.autoTriggerOnInProgress !== false;
+        if (autoCommitEl) autoCommitEl.checked = settings.autoCommitGen !== false;
         if (cliCmdEl && !cliCmdEl.value) cliCmdEl.value = settings.cliCommand || 'hermes';
         renderCliAgentBadge();
 
@@ -1513,14 +1497,14 @@
 
       let promptText = '';
       if (currentDesktopAgentTarget === 'antigravity') {
-        promptText = `請使用 run_command 工具在背景執行以下指令以啟動任務哨兵待命：\nnode "${gateScriptPath}"\n\n【運作機制與開工指示】：\n1. 該腳本將在背景靜默等待（0 Token 消耗）。當 tasks.json 出現 status === "in_progress" 任務時將立即 exit(0)，系統會透過 Reactive Wakeup 自動喚醒本對話視窗。\n2. 喚醒後請嚴格依序執行 3-Phase Gate：\n   - Phase 1 (Pre-Flight)：優先讀取 task.feedback、AGENTS.md、CLAUDE.md，執行前置驗證與 harness 指令。\n   - Phase 2 (Implementation)：遵循專案規範修改代碼並補齊測試，嚴禁產生跨專案副作用。\n   - Phase 3 (Review Promotion)：執行專案測試，收集包含已追蹤 (git diff HEAD) 與未追蹤 (diff --no-index /dev/null) 檔案之全量 diff，更新 tasks.json 並推入 review。\n3. 完成並推入 review 後，請再次呼叫 run_command 執行上述指令重新掛起待命，形成自動化閉環。`;
+        promptText = `請使用 run_command 工具在背景執行以下指令以啟動任務哨兵待命：\nnode "${gateScriptPath}"\n\n【運作機制與開工指示】：\n1. 該腳本在背景靜默等待（0 Token 消耗）。當 tasks.json 出現 status === "in_progress" 任務或 requestCommitGen === true 時將立即 exit(0)，系統會透過 Reactive Wakeup 自動喚醒本對話視窗。\n2. 喚醒後請依情境執行：\n   - 情境 A (in_progress 開工)：嚴格依序執行 3-Phase Gate：\n     - Phase 1 (Pre-Flight)：優先讀取 task.feedback、AGENTS.md、CLAUDE.md，執行前置驗證與 harness 指令。\n     - Phase 2 (Implementation)：遵循專案規範修改代碼並補齊測試，嚴禁產生跨專案副作用。\n     - Phase 3 (Review Promotion & Commit 訊息產出)：執行專案測試，收集全量 diff (含已追蹤與未追蹤)。依據實際 diff 與專案規範智慧產出 commitMessage ({ subject, body })，連同 modifiedFiles, diff 與 executionLog 更新 tasks.json 並推入 review。\n   - 情境 B (requestCommitGen 請求產出 Commit 訊息)：\n     - 讀取目標專案工作區全量 diff 與任務需求，依專案 Conventional Commit 規範產出 commitMessage ({ subject, body }) 寫入 tasks.json，並將 requestCommitGen 清除為 false。\n3. 完成後，請再次呼叫 run_command 執行上述指令重新掛起待命，形成自動化閉環。`;
       } else if (currentDesktopAgentTarget === 'claude') {
-        promptText = `請使用 bash / execute_command 工具在背景執行以下指令以啟動任務哨兵待命：\nnode "${gateScriptPath}"\n\n【運作機制與開工指示】：\n1. 該腳本在背景靜默等待檔案異動，當 tasks.json 出現 status === "in_progress" 時將退出行程以喚醒你（0 Token 待命）。\n2. 喚醒後請讀取該任務需求與 CLAUDE.md / AGENTS.md 架構規範，自主完成程式碼實作與測試驗證。\n3. 實作完成後收集完整無截斷之 git diff 與異動記錄寫回 tasks.json，並將任務狀態更新為 "review"。\n4. 交付至 review 後，請再次於背景執行上述 node 指令，繼續待命守候下一項任務。`;
+        promptText = `請使用 bash / execute_command 工具在背景執行以下指令以啟動任務哨兵待命：\nnode "${gateScriptPath}"\n\n【運作機制與開工指示】：\n1. 該腳本在背景靜默等待檔案異動，當 tasks.json 出現 status === "in_progress" 或 requestCommitGen === true 時將退出行程以喚醒你（0 Token 待命）。\n2. 喚醒後請依任務情境自主開工：\n   - in_progress 任務：讀取需求與規範完成實作、測試，收集完整無截斷之 git diff，並根據 diff 產出符合規範之 commitMessage ({ subject, body })，寫回 tasks.json 並推入 review。\n   - requestCommitGen 請求：根據目標專案當前 diff 產出 commitMessage ({ subject, body }) 寫入 tasks.json 並重置 requestCommitGen。\n3. 交付完成後，請再次於背景執行上述 node 指令，繼續待命守候下一項任務。`;
       } else if (currentDesktopAgentTarget === 'codex') {
-        promptText = `請使用終端執行工具（如 run_terminal_command 或 bash）在背景執行以下指令以啟動任務哨兵待命：\nnode "${gateScriptPath}"\n\n【運作機制與開工指示】：\n1. 腳本於背景靜默監聽，一旦 tasks.json 出現 status === "in_progress" 任務立即結束行程以喚醒 Agent。\n2. 喚醒後請遵循專案內 AGENTS.md 或架構規範文檔自主開工，完成實作與單元測試。\n3. 將成果與完整 git diff (含已追蹤與未追蹤檔案) 寫入 tasks.json 並將狀態推入 review 待審查。\n4. 推進後請再次於背景執行上述 node 指令重新進入待命。`;
+        promptText = `請使用終端執行工具（如 run_terminal_command 或 bash）在背景執行以下指令以啟動任務哨兵待命：\nnode "${gateScriptPath}"\n\n【運作機制與開工指示】：\n1. 腳本於背景靜默監聽，一旦 tasks.json 出現 status === "in_progress" 或 requestCommitGen === true 任務立即結束行程以喚醒 Agent。\n2. 喚醒後自主開工：完成實作與單元測試，收集完整 git diff (含已追蹤與未追蹤檔案)，並依據 diff 產出符合規範之 commitMessage 寫入 tasks.json 並推入 review（或清除 requestCommitGen）。\n3. 推進後請再次於背景執行上述 node 指令重新進入待命。`;
       } else {
         // universal
-        promptText = `請使用終端執行工具（如 Antigravity 的 run_command、Claude 的 bash、或 Codex / Cursor 的 terminal 工具）在背景執行以下指令以啟動任務哨兵待命：\nnode "${gateScriptPath}"\n\n【運作機制與開工指示】：\n1. 該腳本在背景靜默守候（0 Token 消耗）。當偵測到 tasks.json 出現 status === "in_progress" 的任務時，腳本將自動退出以觸發 Reactive Wakeup 喚醒您。\n2. 被喚醒後，請立即檢閱該任務需求與專案架構規範（如 AGENTS.md / CLAUDE.md / HARNESS.md），自主開工完成實作與測試。\n3. 驗收完成後將異動記錄（modifiedFiles, diff, executionLog）寫回 tasks.json 並將狀態推進至 review。\n4. 交付至 review 後，請再次於背景執行上述 node 指令重新進入待命，形成持續自動化循環。`;
+        promptText = `請使用終端執行工具（如 Antigravity 的 run_command、Claude 的 bash、或 Codex / Cursor 的 terminal 工具）在背景執行以下指令以啟動任務哨兵待命：\nnode "${gateScriptPath}"\n\n【運作機制與開工指示】：\n1. 該腳本在背景靜默守候（0 Token 消耗）。當偵測到 tasks.json 出現 status === "in_progress" 或 requestCommitGen === true 的任務時，腳本將自動退出以觸發 Reactive Wakeup 喚醒您。\n2. 被喚醒後，自主開工完成實作與驗證，收集全量 diff，並依據 diff 產出標準 commitMessage ({ subject, body }) 寫回 tasks.json 並推入 review。\n3. 交付至 review 後，請再次於背景執行上述 node 指令重新進入待命，形成持續自動化循環。`;
       }
 
       const promptEl = document.getElementById('aiPromptTextDisplay');
@@ -1693,6 +1677,8 @@
       if (cliCmdEl) cliCmdEl.value = settings.cliCommand || 'hermes';
       const autoEl = document.getElementById('settingAutoTrigger');
       if (autoEl) autoEl.checked = settings.autoTriggerOnInProgress !== false;
+      const autoCommitEl = document.getElementById('settingAutoCommitGen');
+      if (autoCommitEl) autoCommitEl.checked = settings.autoCommitGen !== false;
       updateAiPromptDisplay();
       selectAutomationMode(settings.enableCliAgent ? 'cli' : 'antigravity', false);
       popover.classList.remove('hidden');
@@ -1711,6 +1697,8 @@
         const cliCmd = (cliCmdEl ? cliCmdEl.value.trim() : '') || settings.cliCommand || 'hermes';
         const autoEl = document.getElementById('settingAutoTrigger');
         const autoTrigger = autoEl ? autoEl.checked : (settings.autoTriggerOnInProgress !== false);
+        const autoCommitEl = document.getElementById('settingAutoCommitGen');
+        const autoCommitGen = autoCommitEl ? autoCommitEl.checked : true;
         try {
           const res = await fetch('/api/settings', {
             method: 'POST',
@@ -1719,6 +1707,7 @@
               enableCliAgent: true,
               cliCommand: cliCmd,
               autoTriggerOnInProgress: autoTrigger,
+              autoCommitGen: autoCommitGen,
               dataDirectoryPath: settings.dataDirectoryPath,
               fontSize: localStorage.getItem('fontSize') || (settings && settings.fontSize) || 'small',
               initialized: true
@@ -2884,6 +2873,8 @@
         showAllDiffs();
       }
 
+
+
       document.getElementById('btnDeleteTask').classList.remove('hidden');
       updateModalButtonState();
 
@@ -3688,8 +3679,6 @@ ${feedback || '請根據最新的需求進行調整與修復。'}
       });
     }
 
-    let currentCommitAgentPrompt = '';
-    let currentCommitCliCommand = '';
 
     function openCommitModal(id, event) {
       if (event) event.stopPropagation();
@@ -3708,112 +3697,73 @@ ${feedback || '請根據最新的需求進行調整與修復。'}
       document.getElementById('commitTaskId').value = task.id;
       document.getElementById('commitModalSubtitle').innerText = `${task.id} · ${projName}`;
 
-      const skillBanner = document.getElementById('commitSkillBanner');
-      const skillNameText = document.getElementById('commitSkillBadgeText');
-      const skillDescText = document.getElementById('commitSkillDescText');
+      // 優先使用 Agent 依據 Diff 產出之 commitMessage
+      let subject = '';
+      let bodyText = '';
+      const isLegacyDesc = task.commitMessage && task.description && task.commitMessage.body && task.commitMessage.body.trim() === task.description.trim();
 
-      if (commitSkill) {
-        if (skillBanner) skillBanner.classList.remove('hidden');
-        if (skillNameText) skillNameText.innerText = `專案已配備 Commit 規範技能：${commitSkill.label || commitSkill.id}`;
-        if (skillDescText) skillDescText.innerText = commitSkill.desc || '遵循 Conventional Commit 格式化標準並自動推導 scope';
+      if (task.commitMessage && task.commitMessage.subject && !isLegacyDesc) {
+        subject = task.commitMessage.subject;
+        bodyText = task.commitMessage.body || '';
       } else {
-        if (skillBanner) skillBanner.classList.add('hidden');
+        // 1. 決定 Type
+        let type = '';
+        if (Array.isArray(task.tags)) {
+          const found = task.tags.find(t => ['feat', 'fix', 'refactor', 'style', 'perf', 'test', 'docs', 'chore', 'revert'].includes(t.toLowerCase().trim()));
+          if (found) type = found.toLowerCase().trim();
+        }
+        if (!type) {
+          const rawTitle = task.title || '';
+          if (/修復|修正|fix|error|bug|錯/i.test(rawTitle)) type = 'fix';
+          else if (/優化|改善|提升|perf|optimize/i.test(rawTitle)) type = 'perf';
+          else if (/重構|refactor/i.test(rawTitle)) type = 'refactor';
+          else if (/樣式|style|版面|排版|css|scss/i.test(rawTitle)) type = 'style';
+          else if (/文件|doc|readme/i.test(rawTitle)) type = 'docs';
+          else if (/測試|test/i.test(rawTitle)) type = 'test';
+          else type = 'feat';
+        }
+
+        let cleanTitle = (task.title || 'Update task').replace(/^(feat|fix|refactor|style|perf|test|docs|chore|revert)(\([^)]+\))?:\s*/i, '').trim();
+
+        // 2. 決定 Scope (依專案 Skill 建議 scope)
+        let scope = '';
+        const descLower = ((task.description || '') + ' ' + (task.title || '') + ' ' + (task.modifiedFiles || []).map(f => typeof f === 'string' ? f : (f && f.path) ? f.path : '').join(' ')).toLowerCase();
+        if (descLower.includes('src/native') || descLower.includes('.m') || descLower.includes('webkit')) scope = 'native';
+        else if (descLower.includes('server.js') || descLower.includes('src/server') || descLower.includes('後端') || descLower.includes('api')) scope = 'server';
+        else if (descLower.includes('index.html') || descLower.includes('src/public') || descLower.includes('樣式') || descLower.includes('畫面') || descLower.includes('按鈕') || descLower.includes('彈窗') || descLower.includes('ui')) scope = 'ui';
+        else if (descLower.includes('harness') || descLower.includes('test_server.sh') || descLower.includes('scripts/test')) scope = 'harness';
+        else if (descLower.includes('.github/skills') || descLower.includes('skill.md')) scope = 'skills';
+        else if (descLower.includes('order-management') || descLower.includes('訂單') || descLower.includes('order')) scope = 'order';
+        else if (descLower.includes('router') || descLower.includes('路由')) scope = 'router';
+        else if (descLower.includes('store') || descLower.includes('狀態')) scope = 'store';
+        else if (descLower.includes('build') || descLower.includes('打包') || descLower.includes('腳本')) scope = 'build';
+
+        subject = scope ? `${type}(${scope}): ${cleanTitle}` : `${type}: ${cleanTitle}`;
+        bodyText = ''; // 絕不可帶入 task.description，應留空或由 diff 智慧分析填入
       }
 
-      // 1. 決定 Type
-      let type = '';
-      if (Array.isArray(task.tags)) {
-        const found = task.tags.find(t => ['feat', 'fix', 'refactor', 'style', 'perf', 'test', 'docs', 'chore', 'revert'].includes(t.toLowerCase().trim()));
-        if (found) type = found.toLowerCase().trim();
-      }
-      if (!type) {
-        const rawTitle = task.title || '';
-        if (/修復|修正|fix|error|bug|錯/i.test(rawTitle)) type = 'fix';
-        else if (/優化|改善|提升|perf|optimize/i.test(rawTitle)) type = 'perf';
-        else if (/重構|refactor/i.test(rawTitle)) type = 'refactor';
-        else if (/樣式|style|版面|排版|css|scss/i.test(rawTitle)) type = 'style';
-        else if (/文件|doc|readme/i.test(rawTitle)) type = 'docs';
-        else if (/測試|test/i.test(rawTitle)) type = 'test';
-        else type = 'feat';
-      }
-
-      let cleanTitle = (task.title || 'Update task').replace(/^(feat|fix|refactor|style|perf|test|docs|chore|revert)(\([^)]+\))?:\s*/i, '').trim();
-
-      // 2. 決定 Scope (依專案 Skill 建議 scope)
-      let scope = '';
-      const descLower = ((task.description || '') + ' ' + (task.title || '') + ' ' + (task.modifiedFiles || []).map(f => typeof f === 'string' ? f : (f && f.path) ? f.path : '').join(' ')).toLowerCase();
-      if (descLower.includes('src/native') || descLower.includes('.m') || descLower.includes('webkit')) scope = 'native';
-      else if (descLower.includes('server.js') || descLower.includes('src/server') || descLower.includes('後端') || descLower.includes('api')) scope = 'server';
-      else if (descLower.includes('index.html') || descLower.includes('src/public') || descLower.includes('樣式') || descLower.includes('畫面') || descLower.includes('按鈕') || descLower.includes('彈窗') || descLower.includes('ui')) scope = 'ui';
-      else if (descLower.includes('harness') || descLower.includes('test_server.sh') || descLower.includes('scripts/test')) scope = 'harness';
-      else if (descLower.includes('.github/skills') || descLower.includes('skill.md')) scope = 'skills';
-      else if (descLower.includes('order-management') || descLower.includes('訂單') || descLower.includes('order')) scope = 'order';
-      else if (descLower.includes('router') || descLower.includes('路由')) scope = 'router';
-      else if (descLower.includes('store') || descLower.includes('狀態')) scope = 'store';
-      else if (descLower.includes('build') || descLower.includes('打包') || descLower.includes('腳本')) scope = 'build';
-
-      let subject = scope ? `${type}(${scope}): ${cleanTitle}` : `${type}: ${cleanTitle}`;
       document.getElementById('commitSubjectInput').value = subject;
-      document.getElementById('commitBodyInput').value = task.description || '';
+      document.getElementById('commitBodyInput').value = bodyText;
 
-      currentCommitAgentPrompt = `請依據專案技能「${commitSkill ? (commitSkill.label || commitSkill.id) : 'git-workflow-and-versioning'}」之 Conventional Commit 規範，完成以下任務的提交：\n- 專案路徑: ${(proj && proj.path) ? proj.path : (task.projectPath || '')}\n- 任務 ID: ${task.id}\n- 任務標題: ${task.title}\n- 建議 Commit 標題: ${subject}\n\n建議內文：\n${task.description || '- 更新內容'}\n\n請執行必要驗證並完成 git commit。`;
+      // 若尚未有 Agent 生成的 commitMessage 或為舊版複製內容，自動非同步向後端獲取依據 diff 分析的 commit 內容
+      if (!task.commitMessage || !task.commitMessage.subject || isLegacyDesc) {
+        fetch(`/api/tasks/${encodeURIComponent(task.id)}/generate-commit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ force: false })
+        }).then(r => r.ok ? r.json() : null).then(data => {
+          if (data) {
+            if (document.getElementById('commitTaskId').value === task.id) {
+              if (data.subject) document.getElementById('commitSubjectInput').value = data.subject;
+              if (data.body) document.getElementById('commitBodyInput').value = data.body;
+            }
+            task.commitMessage = { subject: data.subject, body: data.body };
+          }
+        }).catch(() => {});
+      }
 
       document.getElementById('commitModal').classList.remove('hidden');
       if (window.lucide) lucide.createIcons();
-    }
-
-    async function generateCommitMessageWithAgent(event) {
-      if (event) event.stopPropagation();
-      const taskId = document.getElementById('commitTaskId').value;
-      if (!taskId) return;
-      const btn = document.getElementById('btnGenerateCommitWithAgent');
-
-      await withButtonLoading(btn, '生成中...', async () => {
-        try {
-          const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/generate-commit`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-          });
-          if (!res.ok) throw new Error(`伺服器回應 ${res.status}`);
-          const data = await res.json();
-          if (data.subject) {
-            document.getElementById('commitSubjectInput').value = data.subject;
-          }
-          if (data.body) {
-            document.getElementById('commitBodyInput').value = data.body;
-          }
-          if (data.agentPrompt) {
-            currentCommitAgentPrompt = data.agentPrompt;
-          }
-          if (data.cliCommand) {
-            currentCommitCliCommand = data.cliCommand;
-          }
-          showToast(`已依據專案技能「${data.skillName || 'Commit 規範'}」自動生成 Commit 訊息！`);
-        } catch (err) {
-          showToast(`生成失敗: ${err.message}`);
-        }
-      });
-    }
-
-    function copyCommitAgentPrompt(event) {
-      if (event) event.stopPropagation();
-      const taskId = document.getElementById('commitTaskId').value;
-      const subject = document.getElementById('commitSubjectInput').value.trim();
-      const body = document.getElementById('commitBodyInput').value.trim();
-      const task = tasks.find(t => t.id === taskId);
-      const proj = task ? projects.find(p => p.id === task.project) : null;
-      const projPath = (proj && proj.path) ? proj.path : (task ? task.projectPath || '' : '');
-
-      let promptText = currentCommitAgentPrompt;
-      if (!promptText) {
-        promptText = `請依據專案 Conventional Commit 規範完成以下任務提交：\n- 專案路徑: ${projPath || '本專案'}\n- 任務 ID: ${taskId}\n- Commit 標題: ${subject || 'feat: update'}\n\nCommit 內文:\n${body || '- 更新內容'}\n\n請執行必要驗證並完成 git commit。`;
-      }
-
-      navigator.clipboard.writeText(promptText).then(() => {
-        showToast('已複製 Agent Commit 提示詞至剪貼簿！可直接貼至 AI 對話視窗。');
-      }).catch(() => {
-        showToast('複製失敗，請手動選取複製');
-      });
     }
 
     function closeCommitModal() {

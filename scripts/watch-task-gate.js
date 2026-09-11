@@ -7,10 +7,10 @@
  * 適用於 Antigravity (run_command)、Claude (bash)、OpenAI Codex / Cursor (terminal) 等所有 Desktop AI。
  * 
  * 運作原理：
- * 1. 檢查 tasks.json 是否已有 status === 'in_progress' 的任務。若有，立即印出任務資訊並 exit(0)。
+ * 1. 檢查 tasks.json 是否已有 status === 'in_progress' 或 requestCommitGen === true 的任務。若有，立即印出任務資訊並 exit(0)。
  * 2. 若無任務，透過 Node 原生 fs.watch (macOS 原生 FSEvents) 於背景靜默守候（0 Token 開銷）。
- * 3. 一旦偵測到任務狀態變更為 in_progress，立即印出 [WAKEUP_TRIGGERED] 並退出 (exit 0)。
- * 4. 外部 Desktop AI (Antigravity / Claude / Codex) 攔截到背景進程結束事件，觸發 Reactive Wakeup 瞬間開工。
+ * 3. 一旦偵測到任務狀態變更為 in_progress 或請求產出 Commit 訊息，立即印出 [WAKEUP_TRIGGERED] 並退出 (exit 0)。
+ * 4. 外部 Desktop AI (Antigravity / Claude / Codex) 攔截到背景進程結束事件，觸發 Reactive Wakeup 瞬間開工（實作或產出 Commit 訊息）。
  */
 
 const fs = require('fs');
@@ -52,13 +52,13 @@ function resolveDataDir() {
 const DATA_DIR = resolveDataDir();
 const TASKS_FILE = path.join(DATA_DIR, 'tasks.json');
 
-function findInProgressTask() {
+function findActionableTask() {
   try {
     if (!fs.existsSync(TASKS_FILE)) return null;
     const content = fs.readFileSync(TASKS_FILE, 'utf8');
     const tasks = JSON.parse(content);
     if (!Array.isArray(tasks)) return null;
-    return tasks.find(t => t && t.status === 'in_progress') || null;
+    return tasks.find(t => t && (t.status === 'in_progress' || t.requestCommitGen === true)) || null;
   } catch (err) {
     // 檔案正在寫入中或暫時為空時忽略
     return null;
@@ -79,15 +79,19 @@ process.on('SIGTERM', () => cleanupAndExit(0));
 
 // --- 主流程 ---
 
-// 1. 若當前本來就已有進行中任務，立即退出喚醒開工
-const immediateTask = findInProgressTask();
+// 1. 若當前本來就已有進行中或請求 Commit 訊息之任務，立即退出喚醒開工
+const immediateTask = findActionableTask();
 if (immediateTask) {
-  console.log(`[WAKEUP_IMMEDIATE] 偵測到已有進行中任務: [${immediateTask.id}] ${immediateTask.title} (專案: ${immediateTask.project || '預設'})`);
+  if (immediateTask.requestCommitGen) {
+    console.log(`[WAKEUP_IMMEDIATE] 偵測到任務請求依據 Diff 產出 Commit 訊息: [${immediateTask.id}] ${immediateTask.title} (專案: ${immediateTask.project || '預設'})`);
+  } else {
+    console.log(`[WAKEUP_IMMEDIATE] 偵測到已有進行中任務: [${immediateTask.id}] ${immediateTask.title} (專案: ${immediateTask.project || '預設'})`);
+  }
   cleanupAndExit(0);
 }
 
 console.log(`[WATCHER_ACTIVE] 任務哨兵已啟動，監聽目標: ${TASKS_FILE}`);
-console.log(`[WATCHER_WAITING] 靜默守候中 (0 Token 消耗)，等待任務切換為 in_progress...`);
+console.log(`[WATCHER_WAITING] 靜默守候中 (0 Token 消耗)，等待任務切換為 in_progress 或請求產出 Commit 訊息...`);
 
 let debounceTimer = null;
 
@@ -105,9 +109,13 @@ function startWatching() {
 
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        const task = findInProgressTask();
+        const task = findActionableTask();
         if (task) {
-          console.log(`[WAKEUP_TRIGGERED] 任務狀態變更為 in_progress: [${task.id}] ${task.title} (專案: ${task.project || '預設'})`);
+          if (task.requestCommitGen) {
+            console.log(`[WAKEUP_TRIGGERED] 任務請求依據 Diff 產出 Commit 訊息: [${task.id}] ${task.title} (專案: ${task.project || '預設'})`);
+          } else {
+            console.log(`[WAKEUP_TRIGGERED] 任務狀態變更為 in_progress: [${task.id}] ${task.title} (專案: ${task.project || '預設'})`);
+          }
           cleanupAndExit(0);
         }
       }, 150);
