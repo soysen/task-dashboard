@@ -60,10 +60,10 @@ node -e '
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-let tasksFile = "data/tasks.json";
+let tasksFile = path.join(__dirname || ".", "data/tasks.json");
 try {
+  const appSupportFile = path.join(os.homedir(), "Library/Application Support/TaskDashboard/tasks.json");
   if (fs.existsSync(appSupportFile)) {
-    fs.readFileSync(appSupportFile, "utf8");
     tasksFile = appSupportFile;
   }
 } catch (e) {

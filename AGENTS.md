@@ -30,10 +30,17 @@
 3. **閱讀架構規範文檔**：
    - `AGENTS.md`、`CLAUDE.md`、`.github/copilot-instructions.md`、`README.md`、`HARNESS.md`
 4. 執行該專案的診斷或 Harness 指令（如 `npm run harness:check` 或測試套件）。
+5. **GitNexus 風險評估與切片規劃門禁 (GitNexus Risk Assessment & Slicing Gate)**：
+   - 若專案具備 GitNexus（存在 `.gitnexus` 或 GitNexus 索引）：在異動任何函式、類別、檔案前，**必須使用 GitNexus 進行影響分析 (`impact`) 評估風險**。
+   - **中高級以上風險管控**：若風險等級為 **MEDIUM（中級）、HIGH（高級）、CRITICAL（極高）** 或 `UNKNOWN`：
+     - **必須建立 Plan（實作計畫 / Implementation Plan）**，嚴禁直接盲目異動。
+     - **必須切片處理（Task Slicing）**：將大範圍變更拆解為清晰、獨立、可個別驗證的子切片（Slices），依序分步推進。
+     - 若為 HIGH 或 CRITICAL 風險，必須於執行前明確向使用者示警或在 Plan 中標註風險。
 
 ### Phase 2: Rule-Compliant Implementation (合規實作)
-1. 嚴格遵守該專案的目錄架構與狀態流轉規則。
+1. 嚴格遵守該專案的目錄架構、狀態流轉規則與 GitNexus 切片計畫。
 2. 僅在該專案的範疇內修改程式碼，不得跨專案產生不相關的副作用。
+3. 若存在切片計畫，按切片逐步進行最小範圍實作與即時驗證。
 
 ### Phase 3: Compliance Manifest & Review Promotion (合規驗證與交付)
 1. 執行該專案的測試與驗證指令（如 `npm test`、`npm run build:app`）。
@@ -93,6 +100,7 @@ This project is indexed by GitNexus as **task-dashboard** (266 symbols, 913 rela
 ## Always Do
 
 - **MUST run impact analysis before editing.** Use `impact({target: "symbolName", direction: "upstream"})` (MCP) or `node .gitnexus/run.cjs impact "symbolName" --direction upstream --repo .` (CLI fallback); report callers, processes, and risk. Never substitute grep for graph analysis.
+- **MUST create plan and slice tasks for MEDIUM+ risk.** 若 impact 分析評估為 **MEDIUM（中級）、HIGH（高級）、CRITICAL（極高）** 或 `UNKNOWN`，**必須建立 Implementation Plan 並進行切片處理（Task Slicing）**，分步實作驗證。
 - **MUST analyze graph changes before committing.** Use `detect_changes({scope: "all"})` (MCP) or `node .gitnexus/run.cjs detect-changes --scope all --repo .` (CLI fallback). `partial: true` or `truncated: true` is not a clean check — a zero means unseen, not unaffected; re-run it. For regression review: `detect_changes({scope: "compare", base_ref: "main"})` or `node .gitnexus/run.cjs detect-changes --scope compare --base-ref "main" --repo .`.
 - **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
 - **MUST treat `risk: UNKNOWN` as unresolved, not as low.** An empty caller set is not evidence the symbol is unused — it can also mean the callers are not resolvable by the index (plain-object property access, dynamic dispatch, cross-language calls). `impact` pairs `UNKNOWN` with a `riskNote` saying so. Confirm with a text search before treating the symbol as safe to change or delete; do not proceed on the strength of a zero.

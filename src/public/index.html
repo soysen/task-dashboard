@@ -4147,13 +4147,14 @@ ${feedback || '請根據最新的需求進行調整與修復。'}
       const taskSummaries = inProgressTasks.map(t => {
         const proj = projects.find(p => p.id === t.project);
         const projText = proj ? `【${proj.name}】` : '';
-        return `• [${t.id}] ${projText} ${t.title} (說明: ${t.description || '無'})`;
-      }).join('\n');
+        const harnessCmd = (proj && proj.harness && proj.harness.command) ? proj.harness.command : 'npm run harness:check || npm test';
+        return `• [${t.id}] ${projText} ${t.title}\n  專案目錄: ${(proj && proj.path) || t.projectPath || t.project}\n  Harness 指令: ${harnessCmd}\n  需求: ${t.description || '無'}`;
+      }).join('\n\n');
 
-      const batchPrompt = `【立即執行進行中任務】\n請立即依序執行以下進行中任務，完成後將異動結果與 Diff 送入待驗收：\n${taskSummaries}`;
+      const batchPrompt = `【立即執行進行中任務 - 3-Phase Execution Gate】\n請立即依序執行以下進行中任務，恪遵 3-Phase Gate（Phase 1 前置檢閱與 Harness 檢核 -> Phase 2 實作與測試 -> Phase 3 驗收、全量 Diff 收集、產出 Commit 訊息並推進至 review）：\n\n${taskSummaries}`;
       navigator.clipboard.writeText(batchPrompt);
 
-      showToast(`已複製 ${inProgressTasks.length} 個進行中任務派工指令！貼入對話即可立即開工。`);
+      showToast(`已複製 ${inProgressTasks.length} 個進行中任務 Harness 派工指令！貼入對話即可立即開工。`);
     }
 
     function copyPrompt(id, event) {
@@ -4161,23 +4162,41 @@ ${feedback || '請根據最新的需求進行調整與修復。'}
       const task = tasks.find(t => t.id === id);
       if (!task) return;
       const proj = projects.find(p => p.id === task.project);
-      const projText = proj ? `【專案：${proj.name}】` : '';
-      const configDir = settings.dataDirectoryPath || settings.defaultDataDir || 'data';
+      const projName = proj ? proj.name : (task.project || '未指定專案');
+      const projPath = (proj && proj.path) ? proj.path : (task.projectPath || `~/projects/${task.project}/`);
+      const configDir = (settings.dataDirectoryPath || settings.defaultDataDir || '~/Library/Application Support/TaskDashboard').replace(/\/+$/, '');
       const tasksFilePath = `${configDir}/tasks.json`;
-      const prompt = `【任務執行指示】
+      
+      const harnessInfo = (proj && proj.harness) ? proj.harness : (task.projectHarness || {});
+      const harnessCmd = harnessInfo.command || 'npm run harness:check || npm test';
+
+      const feedbackText = task.feedback ? `\n【審查退回意見 / 修復要求 (最高優先級)】\n${task.feedback}\n` : '';
+
+      const prompt = `【任務執行指示 - 3-Phase Execution Gate】
 任務 ID: ${task.id}
 任務名稱: ${task.title}
-${projText}
+所屬專案: ${projName}
+工作目錄: ${projPath}
+專案 Harness 驗證指令: ${harnessCmd}
 任務資料庫: ${tasksFilePath}
 
 需求說明：
 ${task.description || '無詳細說明'}
-
-執行與結案規範：
-1. 依據專案規範與文檔完成實作並進行驗證。
-2. 完成後請將更新結果寫入 ${tasksFilePath}（將 id 為 "${task.id}" 的 status 改為 "review"，並填入 modifiedFiles 與 executionLog）。`;
+${feedbackText}
+【嚴格 3-Phase Execution Gate 執行 SOP】：
+1. Phase 1 (Pre-Flight & Review Feedback Ingestion):
+   - 優先讀取並滿足上述 Feedback 退回意見（若有）。
+   - 切換至專案工作目錄 (${projPath})，檢閱 AGENTS.md / CLAUDE.md / HARNESS.md 及 .github 規範。
+   - 執行專案前置基準檢核指令：${harnessCmd}
+2. Phase 2 (Rule-Compliant Implementation):
+   - 遵循專案規範與目錄結構進行實作，並補齊測試，嚴禁產生跨專案副作用。
+3. Phase 3 (Compliance Manifest & Review Promotion):
+   - 實作完成後執行驗證指令（${harnessCmd}）確保全數通過。
+   - 擷取全量完整無截斷之 git diff（包含已追蹤與未追蹤檔案，嚴禁使用 ... 占位符）。
+   - 依據實際 diff 產出符合規範之 commitMessage ({ subject, body })。
+   - 將成果回寫入 ${tasksFilePath}（將 id 為 "${task.id}" 的 status 改為 "review"，填寫 modifiedFiles, diff, commitMessage 與 executionLog，若有 feedback 需移至 description 歷史區塊並清空 feedback）。`;
       navigator.clipboard.writeText(prompt);
-      showToast('已複製包含 tasks.json 結案指引的 AI 派工指令！');
+      showToast(`已複製【${projName}】Harness 3-Phase 派工指令！`);
     }
 
     function copySessionId(sid, event) {

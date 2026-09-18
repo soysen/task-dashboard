@@ -271,44 +271,112 @@ function scanProjectGithubInfo(projPath) {
     } catch (e) {}
   }
 
-  // 3. 檢測 Harness (HARNESS.md, scripts/harness_check.sh, package.json scripts)
+  // 3. 檢測 Harness (HARNESS.md, .github/harness, .github/scripts/harness-cli.js, scripts/harness_check.sh, package.json scripts)
   const harnessMd = path.join(projPath, 'HARNESS.md');
+  const harnessDir = path.join(projPath, '.github', 'harness');
+  const harnessCliScript = path.join(projPath, '.github', 'scripts', 'harness-cli.js');
   const harnessScript = path.join(projPath, 'scripts', 'harness_check.sh');
   const pkgPath = path.join(projPath, 'package.json');
-  let hasHarnessScript = false;
+  let hasHarnessFound = false;
 
-  if (fs.existsSync(harnessMd)) info.harness.files.push('HARNESS.md');
-  if (fs.existsSync(harnessScript)) {
-    info.harness.files.push('scripts/harness_check.sh');
-    info.harness.command = 'bash scripts/harness_check.sh';
-    hasHarnessScript = true;
+  if (fs.existsSync(harnessMd)) {
+    info.harness.files.push('HARNESS.md');
+    hasHarnessFound = true;
   }
 
-  if (fs.existsSync(pkgPath)) {
+  if (fs.existsSync(harnessDir)) {
+    hasHarnessFound = true;
     try {
-      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-      if (pkg.scripts && pkg.scripts['harness:check']) {
-        info.harness.command = 'npm run harness:check';
-        hasHarnessScript = true;
-      } else if (pkg.scripts && pkg.scripts['test']) {
-        if (!info.harness.command) info.harness.command = 'npm test';
+      const hEntries = fs.readdirSync(harnessDir);
+      for (const ent of hEntries) {
+        if (ent.endsWith('.md')) {
+          info.harness.files.push(`.github/harness/${ent}`);
+        }
       }
     } catch (e) {}
   }
 
-  info.harness.hasHarness = hasHarnessScript || info.harness.files.length > 0;
+  if (fs.existsSync(harnessCliScript)) {
+    info.harness.files.push('.github/scripts/harness-cli.js');
+    hasHarnessFound = true;
+  }
+
+  if (fs.existsSync(harnessScript)) {
+    info.harness.files.push('scripts/harness_check.sh');
+    hasHarnessFound = true;
+  }
+
+  // 決定最適 Harness / 測試執行命令
+  let pkgScripts = {};
+  if (fs.existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      pkgScripts = pkg.scripts || {};
+    } catch (e) {}
+  }
+
+  if (pkgScripts['harness:check:ai']) {
+    info.harness.command = 'npm run harness:check:ai';
+  } else if (pkgScripts['harness:check']) {
+    info.harness.command = 'npm run harness:check';
+  } else if (fs.existsSync(harnessCliScript)) {
+    info.harness.command = 'node .github/scripts/harness-cli.js check --ai';
+  } else if (pkgScripts['harness:validate']) {
+    info.harness.command = 'npm run harness:validate';
+  } else if (pkgScripts['harness:verify']) {
+    info.harness.command = 'npm run harness:verify';
+  } else if (fs.existsSync(harnessScript)) {
+    info.harness.command = 'bash scripts/harness_check.sh';
+  } else if (pkgScripts['test:unit']) {
+    info.harness.command = 'npm run test:unit';
+  } else if (pkgScripts['test']) {
+    info.harness.command = 'npm test';
+  } else if (fs.existsSync(path.join(projPath, 'nx.json'))) {
+    info.harness.command = 'npx nx test';
+    hasHarnessFound = true;
+  } else if (fs.existsSync(path.join(projPath, 'pubspec.yaml'))) {
+    info.harness.command = 'flutter test';
+    hasHarnessFound = true;
+  } else if (fs.existsSync(path.join(projPath, 'Cargo.toml'))) {
+    info.harness.command = 'cargo test';
+    hasHarnessFound = true;
+  } else if (fs.existsSync(path.join(projPath, 'pytest.ini')) || (fs.existsSync(path.join(projPath, 'tests')) && fs.existsSync(path.join(projPath, 'pyproject.toml')))) {
+    info.harness.command = 'pytest';
+    hasHarnessFound = true;
+  } else if (pkgScripts['lint']) {
+    info.harness.command = 'npm run lint';
+  } else if (pkgScripts['build']) {
+    info.harness.command = 'npm run build';
+  }
+
+  info.harness.hasHarness = hasHarnessFound || Boolean(info.harness.command) || (info.harness.files.length > 0);
 
   // 4. 檢測架構文檔與 RFC 規範
-  ['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md', 'README.md', 'docs/STATE_MACHINE_RFC.md'].forEach(doc => {
-    if (fs.existsSync(path.join(projPath, doc))) {
+  ['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md', 'README.md', 'HARNESS.md', 'docs/STATE_MACHINE_RFC.md'].forEach(doc => {
+    if (fs.existsSync(path.join(projPath, doc)) && !info.docs.includes(doc)) {
       info.docs.push(doc);
     }
   });
+
+  // 加入 .github/harness 文檔至 docs
+  if (fs.existsSync(harnessDir)) {
+    try {
+      const hFiles = fs.readdirSync(harnessDir).filter(f => f.endsWith('.md'));
+      hFiles.forEach(f => {
+        const docName = `.github/harness/${f}`;
+        if (!info.docs.includes(docName)) info.docs.push(docName);
+      });
+    } catch (e) {}
+  }
+
   const docsDir = path.join(projPath, 'docs');
   if (fs.existsSync(docsDir)) {
     try {
       const docFiles = fs.readdirSync(docsDir).filter(f => f.endsWith('.md') && f !== 'STATE_MACHINE_RFC.md');
-      docFiles.forEach(f => info.docs.push(`docs/${f}`));
+      docFiles.forEach(f => {
+        const docName = `docs/${f}`;
+        if (!info.docs.includes(docName)) info.docs.push(docName);
+      });
     } catch (e) {}
   }
 
@@ -1939,21 +2007,30 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
 
   const harnessCmd = (githubInfo.harness && githubInfo.harness.command) ? githubInfo.harness.command : 'npm test / npm run harness:check';
 
-  const feedbackSection = task.feedback ? '\n【審查退回意見 / 修復要求】\n' + task.feedback + '\n' : '';
-  const promptText = '【任務執行指示】\n' +
+  const feedbackSection = task.feedback ? '\n【審查退回意見 / 修復要求 (最高優先級)】\n' + task.feedback + '\n' : '';
+  const promptText = '【任務執行指示 - 3-Phase Execution Gate】\n' +
     '任務 ID: ' + task.id + '\n' +
     '任務名稱: ' + task.title + '\n' +
     '所屬專案: ' + task.project + '\n' +
     '工作目錄: ' + projPath + '\n' +
+    '專案 Harness 驗證指令: ' + harnessCmd + '\n' +
     '\n詳細需求描述:\n' + (task.description || '無詳細描述') + '\n' +
     feedbackSection +
     skillsSection +
     docsSection +
-    '\n執行規範與驗收要求：\n' +
-    '1. 必須嚴格遵循上列專案 Agent 規範文檔（如 AGENTS.md / CLAUDE.md）與 .github skills 技能指引開工實作。\n' +
-    '2. 僅在該專案目錄下進行修改，不得跨專案產生不相關副作用。\n' +
-    '3. 實作完成後執行專案驗證指令（' + harnessCmd + '）確保全數通過。\n' +
-    '4. 交付時必須擷取全量完整無截斷之 git diff（包含已追蹤與未追蹤檔案），填寫 modifiedFiles, diff 與 executionLog 並推進 status 至 review。';
+    '\n【嚴格 3-Phase Execution Gate 執行 SOP】：\n' +
+    '1. Phase 1 (Pre-Flight & Review Feedback Ingestion):\n' +
+    '   - 若有審查退回意見 (Feedback)，必須優先將 Feedback 作為本次開工的絕對目標。\n' +
+    '   - 檢閱專案規範文檔（如 AGENTS.md / CLAUDE.md / HARNESS.md 及 .github 技能指引）。\n' +
+    '   - 執行前置 Harness 基準診斷指令（' + harnessCmd + '），確認當前環境健全。\n' +
+    '2. Phase 2 (Rule-Compliant Implementation):\n' +
+    '   - 嚴格遵守該專案目錄架構與狀態流轉規則，僅在該專案目錄下進行修改，嚴禁產生跨專案副作用。\n' +
+    '   - 依據需求完成代碼實作，並補齊對應單元測試。\n' +
+    '3. Phase 3 (Compliance Manifest & Review Promotion):\n' +
+    '   - 實作完成後必須執行專案驗證指令（' + harnessCmd + '）確保全數通過。\n' +
+    '   - 交付時必須擷取全量完整無截斷之 git diff（包含已追蹤與未追蹤檔案，嚴禁使用 ... 占位符）。\n' +
+    '   - 依據實際 diff 智慧產出結構化 commitMessage ({ subject, body })。\n' +
+    '   - 填寫詳細 executionLog（含檢閱文檔、前置檢核、實作項目、測試結果），將 status 推進至 "review"，並重置 requestCommitGen 為 false。';
 
   const rawCliCmd = (settings.cliCommand || 'hermes').trim();
   const customEnv = buildCustomEnv();
