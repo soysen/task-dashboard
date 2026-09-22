@@ -1,13 +1,13 @@
 # Build Plan: Task Dashboard 代理人切片與狀態追蹤 (task-dashboard)
 
-- Status: in_progress
+- Status: review
 - Skill Route: dashboard-state-and-sync
 - Feature Name: Agent Status & Slice Tracking
 
 ## 任務卡 (Task Card)
 
-- 目前任務 ID: TASK-021
-- 目標: [退回重做] - 切片與 agent-status 會顯示 feedback 了，任務卡牌上的 feedback 內容可移除
+- 目前任務 ID: TASK-037
+- 目標: tool-static-web 執行時，有抓到切片並按照 harness 機制進行，但 plan 沒看到更新，都處在未完成狀態。檢視原因並修正 task 進行時的切片更新與驗證
 - 路由: dashboard-state-and-sync
 - 範圍 (In/Out): In: src/server/server.js, .github/worklog, .github/harness/plan / Out: 跨專案副作用
 - 驗收標準: 任務進入 in_progress 時及時同步 agent-status，且多任務並行時依 taskId 精準隔離切片與當前步驟，絕不串味
@@ -25,3 +25,5 @@
 - [x] Slice 8: [退回重做] 移除 Commit 預覽與多餘按鈕，驗收完成自動填入 commit 欄位
 - [x] Slice 9: [TASK-021] 重構 server.js 核心解析器，依 taskId 嚴格隔離 agent-status 與切片，實作即時合成與狀態流轉雙向同步
 - [x] Slice 10: [退回重做] 移除看板任務卡牌上的 feedback 區塊，保持畫面簡潔並統一由切片與 agent-status 呈現當前目標
+- [x] Slice 11: [TASK-037] tool-static-web 執行時，有抓到切片並按照 harness 機制進行，但 plan 沒看到更新，都處在未完成狀態。檢視原因並修正 task 進行時的切片更新與驗證
+

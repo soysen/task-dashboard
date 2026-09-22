@@ -1157,6 +1157,37 @@ function syncProjectWorklogForRedo(projPath, task) {
   return syncProjectWorklogForActiveTask(projPath, task);
 }
 
+function markTaskSlicesComplete(projPath, taskId, planStatus) {
+  const planDir = path.join(projPath, '.github', 'harness', 'plan');
+  if (!fs.existsSync(planDir)) return false;
+
+  try {
+    const escapedTaskId = taskId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const taskSlicePattern = new RegExp(`^(\\s*-\\s*)\\[[ \\-~]\\](\\s*.*\\[${escapedTaskId}\\].*)$`, 'gm');
+    const planFiles = fs.readdirSync(planDir)
+      .filter(f => (f.endsWith('-build-plan.md') || f === 'build-plan.md') && f !== 'README.md');
+    let hasUpdated = false;
+
+    for (const planFile of planFiles) {
+      const planPath = path.join(planDir, planFile);
+      const planContent = fs.readFileSync(planPath, 'utf8');
+      let updatedContent = planContent.replace(taskSlicePattern, '- [x]$2');
+      if (planStatus && /^- Status:.*$/m.test(updatedContent)) {
+        updatedContent = updatedContent.replace(/^- Status:.*$/m, `- Status: ${planStatus}`);
+      }
+      if (updatedContent !== planContent) {
+        fs.writeFileSync(planPath, updatedContent, 'utf8');
+        hasUpdated = true;
+      }
+    }
+
+    return hasUpdated;
+  } catch (e) {
+    console.error('Error completing build plan slices for task:', e);
+    return false;
+  }
+}
+
 // 當任務進入 review 階段時，同步更新 agent-status.md
 function syncProjectWorklogOnReview(projPath, task) {
   if (!projPath || !fs.existsSync(projPath) || !task || !task.id) return false;
@@ -1180,6 +1211,7 @@ function syncProjectWorklogOnReview(projPath, task) {
       }
     } catch (e) {}
   }
+  markTaskSlicesComplete(projPath, task.id, 'review');
   return true;
 }
 
@@ -1221,26 +1253,7 @@ function syncProjectWorklogOnDone(projPath, task) {
   }
 
   // 將 build plan 內對應本任務的切片標記為完成 [x]
-  const planDir = path.join(projPath, '.github', 'harness', 'plan');
-  if (fs.existsSync(planDir)) {
-    try {
-      const planFiles = fs.readdirSync(planDir)
-        .filter(f => (f.endsWith('-build-plan.md') || f === 'build-plan.md') && f !== 'README.md');
-      for (const pf of planFiles) {
-        const pPath = path.join(planDir, pf);
-        let planContent = fs.readFileSync(pPath, 'utf8');
-        let changed = false;
-        const regex = new RegExp(`^-\\s*\\[[ \\-~]\\]\\s*(.*?\\[?${task.id}\\]?.*)$`, 'gm');
-        if (regex.test(planContent)) {
-          planContent = planContent.replace(regex, `- [x] $1`);
-          changed = true;
-        }
-        if (changed) {
-          fs.writeFileSync(pPath, planContent, 'utf8');
-        }
-      }
-    } catch (e) {}
-  }
+  markTaskSlicesComplete(projPath, task.id, 'done');
   return true;
 }
 

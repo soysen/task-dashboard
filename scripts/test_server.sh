@@ -77,7 +77,10 @@ fi
 echo "  [7/7] 測試 多任務 agent-status 與切片隔離單元測試 ..."
 node -e '
 const assert = require("assert");
-const { parseAgentStatusContent, parseBuildPlanContent, scanProjectWorklogAndPlan } = require("./src/server/server.js");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const { parseAgentStatusContent, parseBuildPlanContent, scanProjectWorklogAndPlan, syncProjectWorklogOnReview } = require("./src/server/server.js");
 
 const multiTaskWorklog = `# Agent Status
 
@@ -140,7 +143,24 @@ const plan002 = parseBuildPlanContent(multiTaskPlan, "dummy.md", "fallback", "TA
 assert.strictEqual(plan002.slices.length, 1);
 assert(plan002.slices[0].goal.includes("TASK-002"));
 
-console.log("    ✅ agent-status 與 build-plan 多任務 taskId 隔離單元測試通過！");
+const tempProject = fs.mkdtempSync(path.join(os.tmpdir(), "task-dashboard-slices-"));
+const planDir = path.join(tempProject, ".github", "harness", "plan");
+fs.mkdirSync(planDir, { recursive: true });
+fs.writeFileSync(path.join(planDir, "build-plan.md"), `# Build Plan
+- Status: in_progress
+## Slices
+- [-] Slice 1: [TASK-001] 已完成實作與驗證
+- [-] Slice 2: [TASK-002] 其他任務切片
+`);
+
+syncProjectWorklogOnReview(tempProject, { id: "TASK-001", title: "任務一" });
+const completedPlan = fs.readFileSync(path.join(planDir, "build-plan.md"), "utf8");
+assert(completedPlan.includes("- Status: review"));
+assert(completedPlan.includes("- [x] Slice 1: [TASK-001]"));
+assert(completedPlan.includes("- [-] Slice 2: [TASK-002]"));
+fs.rmSync(tempProject, { recursive: true, force: true });
+
+console.log("    ✅ agent-status 與 build-plan 多任務 taskId 隔離及 review 完成回寫測試通過！");
 '
 
 echo "🎉 所有 API 整合測試與隔離單元測試順利通過！"
