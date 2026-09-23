@@ -1782,6 +1782,7 @@
         hideProjectAutocomplete();
         initSelect2Dropdown('');
         renderSelect2Chips();
+        updateDependencyOptions(currentModalEditingTask ? currentModalEditingTask.id : '');
         return;
       }
       const proj = projects.find(p => p.id === projId) || { id: projId, name: projId };
@@ -1795,6 +1796,7 @@
       // 切換或選擇專案時：重置下拉選單選項，讓該專案資料夾下的 .github skills 呈現於下拉清單供使用者手動勾選
       initSelect2Dropdown('');
       renderSelect2Chips();
+      updateDependencyOptions(currentModalEditingTask ? currentModalEditingTask.id : '');
     }
 
     function clearFormProject(e) {
@@ -1809,6 +1811,7 @@
       showProjectAutocomplete();
       initSelect2Dropdown('');
       updateProjectClearButtonVisibility('');
+      updateDependencyOptions(currentModalEditingTask ? currentModalEditingTask.id : '');
       if (window.lucide) lucide.createIcons();
     }
 
@@ -1899,9 +1902,57 @@
       if (!selectEl) return;
 
       const availableTasks = tasks.filter(t => t.id !== currentEditingTaskId);
-      let html = '<option value=""> 選擇關聯/前置任務...</option>';
+
+      // 取得當前表單所選專案 (若有) 以便優先置頂
+      const currentFormProjId = document.getElementById('formProject') ? document.getElementById('formProject').value : '';
+
+      // 依專案分組
+      const grouped = {};
       availableTasks.forEach(t => {
-        html += `<option value="${t.id}">[${t.id}] ${escapeHtml(t.title)} (${t.status})</option>`;
+        const pId = t.project || 'unassigned';
+        if (!grouped[pId]) {
+          grouped[pId] = [];
+        }
+        grouped[pId].push(t);
+      });
+
+      // 各組內由新到舊排序 (依據 createdAt 降序，若無或相同則依據 TASK ID 數字降序)
+      Object.keys(grouped).forEach(pId => {
+        grouped[pId].sort((a, b) => {
+          const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          if (timeB !== timeA) return timeB - timeA;
+          const numA = parseInt(String(a.id).replace(/\D/g, ''), 10) || 0;
+          const numB = parseInt(String(b.id).replace(/\D/g, ''), 10) || 0;
+          return numB - numA;
+        });
+      });
+
+      // 專案群組排序：當前表單專案優先，其餘專案依最新任務時間/最新 ID 排序
+      const sortedProjectIds = Object.keys(grouped).sort((a, b) => {
+        if (currentFormProjId) {
+          if (a === currentFormProjId && b !== currentFormProjId) return -1;
+          if (b === currentFormProjId && a !== currentFormProjId) return 1;
+        }
+        const latestA = grouped[a][0];
+        const latestB = grouped[b][0];
+        const timeA = latestA && latestA.createdAt ? new Date(latestA.createdAt).getTime() : 0;
+        const timeB = latestB && latestB.createdAt ? new Date(latestB.createdAt).getTime() : 0;
+        if (timeB !== timeA) return timeB - timeA;
+        const numA = latestA ? (parseInt(String(latestA.id).replace(/\D/g, ''), 10) || 0) : 0;
+        const numB = latestB ? (parseInt(String(latestB.id).replace(/\D/g, ''), 10) || 0) : 0;
+        return numB - numA;
+      });
+
+      let html = '<option value=""> 選擇關聯/前置任務...</option>';
+      sortedProjectIds.forEach(pId => {
+        const proj = projects.find(p => p.id === pId);
+        const projName = proj ? `${proj.name} (${proj.id})` : (pId === 'unassigned' ? '未分類專案' : pId);
+        html += `<optgroup label="📁 ${escapeHtml(projName)}">`;
+        grouped[pId].forEach(t => {
+          html += `<option value="${t.id}">[${t.id}] ${escapeHtml(t.title)} (${t.status})</option>`;
+        });
+        html += '</optgroup>';
       });
       selectEl.innerHTML = html;
       renderDependencyChips();
