@@ -1901,60 +1901,49 @@
       const selectEl = document.getElementById('formDependenciesSelect');
       if (!selectEl) return;
 
-      const availableTasks = tasks.filter(t => t.id !== currentEditingTaskId);
-
-      // 取得當前表單所選專案 (若有) 以便優先置頂
+      // 取得當前表單所選專案 (若有)
       const currentFormProjId = document.getElementById('formProject') ? document.getElementById('formProject').value : '';
 
-      // 依專案分組
-      const grouped = {};
-      availableTasks.forEach(t => {
-        const pId = t.project || 'unassigned';
-        if (!grouped[pId]) {
-          grouped[pId] = [];
-        }
-        grouped[pId].push(t);
-      });
+      // 未選擇所屬專案時，關聯任務為 disabled
+      if (!currentFormProjId) {
+        selectEl.disabled = true;
+        selectEl.classList.add('cursor-not-allowed', 'opacity-75');
+        selectEl.innerHTML = '<option value=""> 未選擇所屬專案 (請先選擇專案)</option>';
+        renderDependencyChips();
+        return;
+      }
 
-      // 各組內由新到舊排序 (依據 createdAt 降序，若無或相同則依據 TASK ID 數字降序)
-      Object.keys(grouped).forEach(pId => {
-        grouped[pId].sort((a, b) => {
-          const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-          const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-          if (timeB !== timeA) return timeB - timeA;
-          const numA = parseInt(String(a.id).replace(/\D/g, ''), 10) || 0;
-          const numB = parseInt(String(b.id).replace(/\D/g, ''), 10) || 0;
-          return numB - numA;
-        });
-      });
+      // 已選擇所屬專案時，依據唯讀狀態設定 disabled
+      if (isCurrentModalReadOnly) {
+        selectEl.disabled = true;
+        selectEl.classList.add('cursor-not-allowed', 'opacity-75');
+      } else {
+        selectEl.disabled = false;
+        selectEl.classList.remove('cursor-not-allowed', 'opacity-75');
+      }
 
-      // 專案群組排序：當前表單專案優先，其餘專案依最新任務時間/最新 ID 排序
-      const sortedProjectIds = Object.keys(grouped).sort((a, b) => {
-        if (currentFormProjId) {
-          if (a === currentFormProjId && b !== currentFormProjId) return -1;
-          if (b === currentFormProjId && a !== currentFormProjId) return 1;
-        }
-        const latestA = grouped[a][0];
-        const latestB = grouped[b][0];
-        const timeA = latestA && latestA.createdAt ? new Date(latestA.createdAt).getTime() : 0;
-        const timeB = latestB && latestB.createdAt ? new Date(latestB.createdAt).getTime() : 0;
+      // 僅顯示對應專案的任務紀錄，取消專案分組
+      const availableTasks = tasks.filter(t => t.id !== currentEditingTaskId && t.project === currentFormProjId);
+
+      // 由新到舊排序 (依據 createdAt 降序，若無或相同則依據 TASK ID 數字降序)
+      availableTasks.sort((a, b) => {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         if (timeB !== timeA) return timeB - timeA;
-        const numA = latestA ? (parseInt(String(latestA.id).replace(/\D/g, ''), 10) || 0) : 0;
-        const numB = latestB ? (parseInt(String(latestB.id).replace(/\D/g, ''), 10) || 0) : 0;
+        const numA = parseInt(String(a.id).replace(/\D/g, ''), 10) || 0;
+        const numB = parseInt(String(b.id).replace(/\D/g, ''), 10) || 0;
         return numB - numA;
       });
 
-      let html = '<option value=""> 選擇關聯/前置任務...</option>';
-      sortedProjectIds.forEach(pId => {
-        const proj = projects.find(p => p.id === pId);
-        const projName = proj ? `${proj.name} (${proj.id})` : (pId === 'unassigned' ? '未分類專案' : pId);
-        html += `<optgroup label="📁 ${escapeHtml(projName)}">`;
-        grouped[pId].forEach(t => {
+      if (availableTasks.length === 0) {
+        selectEl.innerHTML = '<option value=""> 該專案尚無其他任務紀錄</option>';
+      } else {
+        let html = '<option value=""> 選擇關聯/前置任務...</option>';
+        availableTasks.forEach(t => {
           html += `<option value="${t.id}">[${t.id}] ${escapeHtml(t.title)} (${t.status})</option>`;
         });
-        html += '</optgroup>';
-      });
-      selectEl.innerHTML = html;
+        selectEl.innerHTML = html;
+      }
       renderDependencyChips();
     }
 
@@ -2706,11 +2695,22 @@
       selects.forEach(id => {
         const el = document.getElementById(id);
         if (el) {
-          el.disabled = isReadOnly;
-          if (isReadOnly) {
-            el.classList.add('bg-slate-100/90', 'dark:bg-slate-800/80', 'cursor-not-allowed', 'opacity-75');
+          if (id === 'formDependenciesSelect') {
+            const currentFormProjId = document.getElementById('formProject') ? document.getElementById('formProject').value : '';
+            const shouldDisable = isReadOnly || !currentFormProjId;
+            el.disabled = shouldDisable;
+            if (shouldDisable) {
+              el.classList.add('bg-slate-100/90', 'dark:bg-slate-800/80', 'cursor-not-allowed', 'opacity-75');
+            } else {
+              el.classList.remove('bg-slate-100/90', 'dark:bg-slate-800/80', 'cursor-not-allowed', 'opacity-75');
+            }
           } else {
-            el.classList.remove('bg-slate-100/90', 'dark:bg-slate-800/80', 'cursor-not-allowed', 'opacity-75');
+            el.disabled = isReadOnly;
+            if (isReadOnly) {
+              el.classList.add('bg-slate-100/90', 'dark:bg-slate-800/80', 'cursor-not-allowed', 'opacity-75');
+            } else {
+              el.classList.remove('bg-slate-100/90', 'dark:bg-slate-800/80', 'cursor-not-allowed', 'opacity-75');
+            }
           }
         }
       });
