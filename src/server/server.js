@@ -914,7 +914,7 @@ function scanProjectWorklogAndPlan(projPath, taskId) {
           return { file: f, fullPath, mtimeMs: stat.mtimeMs };
         }).sort((a, b) => b.mtimeMs - a.mtimeMs);
 
-        let selectedPlan = planFilesWithStats[0].file;
+        let selectedPlan = null;
         const targetId = taskId || (activeTask && activeTask.id !== 'none' ? activeTask.id : (lastCompletedTask ? lastCompletedTask.id : ''));
 
         if (targetId && targetId !== 'none') {
@@ -933,12 +933,22 @@ function scanProjectWorklogAndPlan(projPath, taskId) {
               } catch (e) {}
             }
           }
+        } else {
+          // 沒有指定特定任務時（例如全域概覽），優先選取最新且非 done 的 Plan，若皆已 done 則選最新一個
+          const nonDonePlan = planFilesWithStats.find(p => {
+            try {
+              const content = fs.readFileSync(p.fullPath, 'utf8');
+              return !/^- Status:\s*done/mi.test(content);
+            } catch (e) { return false; }
+          });
+          selectedPlan = nonDonePlan ? nonDonePlan.file : planFilesWithStats[0].file;
         }
 
-        const planPath = path.join(planDir, selectedPlan);
-        const planContent = fs.readFileSync(planPath, 'utf8');
-
-        activeBuildPlan = parseBuildPlanContent(planContent, planPath, fallbackRoute, taskId);
+        if (selectedPlan) {
+          const planPath = path.join(planDir, selectedPlan);
+          const planContent = fs.readFileSync(planPath, 'utf8');
+          activeBuildPlan = parseBuildPlanContent(planContent, planPath, fallbackRoute, taskId);
+        }
       }
     } catch (e) {
       console.error(`Error reading build plan in ${planDir}:`, e);
@@ -1094,7 +1104,7 @@ function syncProjectWorklogForActiveTask(projPath, task) {
     }
   }
 
-  // 2. 同步更新 .github/harness/plan/ 內的 build plan
+  // 2. 同步更新 .github/harness/plan/ 內的 build plan (僅當存在專屬於本任務的 Plan，且尚未結案時才更新)
   const planDir = path.join(projPath, '.github', 'harness', 'plan');
   if (fs.existsSync(planDir)) {
     try {
@@ -1104,45 +1114,63 @@ function syncProjectWorklogForActiveTask(projPath, task) {
       if (planFiles.length > 0) {
         const cleanId = (task.id || '').toLowerCase().replace(/^task-/, '');
         let targetPlanFile = planFiles.find(f => f.toLowerCase().includes(cleanId));
-        if (!targetPlanFile) targetPlanFile = planFiles[0];
-
-        const targetPlanPath = path.join(planDir, targetPlanFile);
-        let planContent = fs.readFileSync(targetPlanPath, 'utf8');
-
-        if (/^- Status:.*$/m.test(planContent)) {
-          planContent = planContent.replace(/^- Status:.*$/m, `- Status: in_progress`);
-        }
-
-        planContent = planContent.replace(/(## 任務卡[\s\S]*?)(## |$)/, (match, cardSection, nextHeading) => {
-          let updatedCard = cardSection;
-          if (/- 目前任務 ID:.*$/m.test(updatedCard)) {
-            updatedCard = updatedCard.replace(/- 目前任務 ID:.*$/m, `- 目前任務 ID: ${task.id}`);
-          } else {
-            updatedCard = updatedCard.replace(/(## 任務卡[^\n]*\n)/, `$1\n- 目前任務 ID: ${task.id}\n`);
-          }
-          if (/- 目標:.*$/m.test(updatedCard)) {
-            updatedCard = updatedCard.replace(/- 目標:.*$/m, `- 目標: ${goalText}`);
-          }
-          return updatedCard + nextHeading;
-        });
-
-        const sliceMatch = planContent.match(/(## Slices[\s\S]*?)(## |$)/);
-        if (sliceMatch) {
-          const slicesSection = sliceMatch[1];
-          const hasTaskSlice = slicesSection.includes(`[${task.id}]`) || (isRedo && slicesSection.includes(feedbackText));
-          if (!hasTaskSlice) {
-            const lines = slicesSection.split('\n');
-            const sliceLines = lines.filter(l => l.trim().match(/^-\s*\[([ xX\-~])\]\s*(.*)$/));
-            const nextNum = sliceLines.length + 1;
-            const newSliceLine = `- [-] Slice ${nextNum}: [${task.id}] ${goalText}`;
-            const trimmedSlices = slicesSection.trimEnd();
-            const newSlicesSection = trimmedSlices + '\n' + newSliceLine + '\n\n';
-            planContent = planContent.replace(sliceMatch[0], newSlicesSection + sliceMatch[2]);
+        if (!targetPlanFile) {
+          // 檢查內容是否明確綁定此 taskId（例如包含 [TASK-xxx] 或 目前任務 ID: TASK-xxx）
+          for (const f of planFiles) {
+            try {
+              const c = fs.readFileSync(path.join(planDir, f), 'utf8');
+              if (c.toLowerCase().includes(`[${cleanId}]`) || c.toLowerCase().includes(`[task-${cleanId}]`) || c.toLowerCase().includes(`目前任務 id: task-${cleanId}`) || c.toLowerCase().includes(`目前任務 id: ${cleanId}`)) {
+                targetPlanFile = f;
+                break;
+              }
+            } catch (e) {}
           }
         }
 
-        fs.writeFileSync(targetPlanPath, planContent, 'utf8');
-        hasUpdated = true;
+        // 關鍵防護：若沒有專屬於此任務的 Plan，嚴禁 fallback 覆寫其他既有 Plan！
+        if (targetPlanFile) {
+          const targetPlanPath = path.join(planDir, targetPlanFile);
+          let planContent = fs.readFileSync(targetPlanPath, 'utf8');
+
+          // 若 Plan 已標記為 done，視為已結案歷史文件，不再自動追加切片
+          const isPlanDone = /^- Status:\s*done/mi.test(planContent);
+          if (!isPlanDone) {
+            if (/^- Status:.*$/m.test(planContent)) {
+              planContent = planContent.replace(/^- Status:.*$/m, `- Status: in_progress`);
+            }
+
+            planContent = planContent.replace(/(## 任務卡[\s\S]*?)(## |$)/, (match, cardSection, nextHeading) => {
+              let updatedCard = cardSection;
+              if (/- 目前任務 ID:.*$/m.test(updatedCard)) {
+                updatedCard = updatedCard.replace(/- 目前任務 ID:.*$/m, `- 目前任務 ID: ${task.id}`);
+              } else {
+                updatedCard = updatedCard.replace(/(## 任務卡[^\n]*\n)/, `$1\n- 目前任務 ID: ${task.id}\n`);
+              }
+              if (/- 目標:.*$/m.test(updatedCard)) {
+                updatedCard = updatedCard.replace(/- 目標:.*$/m, `- 目標: ${goalText}`);
+              }
+              return updatedCard + nextHeading;
+            });
+
+            const sliceMatch = planContent.match(/(## Slices[\s\S]*?)(## |$)/);
+            if (sliceMatch) {
+              const slicesSection = sliceMatch[1];
+              const hasTaskSlice = slicesSection.includes(`[${task.id}]`) || (isRedo && slicesSection.includes(feedbackText));
+              if (!hasTaskSlice) {
+                const lines = slicesSection.split('\n');
+                const sliceLines = lines.filter(l => l.trim().match(/^-\s*\[([ xX\-~])\]\s*(.*)$/));
+                const nextNum = sliceLines.length + 1;
+                const newSliceLine = `- [-] Slice ${nextNum}: [${task.id}] ${goalText}`;
+                const trimmedSlices = slicesSection.trimEnd();
+                const newSlicesSection = trimmedSlices + '\n' + newSliceLine + '\n\n';
+                planContent = planContent.replace(sliceMatch[0], newSlicesSection + sliceMatch[2]);
+              }
+            }
+
+            fs.writeFileSync(targetPlanPath, planContent, 'utf8');
+            hasUpdated = true;
+          }
+        }
       }
     } catch (e) {
       console.error('Error updating build plan for active task:', e);
@@ -1171,13 +1199,21 @@ function markTaskSlicesComplete(projPath, taskId, planStatus) {
     for (const planFile of planFiles) {
       const planPath = path.join(planDir, planFile);
       const planContent = fs.readFileSync(planPath, 'utf8');
-      let updatedContent = planContent.replace(taskSlicePattern, '- [x]$2');
-      if (planStatus && /^- Status:.*$/m.test(updatedContent)) {
-        updatedContent = updatedContent.replace(/^- Status:.*$/m, `- Status: ${planStatus}`);
-      }
-      if (updatedContent !== planContent) {
-        fs.writeFileSync(planPath, updatedContent, 'utf8');
-        hasUpdated = true;
+      
+      const hasTaskSlice = taskSlicePattern.test(planContent);
+      const cleanId = taskId.toLowerCase().replace(/^task-/, '');
+      const isTargetPlan = planFile.toLowerCase().includes(cleanId) || planContent.toLowerCase().includes(`目前任務 id: ${taskId.toLowerCase()}`);
+
+      if (hasTaskSlice || isTargetPlan) {
+        taskSlicePattern.lastIndex = 0;
+        let updatedContent = planContent.replace(taskSlicePattern, '- [x]$2');
+        if (planStatus && /^- Status:.*$/m.test(updatedContent)) {
+          updatedContent = updatedContent.replace(/^- Status:.*$/m, `- Status: ${planStatus}`);
+        }
+        if (updatedContent !== planContent) {
+          fs.writeFileSync(planPath, updatedContent, 'utf8');
+          hasUpdated = true;
+        }
       }
     }
 

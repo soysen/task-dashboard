@@ -160,7 +160,19 @@ assert(completedPlan.includes("- [x] Slice 1: [TASK-001]"));
 assert(completedPlan.includes("- [-] Slice 2: [TASK-002]"));
 fs.rmSync(tempProject, { recursive: true, force: true });
 
-console.log("    ✅ agent-status 與 build-plan 多任務 taskId 隔離及 review 完成回寫測試通過！");
+// 驗證未關聯任務開工時不會盲目向既有 Plan 追加切片，且已 done 的 Plan 不會被修改
+const { syncProjectWorklogForActiveTask } = require("./src/server/server.js");
+const tempProj2 = fs.mkdtempSync(path.join(os.tmpdir(), "task-dashboard-doneplan-"));
+const planDir2 = path.join(tempProj2, ".github", "harness", "plan");
+fs.mkdirSync(planDir2, { recursive: true });
+fs.writeFileSync(path.join(planDir2, "feature-build-plan.md"), `# Build Plan: Feature A\n- Status: done\n## Slices\n- [x] Slice 1: 完成架構\n`);
+syncProjectWorklogForActiveTask(tempProj2, { id: "TASK-999", title: "不相關的新任務" });
+const preservedPlan = fs.readFileSync(path.join(planDir2, "feature-build-plan.md"), "utf8");
+assert(!preservedPlan.includes("TASK-999"), "不相關任務不應被追加至已有的無關 Plan 中");
+assert(preservedPlan.includes("- Status: done"), "已結案之 Plan 不應被重啟為 in_progress");
+fs.rmSync(tempProj2, { recursive: true, force: true });
+
+console.log("    ✅ agent-status 與 build-plan 多任務 taskId 隔離、done 保護及 review 完成回寫測試通過！");
 '
 
 echo "🎉 所有 API 整合測試與隔離單元測試順利通過！"
