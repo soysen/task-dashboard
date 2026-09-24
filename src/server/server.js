@@ -383,13 +383,158 @@ function scanProjectGithubInfo(projPath) {
   return info;
 }
 
+function initProjectHarness(projPath) {
+  if (!projPath || !fs.existsSync(projPath)) {
+    throw new Error(`Project directory not found: ${projPath}`);
+  }
+
+  const createdFiles = [];
+  const githubDir = path.join(projPath, '.github');
+  const worklogDir = path.join(githubDir, 'worklog');
+  const harnessDir = path.join(githubDir, 'harness');
+  const planDir = path.join(harnessDir, 'plan');
+  const templateDir = path.join(harnessDir, 'templates');
+  const scriptsDir = path.join(projPath, 'scripts');
+
+  [worklogDir, planDir, templateDir, scriptsDir].forEach(d => {
+    if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+  });
+
+  const templateSrcDir = path.join(__dirname, 'templates');
+
+  // 1. .github/worklog/agent-status.md
+  const statusFile = path.join(worklogDir, 'agent-status.md');
+  if (!fs.existsSync(statusFile)) {
+    const srcStatus = path.join(templateSrcDir, 'agent-status.md');
+    const content = fs.existsSync(srcStatus) ? fs.readFileSync(srcStatus, 'utf8') : `# Agent Status
+
+## Active Task
+
+- ID: none
+- Title: N/A
+- Status: idle
+- Last updated: ${new Date().toISOString().split('T')[0]}
+- Goal: N/A
+- Route: dashboard-state-and-sync
+- Scope: N/A
+- Out of scope: 跨專案副作用
+
+## Execution Tracking
+
+- CurrentStep: 待命
+- Evidence: 無
+- NextStep: 等待任務指派
+
+## Resume Entry
+
+- Start here: .github/worklog/agent-status.md
+`;
+    fs.writeFileSync(statusFile, content, 'utf8');
+    createdFiles.push('.github/worklog/agent-status.md');
+  }
+
+  // 2. .github/harness/plan/README.md
+  const planReadme = path.join(planDir, 'README.md');
+  if (!fs.existsSync(planReadme)) {
+    const planReadmeContent = `# Harness Build Plans & Slices
+
+本目錄存放專案的建置藍圖 (Build Plan) 與任務切片 (Slices)。
+每個進行中的非平凡任務均可在此維護專屬的 \`<feature>-build-plan.md\`。
+`;
+    fs.writeFileSync(planReadme, planReadmeContent, 'utf8');
+    createdFiles.push('.github/harness/plan/README.md');
+  }
+
+  // 3. .github/harness/templates/build-plan.md
+  const bpTemplateFile = path.join(templateDir, 'build-plan.md');
+  if (!fs.existsSync(bpTemplateFile)) {
+    const srcBp = path.join(templateSrcDir, 'build-plan.md');
+    const bpTemplate = fs.existsSync(srcBp) ? fs.readFileSync(srcBp, 'utf8') : `# Build Plan: [Feature Name]
+
+## 狀態
+- Feature name: [Feature Name]
+- 日期: ${new Date().toISOString().split('T')[0]}
+- 狀態: in_progress
+
+## 任務卡
+- 目前任務 ID: 
+- 目標: 
+
+## Slices
+- [-] Slice 1: 完成架構設計與驗證準備
+- [-] Slice 2: 核心功能實作與單元測試
+- [-] Slice 3: 整合測試與合規交付
+
+## 驗收標準
+- [ ] 所有單元測試與 Harness 驗證通過
+- [ ] 無跨專案副作用
+`;
+    fs.writeFileSync(bpTemplateFile, bpTemplate, 'utf8');
+    createdFiles.push('.github/harness/templates/build-plan.md');
+  }
+
+  // 4. HARNESS.md
+  const harnessMdFile = path.join(projPath, 'HARNESS.md');
+  if (!fs.existsSync(harnessMdFile)) {
+    const srcHarness = path.join(templateSrcDir, 'HARNESS.md');
+    const harnessMdContent = fs.existsSync(srcHarness) ? fs.readFileSync(srcHarness, 'utf8') : `# Project Harness & Quality Gate
+
+## 1. 診斷與測試
+本專案遵循 Task Dashboard Harness 品質閘門標準與雙寫切片規範。
+
+- **執行 Harness 檢驗**：\`npm run harness:check\` 或 \`bash scripts/harness_check.sh\`
+- **單元測試**：\`npm test\`
+
+## 2. 狀態與切片雙寫規範 (Plan & Worklog Sync)
+- 進行中任務 (In Progress) 請同步維護 \`.github/worklog/agent-status.md\` 與 \`.github/harness/plan/\`。
+- 每個非平凡任務均需拆解為獨立可驗證的 Slices。
+- 交付審查前需確保全量 Diff (含已追蹤與未追蹤) 完整無占位符。
+`;
+    fs.writeFileSync(harnessMdFile, harnessMdContent, 'utf8');
+    createdFiles.push('HARNESS.md');
+  }
+
+  // 5. scripts/harness_check.sh
+  const harnessScriptFile = path.join(scriptsDir, 'harness_check.sh');
+  if (!fs.existsSync(harnessScriptFile)) {
+    const checkScriptContent = `#!/bin/bash
+set -e
+echo "🔍 執行專案 Harness 診斷與檢驗..."
+if [ -f "package.json" ]; then
+  if grep -q '"test"' package.json; then
+    npm test
+  fi
+fi
+echo "✅ Harness 檢核通過！"
+`;
+    fs.writeFileSync(harnessScriptFile, checkScriptContent, { encoding: 'utf8', mode: 0o755 });
+    createdFiles.push('scripts/harness_check.sh');
+  }
+
+  // 6. 補充 package.json 中的 harness:check 指令
+  const pkgPath = path.join(projPath, 'package.json');
+  if (fs.existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      if (!pkg.scripts) pkg.scripts = {};
+      if (!pkg.scripts['harness:check']) {
+        pkg.scripts['harness:check'] = 'bash scripts/harness_check.sh';
+        fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2), 'utf8');
+        createdFiles.push('package.json (harness:check)');
+      }
+    } catch (e) {}
+  }
+
+  return createdFiles;
+}
+
 function parseAgentStatusContent(content, statusFilePath, targetTaskId) {
   const lines = content.split('\n');
   let currentSection = '';
   let currentSubSection = '';
 
   const activeTasksMap = new Map();
-  let currentActiveTaskFields = {};
+  let currentActiveTaskFields = null;
   let currentActiveTaskId = '';
 
   const activeFields = {};
@@ -403,11 +548,13 @@ function parseAgentStatusContent(content, statusFilePath, targetTaskId) {
     if (line.startsWith('## ')) {
       currentSection = line.substring(3).trim();
       currentSubSection = '';
+      currentActiveTaskId = '';
+      currentActiveTaskFields = null;
 
       const activeMatch = currentSection.match(/Active Task[s]?[:\s(]+([A-Za-z0-9_-]+)/i);
       if (activeMatch) {
         currentActiveTaskId = activeMatch[1].trim();
-        currentActiveTaskFields = {};
+        currentActiveTaskFields = activeTasksMap.get(currentActiveTaskId.toLowerCase()) || { id: currentActiveTaskId };
         activeTasksMap.set(currentActiveTaskId.toLowerCase(), currentActiveTaskFields);
       }
       continue;
@@ -418,7 +565,7 @@ function parseAgentStatusContent(content, statusFilePath, targetTaskId) {
       const subMatch = currentSubSection.match(/^(?:\[([A-Za-z0-9_-]+)\]|([A-Za-z0-9_-]+))(?:[:\s]+(.*))?$/);
       if (subMatch && (currentSection.includes('Active Task') || currentSection.includes('進行中'))) {
         currentActiveTaskId = (subMatch[1] || subMatch[2]).trim();
-        currentActiveTaskFields = activeTasksMap.get(currentActiveTaskId.toLowerCase()) || {};
+        currentActiveTaskFields = activeTasksMap.get(currentActiveTaskId.toLowerCase()) || { id: currentActiveTaskId };
         if (subMatch[3]) currentActiveTaskFields['title'] = subMatch[3].trim();
         activeTasksMap.set(currentActiveTaskId.toLowerCase(), currentActiveTaskFields);
       }
@@ -437,29 +584,47 @@ function parseAgentStatusContent(content, statusFilePath, targetTaskId) {
         const value = line.substring(idx + 1).trim();
 
         if (currentSection === 'Active Task' || currentSection.includes('活躍任務') || currentSection.includes('進行中任務') || currentSection.includes('Active Tasks')) {
-          activeFields[key] = value;
-          if (currentActiveTaskId) {
+          if (currentActiveTaskFields) {
             currentActiveTaskFields[key] = value;
+          } else {
+            activeFields[key] = value;
           }
+
           if (key === 'id' || key === '任務 id' || key === '任務id') {
             const parsedId = value.trim();
             if (parsedId && parsedId !== 'none') {
-              if (!activeTasksMap.has(parsedId.toLowerCase())) {
-                activeTasksMap.set(parsedId.toLowerCase(), { ...activeFields });
+              currentActiveTaskId = parsedId;
+              if (currentActiveTaskFields) {
+                currentActiveTaskFields['id'] = parsedId;
+                activeTasksMap.set(parsedId.toLowerCase(), currentActiveTaskFields);
+              } else {
+                let existing = activeTasksMap.get(parsedId.toLowerCase());
+                if (!existing) {
+                  existing = { ...activeFields, id: parsedId };
+                  activeTasksMap.set(parsedId.toLowerCase(), existing);
+                } else {
+                  Object.assign(existing, activeFields, { id: parsedId });
+                }
               }
             }
+          } else if (!currentActiveTaskFields && currentActiveTaskId && activeTasksMap.has(currentActiveTaskId.toLowerCase())) {
+            activeTasksMap.get(currentActiveTaskId.toLowerCase())[key] = value;
           }
         } else if (currentSection === 'Last Completed Task' || currentSection.includes('前次完成') || currentSection.includes('最近完成')) {
           completedFields[key] = value;
         } else if (currentSection === 'Execution Tracking' || currentSection.includes('執行狀態') || currentSection.includes('執行追蹤')) {
           executionFields[key] = value;
-          if (currentActiveTaskId) {
+          if (currentActiveTaskFields) {
             currentActiveTaskFields[key] = value;
+          } else if (currentActiveTaskId && activeTasksMap.has(currentActiveTaskId.toLowerCase())) {
+            activeTasksMap.get(currentActiveTaskId.toLowerCase())[key] = value;
           }
         } else if (currentSection === 'Resume Entry' || currentSection.includes('恢復入口') || currentSection.includes('進入點')) {
           resumeFields[key] = value;
-          if (currentActiveTaskId) {
+          if (currentActiveTaskFields) {
             currentActiveTaskFields[key] = value;
+          } else if (currentActiveTaskId && activeTasksMap.has(currentActiveTaskId.toLowerCase())) {
+            activeTasksMap.get(currentActiveTaskId.toLowerCase())[key] = value;
           }
         }
       } else if ((currentSection.includes('Active Task') || currentSection.includes('活躍任務')) && (line.toLowerCase().startsWith('- updated files:') || line.startsWith('- 異動檔案:') || line.startsWith('- 修改檔案:'))) {
@@ -493,12 +658,15 @@ function parseAgentStatusContent(content, statusFilePath, targetTaskId) {
       ? `Start here: ${fields['start here'] || fields['開始位置'] || fields['入口'] || resumeFields['start here'] || resumeFields['開始位置'] || resumeFields['入口']}`
       : (fields['恢復入口'] || resumeFields['恢復入口'] || undefined);
 
+    const goalVal = fields['goal'] || fields['目標'] || 'N/A';
+    const titleVal = fields['title'] || fields['標題'] || fields['名稱'] || 'N/A';
+
     return {
       id: fields['id'] || fields['任務 id'] || fields['任務id'] || 'none',
-      title: fields['title'] || fields['標題'] || fields['名稱'] || 'N/A',
+      title: titleVal,
       status,
       lastUpdated: fields['last updated'] || fields['lastupdated'] || fields['更新時間'] || fields['最後更新'] || 'N/A',
-      goal: fields['goal'] || fields['目標'] || 'N/A',
+      goal: goalVal,
       route: fields['route'] || fields['路由 (skill route)'] || fields['路由'] || fields['skill route'] || 'none',
       taskLevel: fields['task level'] || fields['level'] || fields['等級'] || undefined,
       currentStep,
@@ -955,7 +1123,49 @@ function scanProjectWorklogAndPlan(projPath, taskId) {
     }
   }
 
-  if (!hasWorklog && !activeBuildPlan) return null;
+  if (!hasWorklog && !activeBuildPlan) {
+    // 即使專案無現成 worklog，若有指定任務或當前任務亦即時合成切片資訊，提供切片評估
+    const allTasks = readTasks();
+    const currentTask = taskId ? allTasks.find(t => t.id.toLowerCase() === taskId.toLowerCase()) : null;
+    const taskTitle = currentTask ? currentTask.title : (taskId || '進行中任務');
+    const goalText = currentTask
+      ? (currentTask.feedback && currentTask.feedback.trim()
+          ? `[退回重做] ${currentTask.feedback.replace(/[\r\n]+/g, ' ').trim()}`
+          : (currentTask.description || currentTask.title))
+      : (taskId ? `任務執行與驗證：${taskId}` : undefined);
+
+    if (currentTask || taskId) {
+      const taskStatus = currentTask ? currentTask.status : 'in_progress';
+      return {
+        hasWorklog: false,
+        activeTask: {
+          id: currentTask ? currentTask.id : taskId,
+          title: taskTitle,
+          status: taskStatus === 'in_progress' ? '進行中' : (taskStatus === 'review' ? '待審查' : (taskStatus === 'done' ? '已完成' : '未開始')),
+          lastUpdated: (currentTask && (currentTask.updatedAt || currentTask.createdAt) || new Date().toISOString()).split('T')[0],
+          goal: goalText || taskTitle,
+          route: (currentTask && currentTask.route) || 'dashboard-state-and-sync'
+        },
+        currentSliceGoal: goalText || taskTitle,
+        route: (currentTask && currentTask.route) || 'dashboard-state-and-sync',
+        currentStep: taskStatus === 'in_progress' ? `正在執行：${taskTitle}` : `任務狀態：${taskStatus}`,
+        evidence: taskStatus === 'done' ? '測試通過已驗收' : '進行中',
+        nextStep: taskStatus === 'in_progress' ? '完成實作與測試後推入 review 交付審查' : '無',
+        slices: [
+          {
+            sliceId: `slice-${(currentTask ? currentTask.id : taskId).toLowerCase()}-1`,
+            title: `[${taskStatus === 'done' ? '已完成' : '進行中'}] ${taskTitle}`,
+            status: taskStatus === 'done' ? '已完成' : '進行中',
+            route: (currentTask && currentTask.route) || 'dashboard-state-and-sync',
+            goal: goalText || taskTitle
+          }
+        ],
+        buildPlanCount: 0,
+        updatedFiles: (currentTask && currentTask.modifiedFiles) || []
+      };
+    }
+    return null;
+  }
 
   // 讀取當前任務資訊，進行精準的 Task ID 對應與及時資料合成
   const allTasks = readTasks();
@@ -963,6 +1173,21 @@ function scanProjectWorklogAndPlan(projPath, taskId) {
 
   const isTargetActiveTask = activeTask && activeTask.id !== 'none' && (!taskId || activeTask.id.toLowerCase() === taskId.toLowerCase());
   let effectiveActiveTask = isTargetActiveTask ? activeTask : null;
+
+  // 若當前任務有資訊，補全 activeTask 中為 'N/A' 或缺失的欄位
+  if (effectiveActiveTask && currentTask) {
+    if (!effectiveActiveTask.title || effectiveActiveTask.title === 'N/A') {
+      effectiveActiveTask.title = currentTask.title;
+    }
+    if (!effectiveActiveTask.goal || effectiveActiveTask.goal === 'N/A') {
+      effectiveActiveTask.goal = currentTask.feedback && currentTask.feedback.trim()
+        ? `[退回重做] ${currentTask.feedback.replace(/[\r\n]+/g, ' ').trim()}`
+        : (currentTask.description || currentTask.title);
+    }
+    if (!effectiveActiveTask.route || effectiveActiveTask.route === 'none') {
+      effectiveActiveTask.route = currentTask.route || fallbackRoute || 'dashboard-state-and-sync';
+    }
+  }
 
   // 若當前任務為進行中，但 agent-status.md 未及時記錄或記錄了其他任務，立即合成當前任務之專屬即時狀態
   if (!effectiveActiveTask && currentTask && currentTask.status === 'in_progress') {
@@ -992,7 +1217,7 @@ function scanProjectWorklogAndPlan(projPath, taskId) {
 
   let resolvedSliceGoal = (activeBuildPlan && activeBuildPlan.currentSliceGoal && activeBuildPlan.currentSliceGoal !== 'N/A')
     ? activeBuildPlan.currentSliceGoal
-    : (effectiveActiveTask && effectiveActiveTask.goal && effectiveActiveTask.goal !== 'N/A' ? effectiveActiveTask.goal : undefined);
+    : (effectiveActiveTask && effectiveActiveTask.goal && effectiveActiveTask.goal !== 'N/A' ? effectiveActiveTask.goal : (currentTask ? (currentTask.description || currentTask.title) : undefined));
 
   let resolvedRoute = (effectiveActiveTask && effectiveActiveTask.route && effectiveActiveTask.route !== 'none')
     ? effectiveActiveTask.route
@@ -1006,14 +1231,15 @@ function scanProjectWorklogAndPlan(projPath, taskId) {
 
   // 若當前任務為進行中但無專屬切片清單，自動建立專屬實作切片，絕不套用其他任務的切片
   if (finalPlanSlices.length === 0 && effectiveActiveTask) {
+    const defaultSliceGoal = (effectiveActiveTask.goal && effectiveActiveTask.goal !== 'N/A') ? effectiveActiveTask.goal : effectiveActiveTask.title;
     finalPlanSlices.push({
       sliceId: `slice-${effectiveActiveTask.id.toLowerCase()}-1`,
-      title: effectiveActiveTask.goal ? `[進行中] ${effectiveActiveTask.goal}` : `[進行中] ${effectiveActiveTask.title}`,
+      title: `[進行中] ${defaultSliceGoal}`,
       status: '進行中',
       route: resolvedRoute || 'dashboard-state-and-sync',
-      goal: effectiveActiveTask.goal || effectiveActiveTask.title
+      goal: defaultSliceGoal
     });
-    if (!resolvedSliceGoal) resolvedSliceGoal = effectiveActiveTask.goal || effectiveActiveTask.title;
+    if (!resolvedSliceGoal || resolvedSliceGoal === 'N/A') resolvedSliceGoal = defaultSliceGoal;
   }
 
   const resolvedCurrentStep = effectiveActiveTask
@@ -1072,6 +1298,11 @@ function syncProjectWorklogForActiveTask(projPath, task) {
 
   // 1. 同步更新 .github/worklog/agent-status.md
   const statusPath = path.join(projPath, '.github', 'worklog', 'agent-status.md');
+  if (!fs.existsSync(statusPath)) {
+    try {
+      initProjectHarness(projPath);
+    } catch (e) {}
+  }
   if (fs.existsSync(statusPath)) {
     try {
       let content = fs.readFileSync(statusPath, 'utf8');
@@ -2549,6 +2780,53 @@ function runNativeFolderPicker(promptText, callback) {
     return;
   }
 
+  // 初始化專案 Harness 架構 (引入切片藍圖、規範與驗證腳本)
+  if ((pathname.endsWith('/init-harness') || pathname === '/api/projects/init-harness') && req.method === 'POST') {
+    let projId = (parsedUrl.query && parsedUrl.query.id ? parsedUrl.query.id : '').trim();
+    if (!projId && pathname.includes('/api/projects/')) {
+      projId = decodeURIComponent(pathname.replace('/api/projects/', '').replace('/init-harness', '')).trim();
+    }
+    let body = '';
+    req.on('data', chunk => (body += chunk));
+    req.on('end', () => {
+      try {
+        let targetId = projId;
+        if (body) {
+          try {
+            const data = JSON.parse(body);
+            if (data.id || data.projectId) targetId = data.id || data.projectId;
+          } catch (e) {}
+        }
+        if (!targetId) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing project ID' }));
+          return;
+        }
+        const projects = readProjects();
+        const proj = projects.find(p => p.id === targetId || p.id === decodeURIComponent(targetId));
+        const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, targetId);
+        const createdFiles = initProjectHarness(projPath);
+
+        // 重新掃描更新專案資訊
+        if (proj) {
+          const githubInfo = scanProjectGithubInfo(projPath);
+          proj.docs = githubInfo.docs;
+          proj.skills = githubInfo.skills;
+          proj.prompts = githubInfo.prompts;
+          proj.harness = githubInfo.harness;
+          writeProjects(projects);
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, projectId: targetId, createdFiles, harness: proj ? proj.harness : undefined }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
   // 專案列表
   if (pathname === '/api/projects' && req.method === 'GET') {
     const projects = readProjects();
@@ -3750,6 +4028,7 @@ if (require.main === module) {
 
 module.exports = {
   server,
+  initProjectHarness,
   parseAgentStatusContent,
   parseBuildPlanContent,
   scanProjectWorklogAndPlan,

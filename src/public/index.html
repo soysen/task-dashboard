@@ -115,6 +115,11 @@
       background: #6366f1;
     }
     .ghost-card {
+      opacity: 0.5;
+      background: #f1f5f9 !important;
+      border: 2px dashed #6366f1 !important;
+    }
+    .dark .ghost-card {
       opacity: 0.35;
       background: #1e293b !important;
       border: 2px dashed #6366f1 !important;
@@ -267,6 +272,10 @@
             <h1 class="text-xs sm:text-base font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-1.5 truncate">
               <span id="headerCurrentProjectName" class="truncate">全部專案</span>
               <span id="bannerPath" class="text-[10px] text-slate-400 dark:text-slate-500 font-mono font-normal truncate hidden sm:inline"></span>
+              <button id="bannerHarnessBtn" onclick="initProjectHarnessFromUI()" title="為此專案引入 Harness 切片藍圖與驗證規範" class="hidden text-[10px] bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-full font-medium transition items-center gap-1 flex-shrink-0 cursor-pointer">
+                <i data-lucide="shield-check" class="w-3 h-3 text-indigo-500"></i>
+                <span class="hidden sm:inline">引入 Harness</span>
+              </button>
               <!-- 動態即時巡檢狀態 (二擇一顯示：AI 輪巡模式) -->
               <div id="inspectionBadge" onclick="triggerManualInspect()" title="AI 對話輪巡中 · 點擊手動同步" style="display: none;" class="items-center gap-1.5 bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 dark:border-emerald-500/40 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-medium cursor-pointer hover:bg-emerald-500/25 transition flex-shrink-0">
                 <span id="inspectionDot" class="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -2308,10 +2317,35 @@
       if (window.lucide) lucide.createIcons();
     }
 
+    async function initProjectHarnessFromUI(projectId) {
+      const targetProjId = projectId || currentProject;
+      if (!targetProjId || targetProjId === 'ALL') {
+        showToast('請先選擇特定專案以初始化 Harness', true);
+        return;
+      }
+      try {
+        const res = await fetch(`/api/projects/${encodeURIComponent(targetProjId)}/init-harness`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(`已成功為專案【${targetProjId}】建立 Harness 品質閘門與切片藍圖！`);
+          await fetchProjects();
+          await fetchTasks();
+        } else {
+          showToast(`初始化失敗: ${data.error || '未知錯誤'}`, true);
+        }
+      } catch (err) {
+        showToast(`初始化異常: ${err.message}`, true);
+      }
+    }
+
     function renderProjectBanner() {
       const banner = document.getElementById('projectBanner');
       const headerTitle = document.getElementById('headerCurrentProjectName');
       const bannerPath = document.getElementById('bannerPath');
+      const harnessBtn = document.getElementById('bannerHarnessBtn');
 
       if (currentProject === 'ALL') {
         if (banner) banner.classList.add('hidden');
@@ -2320,6 +2354,7 @@
           bannerPath.title = '';
           bannerPath.classList.add('hidden');
         }
+        if (harnessBtn) harnessBtn.classList.add('hidden');
         if (headerTitle) headerTitle.innerText = '全部專案';
         return;
       }
@@ -2332,6 +2367,7 @@
           bannerPath.title = '';
           bannerPath.classList.add('hidden');
         }
+        if (harnessBtn) harnessBtn.classList.add('hidden');
         if (headerTitle) headerTitle.innerText = currentProject;
         return;
       }
@@ -2345,6 +2381,16 @@
         bannerPath.innerText = pathStr;
         bannerPath.title = pathStr;
         bannerPath.classList.remove('hidden');
+      }
+      if (harnessBtn) {
+        const hasHarness = proj.harness && proj.harness.hasHarness;
+        if (!hasHarness) {
+          harnessBtn.classList.remove('hidden');
+          harnessBtn.classList.add('flex');
+        } else {
+          harnessBtn.classList.add('hidden');
+          harnessBtn.classList.remove('flex');
+        }
       }
       if (window.lucide) lucide.createIcons();
     }
@@ -2483,11 +2529,11 @@
                       </div>
                     </div>
 
-                    ${(t.sliceInfo?.currentSliceGoal || t.sliceInfo?.currentStep) ? `
+                    ${(t.sliceInfo?.currentSliceGoal || t.sliceInfo?.currentStep || (t.status === 'in_progress' && (t.description || t.title))) ? `
                       <div class="bg-white/80 dark:bg-slate-900/80 rounded p-1.5 border border-indigo-100 dark:border-indigo-900/40 text-[10px] space-y-1">
-                        <div class="flex items-center gap-1 text-indigo-900 dark:text-indigo-200 font-medium truncate" title="${escapeHtml(t.sliceInfo.currentSliceGoal || t.sliceInfo.currentStep || '')}">
+                        <div class="flex items-center gap-1 text-indigo-900 dark:text-indigo-200 font-medium truncate" title="${escapeHtml((t.sliceInfo?.currentSliceGoal && t.sliceInfo.currentSliceGoal !== 'N/A') ? t.sliceInfo.currentSliceGoal : (t.sliceInfo?.currentStep || t.description || t.title || ''))}">
                           <i data-lucide="target" class="w-3 h-3 text-indigo-500 flex-shrink-0"></i>
-                          <span class="truncate">${escapeHtml(t.sliceInfo.currentSliceGoal || t.sliceInfo.currentStep || '')}</span>
+                          <span class="truncate">${escapeHtml((t.sliceInfo?.currentSliceGoal && t.sliceInfo.currentSliceGoal !== 'N/A') ? t.sliceInfo.currentSliceGoal : (t.sliceInfo?.currentStep || t.description || t.title || ''))}</span>
                         </div>
                         ${(t.sliceInfo?.slices && t.sliceInfo.slices.length > 0) ? `
                           <div class="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1 overflow-hidden">

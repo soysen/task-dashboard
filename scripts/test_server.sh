@@ -170,10 +170,37 @@ syncProjectWorklogForActiveTask(tempProj2, { id: "TASK-999", title: "不相關�
 const preservedPlan = fs.readFileSync(path.join(planDir2, "feature-build-plan.md"), "utf8");
 assert(!preservedPlan.includes("TASK-999"), "不相關任務不應被追加至已有的無關 Plan 中");
 assert(preservedPlan.includes("- Status: done"), "已結案之 Plan 不應被重啟為 in_progress");
-fs.rmSync(tempProj2, { recursive: true, force: true });
+// 驗證 initProjectHarness 與無 Harness 專案切片合成功能
+const { initProjectHarness } = require("./src/server/server.js");
+const tempProj3 = fs.mkdtempSync(path.join(os.tmpdir(), "task-dashboard-noharness-"));
+fs.writeFileSync(path.join(tempProj3, "package.json"), JSON.stringify({ name: "test-no-harness", scripts: { test: "echo ok" } }), "utf8");
 
-console.log("    ✅ agent-status 與 build-plan 多任務 taskId 隔離、done 保護及 review 完成回寫測試通過！");
+// 在完全沒有 Harness 的專案下測試切片合成
+const synthSlice = scanProjectWorklogAndPlan(tempProj3, "TASK-777");
+assert(synthSlice, "無 Harness 專案在指定任務時應自動合成切片資訊");
+assert.strictEqual(synthSlice.hasWorklog, false);
+assert(synthSlice.currentSliceGoal && synthSlice.currentSliceGoal !== "N/A", "合成切片目標不得為 N/A");
+
+// 執行 Harness 初始化
+const created = initProjectHarness(tempProj3);
+assert(fs.existsSync(path.join(tempProj3, ".github", "worklog", "agent-status.md")), "agent-status.md 應被建立");
+assert(fs.existsSync(path.join(tempProj3, "HARNESS.md")), "HARNESS.md 應被建立");
+assert(fs.existsSync(path.join(tempProj3, ".github", "harness", "templates", "build-plan.md")), "build-plan 範本應被建立");
+const updatedPkg = JSON.parse(fs.readFileSync(path.join(tempProj3, "package.json"), "utf8"));
+assert(updatedPkg.scripts["harness:check"], "harness:check 應自動注入 package.json");
+fs.rmSync(tempProj3, { recursive: true, force: true });
+
+console.log("    ✅ agent-status 與 build-plan 多任務 taskId 隔離、done 保護、initProjectHarness 與切片合成測試通過！");
 '
+
+echo "  [8/8] 測試 POST /api/projects/:id/init-harness API ..."
+INIT_RES=$(curl -s -f -X POST "http://localhost:$TEST_PORT/api/projects/task-dashboard/init-harness")
+if echo "$INIT_RES" | grep -q '"success":true'; then
+  echo "    ✅ /api/projects/:id/init-harness 呼叫正常"
+else
+  echo "    ❌ /api/projects/:id/init-harness 失敗: $INIT_RES"
+  exit 1
+fi
 
 echo "🎉 所有 API 整合測試與隔離單元測試順利通過！"
 
