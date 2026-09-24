@@ -3,20 +3,31 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$DIR"
 
-export PATH="$HOME/.nvm/versions/node/v20.18.3/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
-NODE_BIN=$(which node 2>/dev/null)
-if [ -z "$NODE_BIN" ] || [ ! -x "$NODE_BIN" ]; then
-  if [ -x "$HOME/.nvm/versions/node/v20.18.3/bin/node" ]; then
-    NODE_BIN="$HOME/.nvm/versions/node/v20.18.3/bin/node"
-  elif [ -x "/opt/homebrew/bin/node" ]; then
-    NODE_BIN="/opt/homebrew/bin/node"
-  elif [ -x "/usr/local/bin/node" ]; then
-    NODE_BIN="/usr/local/bin/node"
-  else
-    NODE_BIN="node"
+find_working_node() {
+  if command -v node &>/dev/null && node -v &>/dev/null; then
+    command -v node
+    return 0
   fi
-fi
+  for cand in /opt/homebrew/bin/node /usr/local/bin/node "$HOME/.local/bin/node"; do
+    if [ -x "$cand" ] && "$cand" -v &>/dev/null; then
+      echo "$cand"
+      return 0
+    fi
+  done
+  if [ -d "$HOME/.nvm/versions/node" ]; then
+    for cand in $(ls -rd "$HOME/.nvm/versions/node"/*/bin/node 2>/dev/null); do
+      if [ -x "$cand" ] && "$cand" -v &>/dev/null; then
+        echo "$cand"
+        return 0
+      fi
+    done
+  fi
+  echo "node"
+}
+
+NODE_BIN=$(find_working_node)
 
 PID=$(lsof -ti:3030 2>/dev/null)
 if [ -z "$PID" ]; then

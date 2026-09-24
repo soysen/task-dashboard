@@ -12,26 +12,63 @@
 
 @implementation AppDelegate
 
+static BOOL isWorkingNodeBinary(NSString *path) {
+    if (!path || path.length == 0) return NO;
+    if (![[NSFileManager defaultManager] isExecutableFileAtPath:path]) return NO;
+    
+    // 實機驗證 node 執行檔是否可正常運行 (防止架構不相容或損毀之 binary)
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd), "\"%s\" -v > /dev/null 2>&1", [path UTF8String]);
+    int status = system(cmd);
+    return (status == 0);
+}
+
 - (NSString *)findNodeBinary {
     NSString *homeDir = NSHomeDirectory();
-    NSArray *candidates = @[[homeDir stringByAppendingPathComponent:@".local/bin/node"],
+
+    // 1. 優先查詢使用者登入 Shell (zsh/bash) 作用中之 node 路徑
+    FILE *pipe = popen("/bin/zsh -l -c 'which node' 2>/dev/null", "r");
+    if (pipe) {
+        char buf[512];
+        if (fgets(buf, sizeof(buf), pipe) != NULL) {
+            pclose(pipe);
+            NSString *shellNode = [[NSString stringWithUTF8String:buf] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            if (isWorkingNodeBinary(shellNode)) {
+                return shellNode;
+            }
+        } else {
+            pclose(pipe);
+        }
+    }
+
+    // 2. 檢查已知靜態與套件管理工具路徑
+    NSArray *candidates = @[
         @"/opt/homebrew/bin/node",
         @"/usr/local/bin/node",
+        [homeDir stringByAppendingPathComponent:@".local/bin/node"],
+        [homeDir stringByAppendingPathComponent:@".volta/bin/node"],
+        [homeDir stringByAppendingPathComponent:@".asdf/shims/node"],
+        [homeDir stringByAppendingPathComponent:@".local/share/mise/shims/node"],
+        [homeDir stringByAppendingPathComponent:@".fnm/current/bin/node"],
         @"/usr/bin/node"
     ];
     for (NSString *candidate in candidates) {
-        if ([[NSFileManager defaultManager] isExecutableFileAtPath:candidate]) {
+        if (isWorkingNodeBinary(candidate)) {
             return candidate;
         }
     }
-    // 檢查 ~/.nvm/versions/node
+
+    // 3. 搜尋 ~/.nvm/versions/node，使用正規數值版本號遞減排序 (例如 v24 > v22 > v14) 並實機驗證可執行性
     NSString *nvmDir = [homeDir stringByAppendingPathComponent:@".nvm/versions/node"];
     if ([[NSFileManager defaultManager] fileExistsAtPath:nvmDir]) {
         NSArray *versions = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:nvmDir error:nil];
         if (versions && versions.count > 0) {
-            for (NSString *ver in [versions reverseObjectEnumerator]) {
+            NSArray *sortedVersions = [versions sortedArrayUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+                return [b compare:a options:NSNumericSearch];
+            }];
+            for (NSString *ver in sortedVersions) {
                 NSString *nvmNode = [nvmDir stringByAppendingPathComponent:[NSString stringWithFormat:@"%@/bin/node", ver]];
-                if ([[NSFileManager defaultManager] isExecutableFileAtPath:nvmNode]) {
+                if (isWorkingNodeBinary(nvmNode)) {
                     return nvmNode;
                 }
             }
@@ -133,7 +170,8 @@
     self.serverTask.arguments = @[canonicalServerScript];
 
     NSMutableDictionary *env = [NSMutableDictionary dictionaryWithDictionary:[[NSProcessInfo processInfo] environment]];
-    NSString *extraPaths = [NSString stringWithFormat:@"%@/.local/bin:%@/.nvm/versions/node/v20.18.3/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", homeDir, homeDir];
+    NSString *nodeDir = [nodeBin stringByDeletingLastPathComponent];
+    NSString *extraPaths = [NSString stringWithFormat:@"%@:%@/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", nodeDir, homeDir];
     NSString *existingPath = env[@"PATH"] ?: @"/usr/bin:/bin:/usr/sbin:/sbin";
     env[@"PATH"] = [NSString stringWithFormat:@"%@:%@", extraPaths, existingPath];
     self.serverTask.environment = env;
@@ -278,12 +316,26 @@
 }
 
 - (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error {
-    NSLog(@"[TaskDashboard] 載入重試中... 原因: %@", error.localizedDescription);
+    NSLog(@"[TaskDashboard] 初始載入失敗，重試中... 原因: %@", error.localizedDescription);
     [self startServerIfNeeded];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(500 * NSEC_PER_MSEC)), dispatch_get_main_queue(), ^{
         NSURL *url = [NSURL URLWithString:@"http://localhost:3030"];
         [self.webView loadRequest:[NSURLRequest requestWithURL:url]];
     });
+}
+
+- (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error {
+    NSLog(@"[TaskDashboard] 頁面載入失敗，重試中... 原因: %@", error.localizedDescription);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(500 * NSEC_PER_MSEC)), dispatch_get_main_queue(), ^{
+        NSURL *url = [NSURL URLWithString:@"http://localhost:3030"];
+        [self.webView loadRequest:[NSURLRequest requestWithURL:url]];
+    });
+}
+
+- (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
+    NSLog(@"[TaskDashboard] Web 渲染程序重啟中...");
+    NSURL *url = [NSURL URLWithString:@"http://localhost:3030"];
+    [self.webView loadRequest:[NSURLRequest requestWithURL:url]];
 }
 
 // 支援 JavaScript window.confirm 原生對話框
