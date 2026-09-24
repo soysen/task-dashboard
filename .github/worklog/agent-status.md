@@ -4,7 +4,7 @@
 
 - ID: TASK-052
 - Title: 任務進行時切片顯示為 N/A
-- Status: in_progress
+- Status: 已完成
 - Last updated: 2026-09-24
 - Goal: - 任務進行時切片顯示為 N/A，未顯示當下的工作內容 - 若專案中沒有 harness，是否可由 task dashboard 引入 harness 做評估與切片？可參考 plan-to-build 的 harness 架構引入在 app 裡，任務執行時取用
 - Route: dashboard-state-and-sync
@@ -13,16 +13,16 @@
 
 ## Last Completed Task
 
-- ID: TASK-051
-- Title: 任務卡拖曳時的 ghost
+- ID: TASK-052
+- Title: 任務進行時切片顯示為 N/A
 - Status: 已完成
 - Last updated: 2026-09-24
 
 ## Execution Tracking
 
-- CurrentStep: 正在執行：任務進行時切片顯示為 N/A
-- Evidence: 進行中
-- NextStep: 完成實作與測試後推入 review 交付審查
+- CurrentStep: 任務驗收通過，已成功結案
+- Evidence: npm run harness:check、npm test (8項測試) 與 npm run build:app 驗證皆通過
+- NextStep: 等待使用者驗收確認
 
 ## Reset Decision Log
 
