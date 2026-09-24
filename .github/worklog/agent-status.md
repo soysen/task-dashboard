@@ -2,27 +2,27 @@
 
 ## Active Task
 
-- ID: TASK-052
-- Title: 任務進行時切片顯示為 N/A
+- ID: TASK-056
+- Title: commit message 優化
 - Status: 已完成
 - Last updated: 2026-09-24
-- Goal: - 任務進行時切片顯示為 N/A，未顯示當下的工作內容 - 若專案中沒有 harness，是否可由 task dashboard 引入 harness 做評估與切片？可參考 plan-to-build 的 harness 架構引入在 app 裡，任務執行時取用
+- Goal: 任務有多次 feedback 後， commit 資訊會變成以最後一次 feedback 的修改為主，應該根據task 本身的主軸與異動項目產生 commit message
 - Route: dashboard-state-and-sync
-- Scope: 任務進行時切片顯示為 N/A
+- Scope: commit message 優化
 - Out of scope: 跨專案副作用
 
 ## Last Completed Task
 
-- ID: TASK-052
-- Title: 任務進行時切片顯示為 N/A
+- ID: TASK-056
+- Title: commit message 優化
 - Status: 已完成
 - Last updated: 2026-09-24
 
 ## Execution Tracking
 
 - CurrentStep: 任務驗收通過，已成功結案
-- Evidence: npm run harness:check、npm test (8項測試) 與 npm run build:app 驗證皆通過
-- NextStep: 等待使用者驗收確認
+- Evidence: npm test (8 項測試全數通過), npm run harness:check (通過)
+- NextStep: 交付 review 審查
 
 ## Reset Decision Log
 

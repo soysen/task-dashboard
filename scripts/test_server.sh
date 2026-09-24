@@ -190,7 +190,41 @@ const updatedPkg = JSON.parse(fs.readFileSync(path.join(tempProj3, "package.json
 assert(updatedPkg.scripts["harness:check"], "harness:check 應自動注入 package.json");
 fs.rmSync(tempProj3, { recursive: true, force: true });
 
-console.log("    ✅ agent-status 與 build-plan 多任務 taskId 隔離、done 保護、initProjectHarness 與切片合成測試通過！");
+// 驗證多輪 Feedback 任務下 Commit Message 主旨嚴格鎖定任務原始主軸、內文綜合全量異動
+const { formatCommitMessageFromSkill } = require("./src/server/server.js");
+const multiFeedbackTask = {
+  id: "TASK-053",
+  title: "5GSA device list dialog 調整",
+  description: "- 實作 5gsa 手機清單彈窗\n\n--- 【歷次審查意見 / Feedback 記錄】 ---\n[2026-09-24T03:30:00.000Z]\n- 表格需靠左對齊\n\n[2026-09-24T03:40:00.000Z]\n- 按鈕靠右並加入回到頂端\n\n[2026-09-24T03:50:00.000Z]\n- 設定 min-width: 100%",
+  tags: ["feat", "frontend-ui-engineering"],
+  modifiedFiles: [
+    "src/components/modals/DeviceListModal.js",
+    "src/sass/module/_5gsa.sass",
+    "src/pages/5gsa/index.js"
+  ]
+};
+
+const mockDiff = `diff --git a/src/components/modals/DeviceListModal.js b/src/components/modals/DeviceListModal.js
+index 123..456 100644
+--- a/src/components/modals/DeviceListModal.js
++++ b/src/components/modals/DeviceListModal.js
+@@ -1,5 +1,10 @@
++function renderDeviceTable() {}
++<div id="deviceModal"></div>
+diff --git a/src/sass/module/_5gsa.sass b/src/sass/module/_5gsa.sass
+index 111..222 100644
+--- a/src/sass/module/_5gsa.sass
++++ b/src/sass/module/_5gsa.sass
+@@ -1 +1,2 @@
++.device-table min-width 100%
+`;
+
+const commitResult = formatCommitMessageFromSkill(".", multiFeedbackTask, mockDiff, multiFeedbackTask.modifiedFiles);
+assert(commitResult.message.includes("5GSA device list dialog 調整"), "Commit 主旨必須鎖定任務原始主軸");
+assert(commitResult.type === "feat", "Commit Type 應為 feat");
+assert(commitResult.body.includes("DeviceListModal.js") || commitResult.body.includes("5gsa"), "Commit Body 必須涵蓋全量異動檔案");
+
+console.log("    ✅ agent-status、build-plan 隔離保護與多輪 Feedback Commit 訊息主軸鎖定單元測試通過！");
 '
 
 echo "  [8/8] 測試 POST /api/projects/:id/init-harness API ..."

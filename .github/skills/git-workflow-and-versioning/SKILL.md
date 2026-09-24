@@ -44,7 +44,14 @@ user-invocable: true
 - `feat(ui): 升級 Select2 標籤下拉支援專案 .github 技能`
 - `chore(native): 重新編譯 macOS App 並更新至桌面`
 
-## 3. Commit 驗證流程
+## 3. 多輪 Feedback 與任務主軸 Commit 規則 (Multi-Feedback & Core Goal Policy)
+
+當任務歷經多輪審查回饋（Review Feedback）修訂時：
+1. **主旨 (Subject) 鎖定核心主軸**：Commit Message 的主旨必須嚴格以任務原始核心目標（Task Title）為主導，維持完整的專案業務語意（例如 `feat(ui): 5GSA device list dialog 調整`）。
+2. **禁止局部退化**：嚴禁讓 Commit 主旨退化為最後單一一次 Feedback 的微調描述（例如錯誤的主旨：`style: 按鈕靠左`）。
+3. **內文 (Body) 綜合全量異動**：內文條列式說明應涵蓋該任務的全量修改範疇，並綜合歸納歷次 Feedback 的修正成果（例如 dialog 結構、響應式 min-width、按鈕渲染與測試覆蓋）。
+
+## 4. Commit 驗證流程
 1. `git status` 確認暫存區狀態。
 2. 執行 `npm test` 與 `npm run harness:check` 確認無任何錯誤。
 3. 產生標準訊息並完成提交。
