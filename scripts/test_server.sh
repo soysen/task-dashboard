@@ -170,6 +170,21 @@ syncProjectWorklogForActiveTask(tempProj2, { id: "TASK-999", title: "不相關�
 const preservedPlan = fs.readFileSync(path.join(planDir2, "feature-build-plan.md"), "utf8");
 assert(!preservedPlan.includes("TASK-999"), "不相關任務不應被追加至已有的無關 Plan 中");
 assert(preservedPlan.includes("- Status: done"), "已結案之 Plan 不應被重啟為 in_progress");
+assert(!fs.existsSync(path.join(tempProj2, "HARNESS.md")), "任務開工絕不得隱式為專案注入 HARNESS.md");
+assert(!fs.existsSync(path.join(tempProj2, "scripts", "harness_check.sh")), "任務開工絕不得隱式建立 harness 腳本");
+fs.rmSync(tempProj2, { recursive: true, force: true });
+
+// 驗證原本已有自身 test/harness 之專案，開工時絕不被自動植入 task-dashboard 的 harness
+const tempProjExisting = fs.mkdtempSync(path.join(os.tmpdir(), "task-dashboard-existing-harness-"));
+fs.writeFileSync(path.join(tempProjExisting, "package.json"), JSON.stringify({ name: "my-existing-app", scripts: { test: "jest" } }, null, 2), "utf8");
+syncProjectWorklogForActiveTask(tempProjExisting, { id: "TASK-888", title: "已有專案任務開工" });
+assert(!fs.existsSync(path.join(tempProjExisting, "HARNESS.md")), "既有專案任務開工不得被建立 HARNESS.md");
+assert(!fs.existsSync(path.join(tempProjExisting, ".github")), "既有專案任務開工不得被植入 .github");
+assert(!fs.existsSync(path.join(tempProjExisting, "scripts")), "既有專案任務開工不得被建立 scripts");
+const existingPkg = JSON.parse(fs.readFileSync(path.join(tempProjExisting, "package.json"), "utf8"));
+assert.strictEqual(existingPkg.scripts["harness:check"], undefined, "既有專案 package.json 不得被污染注入 harness:check");
+fs.rmSync(tempProjExisting, { recursive: true, force: true });
+
 // 驗證 initProjectHarness 與無 Harness 專案切片合成功能
 const { initProjectHarness } = require("./src/server/server.js");
 const tempProj3 = fs.mkdtempSync(path.join(os.tmpdir(), "task-dashboard-noharness-"));

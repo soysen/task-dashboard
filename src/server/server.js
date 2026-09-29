@@ -401,6 +401,8 @@ function initProjectHarness(projPath) {
   });
 
   const templateSrcDir = path.join(__dirname, 'templates');
+  const githubInfo = scanProjectGithubInfo(projPath);
+  const detectedCmd = (githubInfo.harness && githubInfo.harness.command) ? githubInfo.harness.command : '';
 
   // 1. .github/worklog/agent-status.md
   const statusFile = path.join(worklogDir, 'agent-status.md');
@@ -477,7 +479,7 @@ function initProjectHarness(projPath) {
   const harnessMdFile = path.join(projPath, 'HARNESS.md');
   if (!fs.existsSync(harnessMdFile)) {
     const srcHarness = path.join(templateSrcDir, 'HARNESS.md');
-    const harnessMdContent = fs.existsSync(srcHarness) ? fs.readFileSync(srcHarness, 'utf8') : `# Project Harness & Quality Gate
+    let harnessMdContent = fs.existsSync(srcHarness) ? fs.readFileSync(srcHarness, 'utf8') : `# Project Harness & Quality Gate
 
 ## 1. 診斷與測試
 本專案遵循 Task Dashboard Harness 品質閘門標準與雙寫切片規範。
@@ -490,6 +492,9 @@ function initProjectHarness(projPath) {
 - 每個非平凡任務均需拆解為獨立可驗證的 Slices。
 - 交付審查前需確保全量 Diff (含已追蹤與未追蹤) 完整無占位符。
 `;
+    if (detectedCmd && detectedCmd !== 'npm run harness:check' && detectedCmd !== 'bash scripts/harness_check.sh') {
+      harnessMdContent = harnessMdContent.replace(/`npm run harness:check` 或 `bash scripts\/harness_check\.sh`/, `\`${detectedCmd}\``);
+    }
     fs.writeFileSync(harnessMdFile, harnessMdContent, 'utf8');
     createdFiles.push('HARNESS.md');
   }
@@ -497,21 +502,25 @@ function initProjectHarness(projPath) {
   // 5. scripts/harness_check.sh
   const harnessScriptFile = path.join(scriptsDir, 'harness_check.sh');
   if (!fs.existsSync(harnessScriptFile)) {
-    const checkScriptContent = `#!/bin/bash
+    let checkScriptContent = `#!/bin/bash
 set -e
 echo "🔍 執行專案 Harness 診斷與檢驗..."
-if [ -f "package.json" ]; then
+`;
+    if (detectedCmd && detectedCmd !== 'npm run harness:check' && detectedCmd !== 'bash scripts/harness_check.sh') {
+      checkScriptContent += `${detectedCmd}\n`;
+    } else {
+      checkScriptContent += `if [ -f "package.json" ]; then
   if grep -q '"test"' package.json; then
     npm test
   fi
-fi
-echo "✅ Harness 檢核通過！"
-`;
+fi\n`;
+    }
+    checkScriptContent += `echo "✅ Harness 檢核通過！"\n`;
     fs.writeFileSync(harnessScriptFile, checkScriptContent, { encoding: 'utf8', mode: 0o755 });
     createdFiles.push('scripts/harness_check.sh');
   }
 
-  // 6. 補充 package.json 中的 harness:check 指令
+  // 6. 補充 package.json 中的 harness:check 指令 (僅當專案存在 package.json 時)
   const pkgPath = path.join(projPath, 'package.json');
   if (fs.existsSync(pkgPath)) {
     try {
@@ -1296,13 +1305,8 @@ function syncProjectWorklogForActiveTask(projPath, task) {
 
   let hasUpdated = false;
 
-  // 1. 同步更新 .github/worklog/agent-status.md
+  // 1. 同步更新 .github/worklog/agent-status.md (僅在專案已具備該檔案時更新，絕不隱式自動初始化 Harness 污染專案)
   const statusPath = path.join(projPath, '.github', 'worklog', 'agent-status.md');
-  if (!fs.existsSync(statusPath)) {
-    try {
-      initProjectHarness(projPath);
-    } catch (e) {}
-  }
   if (fs.existsSync(statusPath)) {
     try {
       let content = fs.readFileSync(statusPath, 'utf8');
