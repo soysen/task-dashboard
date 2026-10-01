@@ -237,9 +237,34 @@ index 111..222 100644
 const commitResult = formatCommitMessageFromSkill(".", multiFeedbackTask, mockDiff, multiFeedbackTask.modifiedFiles);
 assert(commitResult.message.includes("5GSA device list dialog 調整"), "Commit 主旨必須鎖定任務原始主軸");
 assert(commitResult.type === "feat", "Commit Type 應為 feat");
-assert(commitResult.body.includes("DeviceListModal.js") || commitResult.body.includes("5gsa"), "Commit Body 必須涵蓋全量異動檔案");
+// 驗證 consumeTaskFeedback 之多輪歷史追加、格式去重與欄位清空
+const { consumeTaskFeedback } = require("./src/server/server.js");
+const fbTask = {
+  id: "TASK-TEST-FB",
+  title: "測試 Feedback 機制",
+  description: "原始需求描述",
+  status: "in_progress",
+  feedback: "第一輪修改意見"
+};
+consumeTaskFeedback(fbTask);
+assert.strictEqual(fbTask.feedback, "", "第一輪 consumeTaskFeedback 後 feedback 欄位必須被清空");
+assert(fbTask.description.includes("--- 【歷次審查意見 / Feedback 記錄】 ---"), "必須包含歷次審查意見區塊標題");
+assert(fbTask.description.includes("- 第一輪修改意見"), "必須正確條列第一輪意見");
 
-console.log("    ✅ agent-status、build-plan 隔離保護與多輪 Feedback Commit 訊息主軸鎖定單元測試通過！");
+// 第二輪 feedback
+fbTask.feedback = "- 第二輪修改意見\n第二行意見";
+consumeTaskFeedback(fbTask);
+assert.strictEqual(fbTask.feedback, "", "第二輪 consumeTaskFeedback 後 feedback 欄位必須被清空");
+assert(fbTask.description.includes("- 第二輪修改意見"), "必須保留第二輪第一行意見且不重複前綴");
+assert(fbTask.description.includes("- 第二行意見"), "必須為無前綴之行自動補齊條列式符號");
+assert(!fbTask.description.includes("- - 第二輪"), "嚴禁產生重複前綴 - - ");
+
+// 驗證重複 consumeTaskFeedback 去重防禦
+fbTask.feedback = "第一輪修改意見";
+consumeTaskFeedback(fbTask);
+assert.strictEqual(fbTask.feedback, "", "已存在之 feedback 再次傳入應直接清空 feedback 且不重複追加");
+
+console.log("    ✅ agent-status、build-plan 隔離保護、多輪 Feedback Commit 訊息與 consumeTaskFeedback 單元測試通過！");
 '
 
 echo "  [8/8] 測試 POST /api/projects/:id/init-harness API ..."

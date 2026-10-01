@@ -1635,11 +1635,53 @@ function writeProjects(projects) {
   }
 }
 
+function consumeTaskFeedback(task) {
+  if (task && task.feedback && typeof task.feedback === 'string' && task.feedback.trim().length > 0) {
+    const feedbackText = task.feedback.trim();
+    // 若該 feedback 內容已存在於描述中，直接清空 feedback 欄位避免重複追加
+    if ((task.description || '').includes(feedbackText)) {
+      task.feedback = '';
+      return;
+    }
+    const timeStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const formattedLines = feedbackText.split('\n')
+      .map(l => l.trim())
+      .filter(Boolean)
+      .map(l => l.startsWith('- ') ? l : `- ${l}`)
+      .join('\n');
+    const historyHeader = '\n\n--- 【歷次審查意見 / Feedback 記錄】 ---';
+    if (!(task.description || '').includes('--- 【歷次審查意見 / Feedback 記錄】 ---')) {
+      task.description = (task.description || '').trim() + historyHeader + `\n[${timeStr}]\n${formattedLines}`;
+    } else {
+      task.description = (task.description || '').trim() + `\n\n[${timeStr}]\n${formattedLines}`;
+    }
+    task.feedback = '';
+  }
+}
+
 function readTasks() {
   try {
     const file = getTasksFilePath();
     if (fs.existsSync(file)) {
-      return JSON.parse(fs.readFileSync(file, 'utf8'));
+      const tasks = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (Array.isArray(tasks)) {
+        let hasChanges = false;
+        tasks.forEach(t => {
+          if (t && (t.status === 'review' || t.status === 'done' || t.status === 'archived')) {
+            if (t.feedback && typeof t.feedback === 'string' && t.feedback.trim().length > 0) {
+              consumeTaskFeedback(t);
+              hasChanges = true;
+            }
+          }
+        });
+        if (hasChanges) {
+          try {
+            fs.writeFileSync(file, JSON.stringify(tasks, null, 2), 'utf8');
+            syncToMarkdown(tasks);
+          } catch (e) {}
+        }
+      }
+      return tasks;
     }
   } catch (err) {
     console.error('Error reading tasks.json:', err);
@@ -1650,6 +1692,15 @@ function readTasks() {
 function writeTasks(tasks) {
   try {
     const file = getTasksFilePath();
+    if (Array.isArray(tasks)) {
+      tasks.forEach(t => {
+        if (t && (t.status === 'review' || t.status === 'done' || t.status === 'archived')) {
+          if (t.feedback && typeof t.feedback === 'string' && t.feedback.trim().length > 0) {
+            consumeTaskFeedback(t);
+          }
+        }
+      });
+    }
     fs.writeFileSync(file, JSON.stringify(tasks, null, 2), 'utf8');
     syncToMarkdown(tasks);
   } catch (err) {
@@ -1798,19 +1849,6 @@ function cleanAnsi(str) {
   return str.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[-/]*[@-~])/g, '').replace(/[\r\x00-\x09\x0B-\x1F\x7F]/g, ' ').trim();
 }
 
-function consumeTaskFeedback(task) {
-  if (task && task.feedback && typeof task.feedback === 'string' && task.feedback.trim().length > 0) {
-    const timeStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
-    const feedbackText = task.feedback.trim();
-    const historyHeader = '\n\n--- 【歷次審查意見 / Feedback 記錄】 ---';
-    if (!(task.description || '').includes('--- 【歷次審查意見 / Feedback 記錄】 ---')) {
-      task.description = (task.description || '').trim() + historyHeader + `\n[${timeStr}]\n- ${feedbackText}`;
-    } else {
-      task.description = (task.description || '').trim() + `\n\n[${timeStr}]\n- ${feedbackText}`;
-    }
-    task.feedback = '';
-  }
-}
 
 const activeCliProcesses = new Map();
 
@@ -2291,30 +2329,17 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
 
   const harnessCmd = (githubInfo.harness && githubInfo.harness.command) ? githubInfo.harness.command : 'npm test / npm run harness:check';
 
-  const feedbackSection = task.feedback ? '\n【審查退回意見 / 修復要求 (最高優先級)】\n' + task.feedback + '\n' : '';
-  const promptText = '【任務執行指示 - 3-Phase Execution Gate】\n' +
-    '任務 ID: ' + task.id + '\n' +
-    '任務名稱: ' + task.title + '\n' +
-    '所屬專案: ' + task.project + '\n' +
-    '工作目錄: ' + projPath + '\n' +
-    '專案 Harness 驗證指令: ' + harnessCmd + '\n' +
-    '\n詳細需求描述:\n' + (task.description || '無詳細描述') + '\n' +
-    feedbackSection +
+  const feedbackSection = task.feedback ? '\n• 【最高優先 Feedback】: ' + task.feedback : '';
+  const promptText = '【任務開工】[' + task.id + '] ' + task.title + '\n' +
+    '• 專案: ' + task.project + ' (' + projPath + ') | 驗證: ' + harnessCmd + '\n' +
+    '• 需求: ' + (task.description || '無') +
+    feedbackSection + '\n' +
     skillsSection +
     docsSection +
-    '\n【嚴格 3-Phase Execution Gate 執行 SOP】：\n' +
-    '1. Phase 1 (Pre-Flight & Review Feedback Ingestion):\n' +
-    '   - 若有審查退回意見 (Feedback)，必須優先將 Feedback 作為本次開工的絕對目標。\n' +
-    '   - 檢閱專案規範文檔（如 AGENTS.md / CLAUDE.md / HARNESS.md 及 .github 技能指引）。\n' +
-    '   - 執行前置 Harness 基準診斷指令（' + harnessCmd + '），確認當前環境健全。\n' +
-    '2. Phase 2 (Rule-Compliant Implementation):\n' +
-    '   - 嚴格遵守該專案目錄架構與狀態流轉規則，僅在該專案目錄下進行修改，嚴禁產生跨專案副作用。\n' +
-    '   - 依據需求完成代碼實作，並補齊對應單元測試。\n' +
-    '3. Phase 3 (Compliance Manifest & Review Promotion):\n' +
-    '   - 實作完成後必須執行專案驗證指令（' + harnessCmd + '）確保全數通過。\n' +
-    '   - 交付時必須擷取全量完整無截斷之 git diff（包含已追蹤與未追蹤檔案，嚴禁使用 ... 占位符）。\n' +
-    '   - 依據實際 diff 智慧產出結構化 commitMessage ({ subject, body })：【重要原則】主旨 (subject) 必須鎖定任務原始主軸（Task Title / 核心目標），內文 (body) 則綜合全量實際異動項目與歷次 Feedback 修訂重點，嚴禁將主旨退化為最後單一一次 Feedback 的局部微調。\n' +
-    '   - 填寫詳細 executionLog（含檢閱文檔、前置檢核、實作項目、測試結果），將 status 推進至 "review"，並重置 requestCommitGen 為 false。';
+    '【3-Phase Gate 規範】：\n' +
+    '1. Pre-Flight: 優先滿足 Feedback，檢閱規範並執行前置驗證（' + harnessCmd + '）。\n' +
+    '2. Implementation: 遵循專案架構最小範圍實作並補齊測試，嚴禁跨專案副作用。\n' +
+    '3. Review Promotion: 驗證通過後收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })，推進至 review 並清空 feedback。';
 
   const rawCliCmd = (settings.cliCommand || 'hermes').trim();
   const customEnv = buildCustomEnv();
@@ -3466,6 +3491,14 @@ function runNativeFolderPicker(promptText, callback) {
           return;
         }
         const prevStatus = tasks[index].status;
+        const prevFeedback = tasks[index].feedback;
+
+        // 若前次已有未清空的 feedback，且本次傳入新的 feedback（例如多次退回重做）
+        if (prevFeedback && typeof prevFeedback === 'string' && prevFeedback.trim().length > 0 &&
+            data.feedback && typeof data.feedback === 'string' && data.feedback.trim() !== prevFeedback.trim()) {
+          consumeTaskFeedback(tasks[index]);
+        }
+
         tasks[index] = {
           ...tasks[index],
           ...data,
@@ -3475,6 +3508,11 @@ function runNativeFolderPicker(promptText, callback) {
           modifiedFiles: Array.isArray(data.modifiedFiles) ? data.modifiedFiles : (tasks[index].modifiedFiles || []),
           updatedAt: new Date().toISOString()
         };
+
+        // 若更新後狀態為 review、done 或 archived，確保 feedback 已被消耗並寫入描述歷史
+        if (tasks[index].status === 'review' || tasks[index].status === 'done' || tasks[index].status === 'archived') {
+          consumeTaskFeedback(tasks[index]);
+        }
         writeTasks(tasks);
 
         // 若狀態切換為 in_progress，清除前次殘留產出物，並啟動 CLI Agent 執行！
@@ -4032,6 +4070,7 @@ if (require.main === module) {
 
 module.exports = {
   server,
+  consumeTaskFeedback,
   formatCommitMessageFromSkill,
   initProjectHarness,
   parseAgentStatusContent,

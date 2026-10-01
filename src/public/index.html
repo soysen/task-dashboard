@@ -1506,14 +1506,42 @@
 
       let promptText = '';
       if (currentDesktopAgentTarget === 'antigravity') {
-        promptText = `請使用 run_command 工具在背景執行以下指令以啟動任務哨兵待命：\nnode "${gateScriptPath}"\n\n【運作機制與開工指示】：\n1. 該腳本在背景靜默等待（0 Token 消耗）。當 tasks.json 出現 status === "in_progress" 任務或 requestCommitGen === true 時將立即 exit(0)，系統會透過 Reactive Wakeup 自動喚醒本對話視窗。\n2. 喚醒後請依情境執行：\n   - 情境 A (in_progress 開工)：嚴格依序執行 3-Phase Gate：\n     - Phase 1 (Pre-Flight)：優先讀取 task.feedback、AGENTS.md、CLAUDE.md，執行前置驗證與 harness 指令。\n     - Phase 2 (Implementation)：遵循專案規範修改代碼並補齊測試，嚴禁產生跨專案副作用。\n     - Phase 3 (Review Promotion & Commit 訊息產出)：執行專案測試，收集全量 diff (含已追蹤與未追蹤)。依據專案規範智慧產出 commitMessage ({ subject, body })：【重要原則】主旨 (subject) 必須鎖定任務原始主軸（Task Title / 核心目標），內文 (body) 則綜合全量實際異動項目與歷次 Feedback 修訂重點，嚴禁將主旨退化為最後單一一次 Feedback 的局部微調。連同 modifiedFiles, diff 與 executionLog 更新 tasks.json 並推入 review。\n   - 情境 B (requestCommitGen 請求產出 Commit 訊息)：\n     - 讀取目標專案工作區全量 diff 與任務需求，依專案 Conventional Commit 規範產出 commitMessage ({ subject, body }) 寫入 tasks.json，並將 requestCommitGen 清除為 false。\n3. 完成後，請再次呼叫 run_command 執行上述指令重新掛起待命，形成自動化閉環。`;
+        promptText = `在背景執行指令啟動哨兵待命 (0 Token)：
+node "${gateScriptPath}"
+
+【開工指示 (Reactive Wakeup)】：
+1. 喚醒後依情境開工：
+   • in_progress: 3-Phase Gate（優先滿足 Feedback，依規範實作與測試；通過後收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })，回寫 tasks.json 推入 review，若有 feedback 歸入 description 並清空）。
+   • requestCommitGen: 依工作區全量 diff 產出 commitMessage 寫回 tasks.json 並重置 flag。
+2. 交付後再次背景執行上述 node 指令重新待命。`;
       } else if (currentDesktopAgentTarget === 'claude') {
-        promptText = `請使用 bash / execute_command 工具在背景執行以下指令以啟動任務哨兵待命：\nnode "${gateScriptPath}"\n\n【運作機制與開工指示】：\n1. 該腳本在背景靜默等待檔案異動，當 tasks.json 出現 status === "in_progress" 或 requestCommitGen === true 時將退出行程以喚醒你（0 Token 待命）。\n2. 喚醒後請依任務情境自主開工：\n   - in_progress 任務：讀取需求與規範完成實作、測試，收集完整無截斷之 git diff，並依據任務核心主軸與全量 diff 產出符合規範之 commitMessage ({ subject, body })（主旨需鎖定任務原始核心主軸，內文涵蓋全量異動與 Feedback 修正），寫回 tasks.json 並推入 review。\n   - requestCommitGen 請求：根據目標專案當前 diff 產出 commitMessage ({ subject, body }) 寫入 tasks.json 並重置 requestCommitGen。\n3. 交付完成後，請再次於背景執行上述 node 指令，繼續待命守候下一項任務。`;
+        promptText = `使用 bash/execute_command 背景啟動哨兵待命 (0 Token)：
+node "${gateScriptPath}"
+
+【開工指示 (Reactive Wakeup)】：
+1. 喚醒後依情境開工：
+   • in_progress: 優先處理 Feedback，依規範實作與測試；收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })，寫回 tasks.json 推入 review (feedback 歸入 description 並清空)。
+   • requestCommitGen: 依 diff 產出 commitMessage 寫回 tasks.json 並重置請求。
+2. 交付後再次背景執行上述 node 指令重新待命。`;
       } else if (currentDesktopAgentTarget === 'codex') {
-        promptText = `請使用終端執行工具（如 run_terminal_command 或 bash）在背景執行以下指令以啟動任務哨兵待命：\nnode "${gateScriptPath}"\n\n【運作機制與開工指示】：\n1. 腳本於背景靜默監聽，一旦 tasks.json 出現 status === "in_progress" 或 requestCommitGen === true 任務立即結束行程以喚醒 Agent。\n2. 喚醒後自主開工：完成實作與單元測試，收集完整 git diff (含已追蹤與未追蹤檔案)，並依據任務核心主軸與全量 diff 產出符合規範之 commitMessage 寫入 tasks.json 並推入 review（或清除 requestCommitGen）。\n3. 推進後請再次於背景執行上述 node 指令重新進入待命。`;
+        promptText = `在終端背景執行指令啟動哨兵待命 (0 Token)：
+node "${gateScriptPath}"
+
+【開工指示 (Reactive Wakeup)】：
+1. 喚醒後依情境開工：
+   • in_progress: 優先處理 Feedback，依規範實作驗證；收集全量 diff，依核心主軸產出 commitMessage，寫回 tasks.json 推入 review (feedback 歸入 description 並清空)。
+   • requestCommitGen: 依 diff 產出 commitMessage 寫回 tasks.json 並重置請求。
+2. 交付後再次背景執行上述 node 指令重新待命。`;
       } else {
         // universal
-        promptText = `請使用終端執行工具（如 Antigravity 的 run_command、Claude 的 bash、或 Codex / Cursor 的 terminal 工具）在背景執行以下指令以啟動任務哨兵待命：\nnode "${gateScriptPath}"\n\n【運作機制與開工指示】：\n1. 該腳本在背景靜默守候（0 Token 消耗）。當偵測到 tasks.json 出現 status === "in_progress" 或 requestCommitGen === true 的任務時，腳本將自動退出以觸發 Reactive Wakeup 喚醒您。\n2. 被喚醒後，自主開工完成實作與驗證，收集全量 diff，並依據任務核心主軸與全量 diff 產出標準 commitMessage ({ subject, body })（主旨鎖定任務核心主軸，內文條列全量異動與修訂）寫回 tasks.json 並推入 review。\n3. 交付至 review 後，請再次於背景執行上述 node 指令重新進入待命，形成持續自動化循環。`;
+        promptText = `在終端工具背景執行以下指令啟動哨兵待命 (0 Token)：
+node "${gateScriptPath}"
+
+【開工指示 (Reactive Wakeup)】：
+1. 喚醒後自主開工：
+   • in_progress: 優先處理 Feedback，實作驗證後收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })，寫回 tasks.json 推入 review (feedback 歸入 description 並清空)。
+   • requestCommitGen: 依 diff 產出 commitMessage 寫回 tasks.json 並重置 flag。
+2. 交付後再次背景執行上述 node 指令重新待命。`;
       }
 
       const promptEl = document.getElementById('aiPromptTextDisplay');
@@ -2890,8 +2918,11 @@
       document.getElementById('formStatus').value = task.status || 'todo';
       document.getElementById('formAssignee').value = task.assignee || (settings.enableCliAgent ? 'CLI' : 'Antigravity');
       document.getElementById('formDescription').value = task.description || '';
-      document.getElementById('formDescription').rows = 6;
-      document.getElementById('formFeedback').value = task.feedback || '';
+      if (task.status === 'review' || task.status === 'done' || task.status === 'archived') {
+        document.getElementById('formFeedback').value = '';
+      } else {
+        document.getElementById('formFeedback').value = task.feedback || '';
+      }
 
       // 設定 Select2 標籤
       setSelect2Tags(task.tags || []);
@@ -3662,17 +3693,9 @@
       await withButtonLoading(btnReject, '退回中...', async () => {
         const configDir = (settings.dataDirectoryPath || settings.defaultDataDir || 'data').replace(/\/+$/, '');
         const tasksFilePath = `${configDir}/tasks.json`;
-        const notifyPrompt = `【任務退回重修指示】
-任務 ID: ${task.id}
-任務名稱: ${task.title}
-任務資料庫路徑: ${tasksFilePath}
-
- 審查退回意見 / 修復要求:
-${feedback || '請根據最新的需求進行調整與修復。'}
-
-執行與結案規範：
-1. 依據審查意見修復代碼並完成驗證。
-2. 完成後請將更新結果寫入 ${tasksFilePath}（將 id 為 "${task.id}" 的 status 改為 "review"，並填入 modifiedFiles 與 executionLog）。`;
+        const notifyPrompt = `【任務退回重做】[${task.id}] ${task.title}
+• 審查意見: ${feedback || '請根據最新需求調整與修復'}
+• 結案規範: 修復並驗證後寫回 ${tasksFilePath}（status: review，填寫 modifiedFiles, diff, executionLog，feedback 歸入 description 並清空）。`;
 
         try {
           if (navigator.clipboard) {
@@ -4248,7 +4271,7 @@ ${feedback || '請根據最新的需求進行調整與修復。'}
         return `• [${t.id}] ${projText} ${t.title}\n  專案目錄: ${(proj && proj.path) || t.projectPath || t.project}\n  Harness 指令: ${harnessCmd}\n  需求: ${t.description || '無'}`;
       }).join('\n\n');
 
-      const batchPrompt = `【立即執行進行中任務 - 3-Phase Execution Gate】\n請立即依序執行以下進行中任務，恪遵 3-Phase Gate（Phase 1 前置檢閱與 Harness 檢核 -> Phase 2 實作與測試 -> Phase 3 驗收、全量 Diff 收集、產出 Commit 訊息並推進至 review）：\n\n${taskSummaries}`;
+      const batchPrompt = `【進行中任務開工 - 3-Phase Gate】\n請依序實作以下任務（Pre-Flight 驗證 ➔ 最小範圍實作補測試 ➔ 收集全量 diff 產出 commitMessage 推入 review）：\n\n${taskSummaries}`;
       navigator.clipboard.writeText(batchPrompt);
 
       showToast(`已複製 ${inProgressTasks.length} 個進行中任務 Harness 派工指令！貼入對話即可立即開工。`);
@@ -4267,31 +4290,16 @@ ${feedback || '請根據最新的需求進行調整與修復。'}
       const harnessInfo = (proj && proj.harness) ? proj.harness : (task.projectHarness || {});
       const harnessCmd = harnessInfo.command || 'npm run harness:check || npm test';
 
-      const feedbackText = task.feedback ? `\n【審查退回意見 / 修復要求 (最高優先級)】\n${task.feedback}\n` : '';
+      const feedbackText = task.feedback ? `\n• 【最高優先 Feedback】: ${task.feedback}` : '';
 
-      const prompt = `【任務執行指示 - 3-Phase Execution Gate】
-任務 ID: ${task.id}
-任務名稱: ${task.title}
-所屬專案: ${projName}
-工作目錄: ${projPath}
-專案 Harness 驗證指令: ${harnessCmd}
-任務資料庫: ${tasksFilePath}
+      const prompt = `【任務開工】[${task.id}] ${task.title}
+• 專案: ${projName} (${projPath}) | 驗證: ${harnessCmd} | 資料庫: ${tasksFilePath}
+• 需求: ${task.description || '無'}${feedbackText}
 
-需求說明：
-${task.description || '無詳細說明'}
-${feedbackText}
-【嚴格 3-Phase Execution Gate 執行 SOP】：
-1. Phase 1 (Pre-Flight & Review Feedback Ingestion):
-   - 優先讀取並滿足上述 Feedback 退回意見（若有）。
-   - 切換至專案工作目錄 (${projPath})，檢閱 AGENTS.md / CLAUDE.md / HARNESS.md 及 .github 規範。
-   - 執行專案前置基準檢核指令：${harnessCmd}
-2. Phase 2 (Rule-Compliant Implementation):
-   - 遵循專案規範與目錄結構進行實作，並補齊測試，嚴禁產生跨專案副作用。
-3. Phase 3 (Compliance Manifest & Review Promotion):
-   - 實作完成後執行驗證指令（${harnessCmd}）確保全數通過。
-   - 擷取全量完整無截斷之 git diff（包含已追蹤與未追蹤檔案，嚴禁使用 ... 占位符）。
-   - 依據實際 diff 產出符合規範之 commitMessage ({ subject, body })：【重要原則】主旨 (subject) 必須鎖定任務原始主軸（Task Title / 核心目標），內文 (body) 則綜合全量實際異動項目與歷次 Feedback 修訂重點，嚴禁將主旨退化為最後單一一次 Feedback 的局部微調。
-   - 將成果回寫入 ${tasksFilePath}（將 id 為 "${task.id}" 的 status 改為 "review"，填寫 modifiedFiles, diff, commitMessage 與 executionLog，若有 feedback 需移至 description 歷史區塊並清空 feedback）。`;
+【3-Phase Gate 規範】：
+1. Pre-Flight: 檢閱規範文檔並執行 ${harnessCmd}；有 Feedback 優先滿足。
+2. Implementation: 遵循目錄規範最小範圍實作並補齊測試，嚴禁跨專案副作用。
+3. Review Promotion: 驗證通過後收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })，回寫 tasks.json 推入 review (feedback 歸入 description 並清空)。`;
       navigator.clipboard.writeText(prompt);
       showToast(`已複製【${projName}】Harness 3-Phase 派工指令！`);
     }

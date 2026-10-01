@@ -1,6 +1,6 @@
 # 🚀 Task Dashboard 開發歷程與技術回顧 (Retrospective)
 
-> **版本週期**：TASK-001 ~ TASK-014  
+> **版本週期**：TASK-001 ~ TASK-069  
 > **核心主題**：打造以 Ticket-driven 為核心的 AI 代理人自動化開發與審查樞紐  
 > **參與專案**：`task-dashboard`、`fetnet-eservice-f2e`、`tool-static-portal`、`service-mobilecircle-inline-page`
 
@@ -12,6 +12,7 @@
 3. [💡 關鍵技術突破與架構決策](#3-關鍵技術突破與架構決策)
 4. [🔍 Retro 反思 (Good, Pain Points, Lessons Learned)](#4-retro-反思-good-pain-points-lessons-learned)
 5. [🎯 下一步行動建議 (Action Items)](#5-下一步行動建議-action-items)
+6. [⚡️ 最新技術迭代：Feedback 閉環自癒架構與高資訊密度開工 Prompt (TASK-068 ~ TASK-069)](#6-最新技術迭代feedback-閉環自癒架構與高資訊密度開工-prompt-task-068--task-069)
 
 ---
 
@@ -177,4 +178,87 @@ sequenceDiagram
 | **P3** | **暗黑模式微調與自訂主題** | 改善視覺體驗 | 提供更多現代主題配色方案與程式碼高亮風格選擇。 |
 
 ---
-*Retrospective Report generated at 2026-09-09 by Antigravity.*
+
+## 6. ⚡️ 最新技術迭代：Feedback 閉環自癒架構與高資訊密度開工 Prompt (TASK-068 ~ TASK-069)
+
+### 6.1 背景問題與多維度根因剖析 (Problem & Root Causes)
+
+在經歷數十輪真實任務實作與反覆審查（Review Feedback Loop）後，系統逐漸暴露出兩大深層痛點：
+
+1. **Feedback 閉環失效與意見遺失問題 (Feedback Lifecycle Breakage)**：
+   - **後端缺乏自癒防禦**：原先 `consumeTaskFeedback()` 僅在後端本地 CLI Agent 行程正常結束時觸發。當開發者使用外部 Desktop AI（如 Antigravity、Claude）或透過 REST API (`PUT /api/tasks/:id`) 更新為 `review`、`done` 時，後端完全未攔截處理 feedback。
+   - **連續退回時的破壞性覆寫**：若任務在未清空 feedback 前再次被使用者退回，新的 feedback 會直接覆蓋欄位，導致前次修訂意見永久遺失。
+   - **前端彈窗殘留誤導**：彈窗開啟 `review` 任務時未清空輸入框，導致舊意見持續滯留在畫面上。
+   - **提示詞規範遺漏**：開工引擎提示詞中未明確要求 Agent 於 Phase 3 將 feedback 歸檔至 description 歷史區塊，導致 LLM 在多輪修改後遺漏此動作。
+2. **開工引擎提示詞冗贅與 Token 浪費 (Verbose Prompting)**：
+   - 原有 Desktop AI 哨兵待命提示詞長達 400+ 字，充斥大量重複性 SOP 名詞解釋與冗贅句型。
+   - 單一任務開工指令與退回修復指令結構鬆散，缺乏資訊密度，不僅增加 LLM 上下文負擔，也降低了人機閱讀效率。
+
+---
+
+### 6.2 關鍵技術突破與架構升級 (Key Architecture Solutions)
+
+```mermaid
+graph TD
+    A[使用者點擊退回重做] -->|包含新 Feedback| B(PUT /api/tasks/:id)
+    B -->|防禦 1| C{前次 Feedback 殘留?}
+    C -- 是 --> D[安全優先歸檔至 description 歷史]
+    C -- 否 --> E[存入 task.feedback]
+    D --> E
+    E --> F[Reactive Wakeup 喚醒 Desktop AI]
+    F --> G[高資訊密度 3-Phase Gate 開工]
+    G --> H[推進至 review / done]
+    H -->|防禦 2: 後端自癒| I[readTasks / writeTasks 自動檢查]
+    I --> J[consumeTaskFeedback 格式化排版與去重]
+    J --> K[清空 task.feedback 並安全回寫磁碟]
+    K --> L[前端彈窗開起時自動排空輸入框]
+```
+
+#### 1. 資料庫層級自動自癒機制 (Database-Level Self-Healing)
+- **`readTasks()` 與 `writeTasks()` 全域巡檢**：
+  在每一次讀取與寫入 `tasks.json` 時，自動掃描所有處於 `review`、`done`、`archived` 狀態之任務。凡存在非空 `feedback`，立即主動呼叫 `consumeTaskFeedback(t)` 完成歷史追加並清空欄位，並自動同步回寫磁碟。
+- **杜絕外部 Agent 漏清副作用**：即使外部 AI 未執行清空指令，資料庫層級會在下一次 API 請求或定時巡檢時自動完成自癒修補。
+
+#### 2. 連續退回安全隊列與格式去重 (Multi-Round Defense & Formatting)
+- **`PUT /api/tasks/:id` 防禦**：若任務既有 `feedback` 尚未歸檔且本次又傳入新 `feedback`，系統於更新前自動先將舊意見歸檔至 `description`，杜絕歷史丟失。
+- **排版與去重保護**：
+  - 自動偵測並移除 Markdown 列表前綴，避免多輪追加後產生 `- - ` 符號堆疊。
+  - 增加內容去重防禦：若相同意見已在描述中，直接清空欄位不重複堆疊時間戳。
+
+#### 3. 開工引擎 Prompt 高資訊密度重構 (High-Density Prompt Architecture)
+針對開工引擎的所有對外指示進行結構化緊湊重構，消除長篇鋪陳，改以符號化與高資訊密度格式傳達核心契約：
+- **桌面 AI 哨兵待命指令**：
+  由原先 400+ 字長篇精簡為 ~110 字，明確聚焦於 `in_progress` 與 `requestCommitGen` 雙情境契約，大幅降低對話視窗 Token 占用。
+- **單一任務開工指令 (`copyPrompt`)**：
+  轉為緊湊的元資料卡片（專案、目錄、驗證指令、資料庫、核心需求、最高優先 Feedback、3-Phase SOP）。
+- **退回重修指令 (`rejectTaskWithFeedback`)**：
+  精簡為 3 行標準結構化提示（任務識別、審查意見、結案與歸檔規範）。
+- **CLI Agent 提示詞 (`server.js`)**：
+  全面移除贅詞，提升本地 CLI 啟動執行之解析效率。
+
+#### 4. 前端檢閱排空機制 (Modal Form Feedback Clean Slate)
+- 在 `openTaskModal` 中，當任務處於 `review`、`done` 或 `archived` 狀態時，強制將 `formFeedback` 設為空字串，使評審人員擁有乾淨的輸入介面，徹底消除視覺殘留困擾。
+
+---
+
+### 6.3 實作變更盤點 (Diff Summary)
+
+| 修改檔案 | 核心職責與變更點 |
+|---|---|
+| `src/server/server.js` | 1. 強化 `consumeTaskFeedback`（去重、Markdown 格式整修）。<br>2. `readTasks` & `writeTasks` 注入自癒掃描邏輯。<br>3. `PUT /api/tasks/:id` 實現多輪退回防禦與完工自癒。<br>4. CLI Agent `promptText` 緊湊化重構。<br>5. 匯出 `consumeTaskFeedback` 支援單元測試。 |
+| `src/public/index.html` | 1. 重構 `updateAiPromptDisplay()`（Antigravity、Claude、Codex、Universal 四款高密度哨兵指令）。<br>2. `openTaskModal` 於 review 狀態主動排空 `formFeedback`。<br>3. `copyPrompt`、`triggerExecutionNow`、`rejectTaskWithFeedback` 全面精簡為高密度卡片格式。 |
+| `scripts/test_server.sh` | 新增 `consumeTaskFeedback` 單元測試：包含多輪追加、列表符號修剪、時間戳記錄與去重防護驗證。 |
+| `.github/worklog/agent-status.md` | 同步更新切片執行目標、驗收證據與完成狀態。 |
+
+---
+
+### 6.4 經驗總結與架構洞見 (Lessons & Insights)
+
+1. **以系統層級自癒取代對 LLM 自律的假設 (System Self-Healing > LLM Discipline)**：
+   在分散式人機協同架構中，絕不能將資料結構一致性與欄位生命週期完全寄託於 AI Agent 的記憶力或 Prompt 遵循度。後端資料庫層級的自動自癒與狀態機防禦，才是確保 SSOT 零污染的根本保障。
+2. **高資訊密度（High Information Density）勝過冗長說理**：
+   過長的 Prompt 不僅消耗 Context Window，更會分散模型的注意力。將長篇敘述提煉為「情境 ➔ 門禁條件 ➔ 產出規格 ➔ 閉環動作」的結構化清單，模型執行準確度與響應品質反而顯著提升。
+
+---
+*Retrospective Report updated at 2026-10-01 by Antigravity.*
+
