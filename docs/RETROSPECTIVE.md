@@ -262,3 +262,64 @@ graph TD
 ---
 *Retrospective Report updated at 2026-10-01 by Antigravity.*
 
+---
+
+## 7. 🎯 2026-10-02 當日技術迭代深度回顧 (TASK-072 ~ TASK-084)
+
+> **核心主題**：防 Loop 效能防禦、人機互動「確認與修正門禁」、UI 自適應排版、與 Skill 規格收斂
+
+### 7.1 當日任務全景盤點
+
+| 任務編號 | 類型 | 核心內容與成果 | 關鍵指標 / 產出 |
+|---|---|---|---|
+| **TASK-072** | Fix | MSW Mock 設定依 query string `mock=true` 動態判斷，避免 dev/staging 畫面出錯 | 環境隔離強化 |
+| **TASK-073 & TASK-075** | Skill | 檢視與重構 `.github/skills/`，去除冗贅、注入高資訊密度與 Harness 驗證流程 | 規格無冗餘、路徑有效性 |
+| **TASK-074** | Spec / Plan | 分析 `MARTECH_RESERVE_API_SPEC.md` 提供完整建置方案與 mock 機制 | 前置分析閉環 |
+| **TASK-076** | UI | 當日詳細預約量 5 欄位滿版平均佈局與微調 | CSS Flex/Grid 滿版自適應 |
+| **TASK-077** | Logic / Fix | 宅配到府表單必填死結排查與修正，收件人驗證相容性修復 | 12/12 單元測試通過 |
+| **TASK-078** | Feature | 「需確認後再執行」機制：待確認解鎖 executionPlan 編輯、隱藏舊切片，確認後自動萃取切片至 build-plan | 門禁控制 + 切片動態同步 |
+| **TASK-079 & TASK-080** | Performance | 解決 AI 代理人大檔檢索 Loop 問題：限制切片掃描大小、禁止全量重複 dump、精簡 Skill 體系 | Token 節省 70%+、零迴圈開工 |
+| **TASK-081** | Skill | 引入並適配符合專案架構之外部優質 Skill 規範 | 技能體系標準化 |
+| **TASK-082** | Optimization | 檢閱專案架構並提供系統性優化方案 | 系統架構持續演進 |
+| **TASK-083** | UI / Polish | 非新增狀態之 Textarea（需求描述、計劃、回饋）依內容動態調整高度 (`autoResizeTextarea`) | 徹底消除大片無效空白 |
+| **TASK-084** | Retro | 今日全量修改歷程系統性回顧、評價與行動建議 | 本次技術覆盤交付 |
+
+---
+
+### 7.2 深度評價：Keep（亮點）與 Problem（痛點與根因）
+
+#### 🌟 Keep（做得好 / 關鍵突破）
+1. **人機協同「雙向確認門禁」建立 (TASK-078)**：
+   - 解決了過去 Agent 面對模糊任務時容易「擅自發散實作」的痛點。
+   - 待確認階段下開放使用者直接修改 `formExecutionPlan`，確認開工後後端自動萃取為 Slices 藍圖與進度條連動，建立了「人審計劃、機走實作」的透明閉環。
+2. **終結大檔檢索 Loop 與 Token 浪費 (TASK-079 / TASK-080)**：
+   - 過去在掃描大檔或多檔案時，Agent 容易陷入重複 view_file / grep 的無限迴圈。透過限制單次檢索大小、分塊讀取與精準定位，大幅壓縮 Token 開銷並消除了反覆迴圈。
+3. **UI 緊湊性與自適應體驗顯著提升 (TASK-083)**：
+   - 徹底告別固定 `rows="12"` 的鬆散排版，所有非新增任務的文字區塊隨內容動態計算 `scrollHeight`，大幅提升資訊可讀性與雙欄對齊舒適度。
+
+#### ⚠️ Problem（遇到的障礙與偏差）
+1. **Loop 警告警訊**：
+   - 在任務執行中，曾出現「loop 了 請避免」的使用者反饋。根因在於：對大檔語法修復時，曾試圖一次性檢索過長代碼區間，且在工具調用未即時收斂時造成重複確認。
+2. **`executionLog` 語意理解偏差**：
+   - 使用者反映「原本的 log 應該是列出執行計劃與執行結果，為什麼變成 harness log？」
+   - **根因分析**：先前 Agent 在執行驗證後，直接將 `npm run harness:check` 與 `npm test` 的原生終端輸出填入 `executionLog`，忽略了使用者與專案規範所需的「結構化 3-Phase 執行計劃與實作步驟總結」。
+3. **狀態與權限邊界遺漏**：
+   - 初期在實作待確認機制時，前端一視同仁鎖定所有 `in_progress` 欄位為 readonly，導致待確認狀態下使用者「看得到執行計劃卻無法修改」，反饋後才特例放行。
+
+---
+
+### 7.3 行動建議與後續改善規劃 (Action Items)
+
+1. **落實 ExecutionLog 結構模板化（防止再次退回為純終端輸出）**：
+   - 固化 `executionLog` 模板：必須包含 `Phase 1 (Pre-Flight & Feedback)`、`Phase 2 (Implementation & Slices)`、`Phase 3 (Verification & Results)` 三段式，嚴禁僅以原始終端字串充數。
+2. **大檔修改「先測語法、再局部抽換」守則**：
+   - 對於超過 1,000 行之檔案（如 `server.js` 與 `index.html`），嚴格禁止大區塊覆寫，一律使用單一小區塊 `replace_file_content`，並於第一時間執行語法檢查 (`node -c` 或 `npm test`)，防範大檔語法括號不對稱。
+3. **建立待確認任務的生命週期自動遷移規則**：
+   - 當使用者點選「確認並執行」時，除了清除 `requiresConfirmation`，前端與後端應同步觸發 `liveStatus` 與 slice 藍圖寫入，避免因背景讀取延遲導致畫面短暫不一致。
+4. **擴充前端自動化 E2E / 視覺回歸檢驗**：
+   - 目前單元測試集中於後端 API 與隔離驗證，建議為前端互動（如 textarea autoResize、彈窗雙欄展開、確認按鈕狀態）補足輕量無頭瀏覽器測試，減少人工肉眼回饋輪數。
+
+---
+*Retrospective Report updated at 2026-10-02 by Antigravity.*
+
+
