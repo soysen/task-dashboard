@@ -269,7 +269,11 @@ const indexHtmlContent = fs.readFileSync("./src/public/index.html", "utf8");
 assert(indexHtmlContent.includes("t.status === \"in_progress\" && t.requiresConfirmation && t.executionPlan && t.executionPlan.trim()") || indexHtmlContent.includes("t.requiresConfirmation && t.executionPlan && t.executionPlan.trim()"), "看板卡片待確認徽章必須同時滿足 requiresConfirmation 與 executionPlan 非空");
 assert(indexHtmlContent.includes("const isPendingConfirmation = isReqConfirmChecked && status === ") && indexHtmlContent.includes("hasExecutionPlan"), "彈窗待確認狀態必須同時要求 hasExecutionPlan");
 
-console.log("    ✅ agent-status、build-plan 隔離保護、多輪 Feedback Commit 訊息、consumeTaskFeedback 與 executionPlan 確認門禁單元測試通過！");
+// 驗證進行中及之後任務 textarea 自動伸縮優化
+assert(indexHtmlContent.includes("function autoResizeTextarea(el,"), "前端必須具備 autoResizeTextarea 函式");
+assert(indexHtmlContent.includes("autoResizeTextarea(descEl,"), "openModalForEdit 或 updateModalButtonState 必須對描述欄位觸發動態自適應");
+
+console.log("    ✅ agent-status、build-plan 隔離保護、多輪 Feedback Commit 訊息、consumeTaskFeedback、executionPlan 確認門禁與 textarea 自適應單元測試通過！");
 '
 
 echo "  [8/8] 測試 POST /api/projects/:id/init-harness API ..."

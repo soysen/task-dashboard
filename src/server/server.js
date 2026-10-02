@@ -1238,6 +1238,31 @@ function scanProjectWorklogAndPlan(projPath, taskId) {
 
   let finalPlanSlices = (activeBuildPlan && activeBuildPlan.slices) ? [...activeBuildPlan.slices] : [];
 
+  // 若當前任務具備 executionPlan（確認後執行的執行計劃），優先將其拆解為專屬工作切片，與任務執行階段同步
+  if (finalPlanSlices.length === 0 && currentTask && currentTask.executionPlan && currentTask.executionPlan.trim()) {
+    const planLines = currentTask.executionPlan.split('\n').map(l => l.trim()).filter(Boolean);
+    const extractedTitles = [];
+    for (const line of planLines) {
+      const m = line.match(/^[-*•]?\s*(?:(?:Slice|切片)\s*\d+[:：]|(?:\d+[\.、]))\s*(.*)$/i) || line.match(/^[-*•]\s*【(.*?)】\s*(.*)$/);
+      if (m) {
+        const sliceTitle = (m[1] && m[2]) ? `【${m[1]}】${m[2]}` : (m[1] || line);
+        extractedTitles.push(sliceTitle);
+      }
+    }
+    if (extractedTitles.length > 0) {
+      finalPlanSlices = extractedTitles.map((t, idx) => ({
+        sliceId: `slice-${currentTask.id.toLowerCase()}-${idx + 1}`,
+        title: `[-] Slice ${idx + 1}: ${t}`,
+        status: idx === 0 ? '進行中' : '未開始',
+        route: resolvedRoute || 'dashboard-state-and-sync',
+        goal: t
+      }));
+      if (finalPlanSlices.length > 0 && (!resolvedSliceGoal || resolvedSliceGoal === 'N/A')) {
+        resolvedSliceGoal = extractedTitles[0];
+      }
+    }
+  }
+
   // 若當前任務為進行中但無專屬切片清單，自動建立專屬實作切片，絕不套用其他任務的切片
   if (finalPlanSlices.length === 0 && effectiveActiveTask) {
     const defaultSliceGoal = (effectiveActiveTask.goal && effectiveActiveTask.goal !== 'N/A') ? effectiveActiveTask.goal : effectiveActiveTask.title;
@@ -1405,6 +1430,47 @@ function syncProjectWorklogForActiveTask(projPath, task) {
             fs.writeFileSync(targetPlanPath, planContent, 'utf8');
             hasUpdated = true;
           }
+        } else if (task.executionPlan && task.executionPlan.trim()) {
+          // 當前專案尚無此任務的 build plan，但任務在確認階段已具備完整 executionPlan：
+          // 自動為任務在 .github/harness/plan/ 建立專屬 build plan，將 executionPlan 萃取為 Slices
+          const cleanTaskId = task.id.toLowerCase();
+          const newPlanFileName = `${cleanTaskId}-build-plan.md`;
+          const newPlanFilePath = path.join(planDir, newPlanFileName);
+
+          const planLines = task.executionPlan.split('\n').map(l => l.trim()).filter(Boolean);
+          const extractedSlices = [];
+          for (const line of planLines) {
+            const m = line.match(/^[-*•]?\s*(?:(?:Slice|切片)\s*\d+[:：]|(?:\d+[\.、]))\s*(.*)$/i) || line.match(/^[-*•]\s*【(.*?)】\s*(.*)$/);
+            if (m) {
+              const sliceTitle = (m[1] && m[2]) ? `【${m[1]}】${m[2]}` : (m[1] || line);
+              extractedSlices.push(sliceTitle);
+            }
+          }
+
+          let slicesMd = '';
+          if (extractedSlices.length > 0) {
+            slicesMd = extractedSlices.map((s, idx) => `- [-] Slice ${idx + 1}: ${s}`).join('\n');
+          } else {
+            slicesMd = `- [-] Slice 1: [${task.id}] ${goalText}`;
+          }
+
+          const newPlanContent = `# Build Plan: [${task.id}] ${task.title}\n\n` +
+            `- Status: in_progress\n` +
+            `- Skill Route: ${routeText}\n` +
+            `- Feature Name: ${task.title}\n\n` +
+            `## 任務卡 (Task Card)\n\n` +
+            `- 目前任務 ID: ${task.id}\n` +
+            `- 目標: ${goalText}\n` +
+            `- 路由: ${routeText}\n` +
+            `- 範圍 (In/Out): In: 依執行計劃實作 / Out: 跨專案副作用\n` +
+            `- 驗收標準: 執行計劃步驟實作與驗證完成\n` +
+            `- 驗證證據: 測試通過\n` +
+            `- 阻塞/恢復入口: .github/worklog/agent-status.md\n\n` +
+            `## Slices\n` +
+            `${slicesMd}\n`;
+
+          fs.writeFileSync(newPlanFilePath, newPlanContent, 'utf8');
+          hasUpdated = true;
         }
       }
     } catch (e) {
