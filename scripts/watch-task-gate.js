@@ -57,8 +57,17 @@ function findActionableTask() {
     if (!fs.existsSync(TASKS_FILE)) return null;
     const content = fs.readFileSync(TASKS_FILE, 'utf8');
     const tasks = JSON.parse(content);
-    if (!Array.isArray(tasks)) return null;
-    return tasks.find(t => t && (t.status === 'in_progress' || t.requestCommitGen === true)) || null;
+    return tasks.find(t => {
+      if (!t) return false;
+      if (t.requestCommitGen === true) return true;
+      if (t.status === 'in_progress') {
+        // 若任務勾選需確認後再執行，且已經產出完整執行計劃，則處於「待確認」等待使用者審閱並點擊「確認並執行」，哨兵暫不喚醒開工
+        const isPendingUserConfirmation = t.requiresConfirmation && t.executionPlan && t.executionPlan.trim().length > 0;
+        if (isPendingUserConfirmation) return false;
+        return true;
+      }
+      return false;
+    }) || null;
   } catch (err) {
     // 檔案正在寫入中或暫時為空時忽略
     return null;

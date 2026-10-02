@@ -264,7 +264,12 @@ fbTask.feedback = "第一輪修改意見";
 consumeTaskFeedback(fbTask);
 assert.strictEqual(fbTask.feedback, "", "已存在之 feedback 再次傳入應直接清空 feedback 且不重複追加");
 
-console.log("    ✅ agent-status、build-plan 隔離保護、多輪 Feedback Commit 訊息與 consumeTaskFeedback 單元測試通過！");
+// 驗證 requiresConfirmation 與 executionPlan 邏輯
+const indexHtmlContent = fs.readFileSync("./src/public/index.html", "utf8");
+assert(indexHtmlContent.includes("t.status === \"in_progress\" && t.requiresConfirmation && t.executionPlan && t.executionPlan.trim()") || indexHtmlContent.includes("t.requiresConfirmation && t.executionPlan && t.executionPlan.trim()"), "看板卡片待確認徽章必須同時滿足 requiresConfirmation 與 executionPlan 非空");
+assert(indexHtmlContent.includes("const isPendingConfirmation = isReqConfirmChecked && status === ") && indexHtmlContent.includes("hasExecutionPlan"), "彈窗待確認狀態必須同時要求 hasExecutionPlan");
+
+console.log("    ✅ agent-status、build-plan 隔離保護、多輪 Feedback Commit 訊息、consumeTaskFeedback 與 executionPlan 確認門禁單元測試通過！");
 '
 
 echo "  [8/8] 測試 POST /api/projects/:id/init-harness API ..."

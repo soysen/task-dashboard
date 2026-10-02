@@ -30,15 +30,24 @@
 3. **閱讀架構規範文檔**：
    - `AGENTS.md`、`CLAUDE.md`、`.github/copilot-instructions.md`、`README.md`、`HARNESS.md`
 4. 執行該專案的診斷或 Harness 指令（如 `npm run harness:check` 或測試套件）。
-5. **GitNexus 風險評估與切片規劃門禁 (GitNexus Risk Assessment & Slicing Gate)**：
+5. **大檔掃描與 Token 節約鐵律 (Targeted Inspection & Anti-Loop Gate)**：
+   - **禁止大檔整檔盲讀**：目標檔案若超過 500 行，嚴禁無上限 `view_file` 或連續全覽。一律先以 `grep -n` 定位關鍵函式、變數或路由行號，再以切片閱讀前後 30-50 行。
+   - **單點檢索上限 (Max 2 Inspections)**：同一檔案相同區塊最多檢索 2 次；確定關鍵邏輯後立即進入修改與單元測試，嚴禁原地循環重複呼叫。
+   - **Fast-Track 輕量分流**：單一變數/邏輯修正優先進行精準微調與單元測試，避免發散式跨組件多輪思維。
+6. **GitNexus 風險評估與切片規劃門禁 (GitNexus Risk Assessment & Slicing Gate)**：
    - 若專案具備 GitNexus（存在 `.gitnexus` 或 GitNexus 索引）：在異動任何函式、類別、檔案前，**必須使用 GitNexus 進行影響分析 (`impact`) 評估風險**。
    - **中高級以上風險管控**：若風險等級為 **MEDIUM（中級）、HIGH（高級）、CRITICAL（極高）** 或 `UNKNOWN`：
      - **必須建立 Plan（實作計畫 / Implementation Plan）**，嚴禁直接盲目異動。
      - **必須切片處理（Task Slicing）**：將大範圍變更拆解為清晰、獨立、可個別驗證的子切片（Slices），依序分步推進。
      - 若為 HIGH 或 CRITICAL 風險，必須於執行前明確向使用者示警或在 Plan 中標註風險。
+7. **需確認後執行門禁 (Execution Plan Confirmation Gate)**：
+   - 若任務標記為 `requiresConfirmation: true` 且尚未提供 `executionPlan`（或為空）：
+     - Agent 開工首要任務為**擬定完整執行計劃**（包含執行步驟、架構評估、驗證方式）。
+     - 將執行計劃寫入 Application Support 資料庫之 `task.executionPlan`。
+     - **嚴禁在未填寫執行計劃前跳過規劃**；任務在計劃填妥後方會正式進入「待確認」狀態，並供使用者點擊「確認並執行」。使用者確認點選後，方可進入 Phase 2 代碼實作。
 
 ### Phase 2: Rule-Compliant Implementation (合規實作)
-1. 嚴格遵守該專案的目錄架構、狀態流轉規則與 GitNexus 切片計畫。
+1. 嚴格遵守該專案的目錄架構、狀態流轉規則、大檔切片讀取規範與 GitNexus 切片計畫。
 2. 僅在該專案的範疇內修改程式碼，不得跨專案產生不相關的副作用。
 3. 若存在切片計畫，按切片逐步進行最小範圍實作與即時驗證。
 

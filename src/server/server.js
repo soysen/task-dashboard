@@ -2337,7 +2337,7 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
     skillsSection +
     docsSection +
     '【3-Phase Gate 規範】：\n' +
-    '1. Pre-Flight: 優先滿足 Feedback，檢閱規範並執行前置驗證（' + harnessCmd + '）。\n' +
+    '1. Pre-Flight: 優先滿足 Feedback，檢閱規範並執行前置驗證（' + harnessCmd + '）；若任務勾選需確認後再執行且未具備執行計劃，必須先產出完整執行計劃回寫 executionPlan 供確認；面對 > 500 行大檔嚴禁整檔閱讀，必須以 grep-n 先定位後切片 30-50 行，檢索上限 2 次避免 Loop。\n' +
     '2. Implementation: 遵循專案架構最小範圍實作並補齊測試，嚴禁跨專案副作用。\n' +
     '3. Review Promotion: 驗證通過後收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })，推進至 review 並清空 feedback。';
 
@@ -3450,6 +3450,8 @@ function runNativeFolderPicker(promptText, callback) {
           diff: data.diff || '',
           executionLog: data.executionLog || '',
           feedback: data.feedback || '',
+          requiresConfirmation: data.requiresConfirmation === true,
+          executionPlan: data.executionPlan || '',
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };

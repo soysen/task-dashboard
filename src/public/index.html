@@ -620,6 +620,10 @@
       <div class="p-3.5 px-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
         <div class="flex items-center gap-3">
           <span id="modalPriorityBadge" class="px-2.5 py-0.5 rounded-md text-xs font-bold font-mono"> P1</span>
+          <span id="modalConfirmationBadge" class="hidden px-2.5 py-0.5 rounded-md text-xs font-bold font-mono bg-amber-500/10 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-500/40 items-center gap-1">
+            <i data-lucide="help-circle" class="w-3 h-3 text-amber-500"></i>
+            <span>待確認</span>
+          </span>
           <h3 id="modalHeaderTitle" class="text-sm font-bold text-slate-900 dark:text-white truncate"> 任務詳情與編輯</h3>
           <div id="modalSessionBadge" onclick="copySessionId(document.getElementById('formConversationId').value, event)" class="hidden items-center gap-1 bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 px-2 py-0.5 rounded-md text-[11px] font-mono cursor-pointer hover:bg-indigo-100 hover:text-indigo-600 dark:hover:bg-indigo-950/60 dark:hover:text-indigo-300 transition" title="點擊複製 Hermes Session ID">
             <i data-lucide="terminal" class="w-3 h-3 text-indigo-500"></i>
@@ -761,6 +765,20 @@
               <textarea id="formDescription" rows="12" placeholder="描述任務背景、具體需求或待辦重點..." class="w-full bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500 custom-scrollbar"></textarea>
             </div>
 
+            <!-- 完整執行計劃 (Execution Plan - 需確認機制) -->
+            <div id="formExecutionPlanBox" class="hidden bg-amber-500/5 dark:bg-amber-950/20 border border-amber-500/30 rounded-xl p-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <label class="text-xs font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                  <i data-lucide="clipboard-check" class="w-3.5 h-3.5 text-amber-500"></i> 完整執行計劃 (Execution Plan)
+                </label>
+                <span id="formExecutionPlanBadge" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/60">
+                  待確認
+                </span>
+              </div>
+              <p id="formExecutionPlanNotice" class="text-[11px] text-slate-600 dark:text-slate-400">此任務設定為「需確認後再執行」，請檢視下列執行計劃並點選「確認並執行」。</p>
+              <textarea id="formExecutionPlan" rows="6" placeholder="此任務之預計執行計劃、步驟與驗證指標..." class="w-full bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800/80 rounded-lg p-2.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-amber-500 custom-scrollbar font-mono"></textarea>
+            </div>
+
             <!-- 審查意見與修改回饋 (Review Feedback) -->
             <div id="reviewFeedbackBox" class="bg-purple-50 dark:bg-[#131b2e] border border-purple-200 dark:border-purple-800/60 rounded-xl p-3 space-y-1.5">
               <div class="flex items-center justify-between">
@@ -896,10 +914,17 @@
             </button>
           </div>
           <div class="flex items-center gap-2">
+            <label id="formRequiresConfirmationWrapper" class="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer mr-1.5 select-none" title="勾選後將在卡片標記待確認，需先檢視執行計劃並點選確認後才開始執行">
+              <input type="checkbox" id="formRequiresConfirmation" onchange="toggleFormRequiresConfirmation(this.checked)" class="rounded border-slate-300 text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer">
+              <span class="font-medium">需確認後再執行</span>
+            </label>
             <button type="button" onclick="closeModal()" class="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium px-3.5 py-1.5 rounded-lg transition"> 取消
             </button>
             <button type="button" id="btnRejectTask" onclick="rejectTaskWithFeedback()" class="hidden bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow transition flex items-center gap-1">
               <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> 退回重做
+            </button>
+            <button type="button" id="btnConfirmAndExecute" onclick="confirmAndExecuteTask()" class="hidden bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-md shadow-amber-500/25 transition flex items-center gap-1.5" title="確認執行計劃並立即啟動任務執行">
+              <i data-lucide="play-circle" class="w-4 h-4"></i> 確認並執行
             </button>
             <button type="button" id="btnApproveTask" onclick="approveTaskAsDone()" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-emerald-500/25 transition flex items-center gap-1.5">
               <i data-lucide="check-circle" class="w-4 h-4"></i> 驗收通過
@@ -2514,8 +2539,13 @@ node "${gateScriptPath}"
           return `
             <div data-id="${t.id}" tabindex="0" role="button" aria-label="${escapeHtml(t.title)}" onclick="openModalForEdit('${t.id}')" onkeydown="handleCardKeyDown(event, '${t.id}')" class="kanban-card p-3 rounded-lg border ${cardBorderClass} shadow-sm transition-all cursor-pointer group hover:scale-[1.01] space-y-2 relative focus:outline-none">
               <div class="flex items-start justify-between gap-1.5">
-                <div class="flex items-center gap-1.5">
+                <div class="flex items-center gap-1.5 flex-wrap">
                   <span class="text-[10px] font-bold px-1.5 py-0.2 rounded border ${priorityColor} font-mono">${t.priority || 'P1'}</span>
+                  ${(t.status === 'in_progress' && t.requiresConfirmation && t.executionPlan && t.executionPlan.trim()) ? `
+                    <span class="text-[10px] font-bold px-1.5 py-0.2 rounded border bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-500/40 font-mono flex items-center gap-0.5">
+                      待確認
+                    </span>
+                  ` : ''}
                   <span class="text-[10px] px-1.5 py-0.2 rounded bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 font-mono truncate max-w-[110px]" title="${escapeHtml(projName)}">
                      ${escapeHtml(projName)}
                   </span>
@@ -2726,6 +2756,12 @@ node "${gateScriptPath}"
       const logVisual = document.getElementById('formLogVisual');
       if (logVisual) logVisual.innerText = '';
 
+      const reqConfirmEl = document.getElementById('formRequiresConfirmation');
+      if (reqConfirmEl) reqConfirmEl.checked = !!initialData.requiresConfirmation;
+      const execPlanEl = document.getElementById('formExecutionPlan');
+      if (execPlanEl) execPlanEl.value = initialData.executionPlan || '';
+      toggleFormRequiresConfirmation(!!initialData.requiresConfirmation);
+
       setModalFieldsReadOnly(false);
       updateModalButtonState();
 
@@ -2751,7 +2787,7 @@ node "${gateScriptPath}"
       }
 
       // 2. 所有文字與文字區塊欄位全面 readonly
-      const textInputs = ['formTitle', 'formProjectInput', 'formAssignee', 'formDescription', 'formFeedback', 'select2Input'];
+      const textInputs = ['formTitle', 'formProjectInput', 'formAssignee', 'formDescription', 'formFeedback', 'formExecutionPlan', 'select2Input'];
       textInputs.forEach(id => {
         const el = document.getElementById(id);
         if (el) {
@@ -2763,6 +2799,11 @@ node "${gateScriptPath}"
           }
         }
       });
+
+      const reqConfirmEl = document.getElementById('formRequiresConfirmation');
+      if (reqConfirmEl) {
+        reqConfirmEl.disabled = isReadOnly;
+      }
 
       // 3. 下拉選單欄位 (select 不支援 readOnly，改以 disabled 鎖定)
       const selects = ['formDependenciesSelect', 'formPriority', 'formStatus'];
@@ -2923,6 +2964,12 @@ node "${gateScriptPath}"
       } else {
         document.getElementById('formFeedback').value = task.feedback || '';
       }
+
+      const reqConfirmEl = document.getElementById('formRequiresConfirmation');
+      if (reqConfirmEl) reqConfirmEl.checked = !!task.requiresConfirmation;
+      const execPlanEl = document.getElementById('formExecutionPlan');
+      if (execPlanEl) execPlanEl.value = task.executionPlan || '';
+      toggleFormRequiresConfirmation(!!task.requiresConfirmation);
 
       // 設定 Select2 標籤
       setSelect2Tags(task.tags || []);
@@ -3536,6 +3583,72 @@ node "${gateScriptPath}"
         }
       }
 
+      const btnConfirmAndExecute = document.getElementById('btnConfirmAndExecute');
+      const modalConfirmBadge = document.getElementById('modalConfirmationBadge');
+      const reqConfirmWrapper = document.getElementById('formRequiresConfirmationWrapper');
+      const isReqConfirmChecked = !!document.getElementById('formRequiresConfirmation')?.checked;
+      const currentExecPlan = (document.getElementById('formExecutionPlan')?.value || '').trim();
+      const hasExecutionPlan = currentExecPlan.length > 0;
+      const isPendingConfirmation = isReqConfirmChecked && status === 'in_progress' && !!taskId && hasExecutionPlan;
+
+      // 規範：新增任務 (!taskId) 或「待處理」狀態 (status === 'todo') 的任務，顯示「需確認後再執行」的 checkbox；其餘非待處理既有任務隱藏
+      if (reqConfirmWrapper) {
+        if (!taskId || status === 'todo') {
+          reqConfirmWrapper.classList.remove('hidden');
+          reqConfirmWrapper.classList.add('flex');
+        } else {
+          reqConfirmWrapper.classList.add('hidden');
+          reqConfirmWrapper.classList.remove('flex');
+        }
+      }
+
+      // 嚴格規範：待處理 (todo) 或非進行中任務不需顯示執行計劃欄位；進行中且勾選需確認時顯示（若無計劃則提示規劃中，有了才進入待確認）
+      const planBox = document.getElementById('formExecutionPlanBox');
+      const planBadge = document.getElementById('formExecutionPlanBadge');
+      const planNotice = document.getElementById('formExecutionPlanNotice');
+      if (planBox) {
+        if (isReqConfirmChecked && status === 'in_progress' && !!taskId) {
+          planBox.classList.remove('hidden');
+          if (hasExecutionPlan) {
+            if (planBadge) {
+              planBadge.innerText = '待確認';
+              planBadge.className = 'text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/60';
+            }
+            if (planNotice) {
+              planNotice.innerText = '此任務設定為「需確認後再執行」，請檢視下列執行計劃並點選「確認並執行」。';
+            }
+          } else {
+            if (planBadge) {
+              planBadge.innerText = '規劃中 (尚未產出計劃)';
+              planBadge.className = 'text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-300/60 dark:border-blue-700/60';
+            }
+            if (planNotice) {
+              planNotice.innerText = '此任務設定為「需確認後再執行」，AI / 負責人尚未產出執行計劃。待執行計劃填寫完成後方可進行確認。';
+            }
+          }
+        } else {
+          planBox.classList.add('hidden');
+        }
+      }
+
+      if (modalConfirmBadge) {
+        if (isPendingConfirmation) {
+          modalConfirmBadge.classList.remove('hidden');
+          modalConfirmBadge.classList.add('flex');
+        } else {
+          modalConfirmBadge.classList.add('hidden');
+          modalConfirmBadge.classList.remove('flex');
+        }
+      }
+
+      if (btnConfirmAndExecute) {
+        if (isPendingConfirmation) {
+          btnConfirmAndExecute.classList.remove('hidden');
+        } else {
+          btnConfirmAndExecute.classList.add('hidden');
+        }
+      }
+
       if (status === 'review') {
         btnApprove.classList.remove('hidden');
         btnReject.classList.remove('hidden');
@@ -3596,6 +3709,8 @@ node "${gateScriptPath}"
         const description = document.getElementById('formDescription').value.trim();
         const feedback = document.getElementById('formFeedback').value.trim();
         const conversationId = (document.getElementById('formConversationId')?.value || '').trim();
+        const requiresConfirmation = !!document.getElementById('formRequiresConfirmation')?.checked;
+        const executionPlan = (document.getElementById('formExecutionPlan')?.value || '').trim();
 
         const taskData = {
           title,
@@ -3607,7 +3722,9 @@ node "${gateScriptPath}"
           dependencies: currentTaskDependencies,
           description,
           feedback,
-          conversationId
+          conversationId,
+          requiresConfirmation,
+          executionPlan
         };
 
         try {
@@ -3636,6 +3753,56 @@ node "${gateScriptPath}"
       });
 
       otherButtons.forEach(b => { b.disabled = false; b.classList.remove('opacity-50', 'pointer-events-none'); });
+    }
+
+    function toggleFormRequiresConfirmation(checked) {
+      updateModalButtonState();
+    }
+
+    async function confirmAndExecuteTask(event) {
+      const id = document.getElementById('formTaskId').value;
+      if (!id) return;
+      const task = tasks.find(t => t.id === id);
+      if (!task) return;
+
+      const btnConfirm = document.getElementById('btnConfirmAndExecute');
+      const btnSubmit = document.getElementById('btnSubmitTask');
+      [btnSubmit].filter(Boolean).forEach(b => { b.disabled = true; b.classList.add('opacity-50', 'pointer-events-none'); });
+
+      await withButtonLoading(btnConfirm, '啟動中...', async () => {
+        try {
+          const executionPlan = (document.getElementById('formExecutionPlan')?.value || '').trim();
+          const res = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...task,
+              requiresConfirmation: false,
+              executionPlan: executionPlan || task.executionPlan || '',
+              status: 'in_progress',
+              updatedAt: new Date().toISOString()
+            })
+          });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error || `伺服器回應 ${res.status}`);
+          }
+          const updatedTask = await res.json().catch(() => null);
+          if (updatedTask) {
+            const idx = tasks.findIndex(t => t.id === id);
+            if (idx !== -1) tasks[idx] = updatedTask;
+          }
+
+          showToast(`已確認任務 ${id} 執行計劃，開始執行！`);
+          closeModal();
+          await loadData();
+        } catch (err) {
+          console.error('Failed to confirm and execute task:', err);
+          showToast(`確認執行失敗: ${err.message}`);
+        }
+      });
+
+      [btnSubmit].filter(Boolean).forEach(b => { b.disabled = false; b.classList.remove('opacity-50', 'pointer-events-none'); });
     }
 
     async function approveTaskAsDone(event) {
@@ -4297,7 +4464,7 @@ node "${gateScriptPath}"
 • 需求: ${task.description || '無'}${feedbackText}
 
 【3-Phase Gate 規範】：
-1. Pre-Flight: 檢閱規範文檔並執行 ${harnessCmd}；有 Feedback 優先滿足。
+1. Pre-Flight: 檢閱規範文檔並執行 ${harnessCmd}；有 Feedback 優先滿足；若任務勾選需確認後再執行且未具備執行計劃，必須先產出完整執行計劃回寫 executionPlan 供確認；大檔 (>500 行) 禁整檔全覽，一律以 grep-n 定位切片 30-50 行避免 Loop 與耗損 Token。
 2. Implementation: 遵循目錄規範最小範圍實作並補齊測試，嚴禁跨專案副作用。
 3. Review Promotion: 驗證通過後收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })，回寫 tasks.json 推入 review (feedback 歸入 description 並清空)。`;
       navigator.clipboard.writeText(prompt);

@@ -32,11 +32,14 @@ user-invocable: true
 
 ### Phase 1: 審查回饋與前置檢閱 (Pre-Flight & Feedback Ingestion)
 - **第一優先級門禁**：先檢查 `task.feedback`。若有審查意見，必須將該 Feedback 視為最高優先執行項目（如特定修改、重構、`git stash` 暫存、切換為 `blocked` 等），嚴禁未處理就直接推回 `review`。
+- **需確認後執行門禁 (Execution Plan Confirmation Gate)**：若任務勾選 `requiresConfirmation: true` 且尚未產出 `executionPlan`，Agent 必須先產出執行計劃回寫至 `task.executionPlan` 進入「待確認」狀態；在使用者點擊「確認並執行」前嚴禁直接實作。
 - 切換至目標專案路徑，閱讀 `AGENTS.md`、`README.md`、`HARNESS.md`。
+- **大檔掃描與 Token 節約鐵律**：面對 > 500 行大檔禁止整檔閱讀，必須以 `grep -n` 定位關鍵行號後切片閱讀前後 30-50 行；同一檔案片段檢索上限 2 次，避免陷入 Loop。
 - 執行基準測試（如 `npm test`、`npm run harness:check`）。
 
 ### Phase 2: 合規實作 (Implementation)
 - 僅在該專案的範疇內修改程式碼，不得跨專案產生副作用。
+- 遵守大檔切片讀取規範，依最小變更範圍完成實作與補齊測試。
 
 ### Phase 3: 全量 Diff 與驗收交付 (Review Promotion)
 - 執行專案測試與驗證。
