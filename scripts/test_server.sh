@@ -273,7 +273,13 @@ assert(indexHtmlContent.includes("const isPendingConfirmation = isReqConfirmChec
 const harnessScript = fs.readFileSync("./scripts/harness_check.sh", "utf8");
 assert(harnessScript.includes("requiresConfirmation") && harnessScript.includes("executionPlan"), "harness_check.sh 必須包含 executionPlan 同步檢核門禁");
 
-console.log("    ✅ agent-status、build-plan 隔離保護、多輪 Feedback Commit 訊息、consumeTaskFeedback、executionPlan 確認門禁與 textarea 自適應單元測試通過！");
+// 驗證 index.html 具備 Markdown 轉 HTML 渲染與編輯/預覽切換機制
+assert(indexHtmlContent.includes("function renderMarkdown(str)"), "前端必須具備 renderMarkdown 函式");
+assert(indexHtmlContent.includes("function switchFieldViewMode("), "前端必須具備 switchFieldViewMode 函式");
+assert(indexHtmlContent.includes("formDescriptionPreview"), "前端彈窗必須具備 formDescriptionPreview 預覽容器");
+assert(indexHtmlContent.includes("formExecutionPlanPreview"), "前端彈窗必須具備 formExecutionPlanPreview 預覽容器");
+
+console.log("    ✅ agent-status、build-plan 隔離保護、多輪 Feedback Commit 訊息、consumeTaskFeedback、executionPlan 門禁與 Markdown 轉 HTML 預覽單元測試通過！");
 '
 
 echo "  [8/8] 測試 POST /api/projects/:id/init-harness API ..."

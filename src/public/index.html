@@ -761,8 +761,15 @@
 
             <!-- 詳細需求與說明 (Description) -->
             <div>
-              <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 詳細需求與說明 (Description)</label>
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300"> 詳細需求與說明 (Description)</label>
+                <div class="flex items-center gap-1 text-[11px]">
+                  <button type="button" id="btnDescModeEdit" onclick="switchFieldViewMode('desc', 'edit')" class="px-2 py-0.5 rounded text-xs font-medium bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 transition">編輯</button>
+                  <button type="button" id="btnDescModePreview" onclick="switchFieldViewMode('desc', 'preview')" class="px-2 py-0.5 rounded text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition">預覽</button>
+                </div>
+              </div>
               <textarea id="formDescription" rows="8" placeholder="描述任務背景、具體需求或待辦重點..." class="w-full bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500 custom-scrollbar"></textarea>
+              <div id="formDescriptionPreview" class="hidden w-full bg-slate-50/80 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-lg p-3 text-xs text-slate-900 dark:text-slate-200 min-h-[90px] max-h-[380px] overflow-y-auto custom-scrollbar leading-relaxed"></div>
             </div>
 
             <!-- 完整執行計劃 (Execution Plan - 需確認機制) -->
@@ -771,12 +778,19 @@
                 <label class="text-xs font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
                   <i data-lucide="clipboard-check" class="w-3.5 h-3.5 text-amber-500"></i> 完整執行計劃 (Execution Plan)
                 </label>
-                <span id="formExecutionPlanBadge" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/60">
-                  待確認
-                </span>
+                <div class="flex items-center gap-2">
+                  <div class="flex items-center gap-1 text-[11px]">
+                    <button type="button" id="btnPlanModeEdit" onclick="switchFieldViewMode('plan', 'edit')" class="px-2 py-0.5 rounded text-xs font-medium bg-amber-200/80 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 transition">編輯</button>
+                    <button type="button" id="btnPlanModePreview" onclick="switchFieldViewMode('plan', 'preview')" class="px-2 py-0.5 rounded text-xs font-medium text-amber-700/80 dark:text-amber-400/80 hover:text-amber-900 dark:hover:text-amber-200 transition">預覽</button>
+                  </div>
+                  <span id="formExecutionPlanBadge" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/60">
+                    待確認
+                  </span>
+                </div>
               </div>
               <p id="formExecutionPlanNotice" class="text-[11px] text-slate-600 dark:text-slate-400">此任務設定為「需確認後再執行」，請檢視下列執行計劃並點選「確認並執行」。</p>
               <textarea id="formExecutionPlan" rows="6" placeholder="此任務之預計執行計劃、步驟與驗證指標..." class="w-full bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800/80 rounded-lg p-2.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-amber-500 custom-scrollbar font-mono"></textarea>
+              <div id="formExecutionPlanPreview" class="hidden w-full bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800/80 rounded-lg p-3 text-xs text-slate-900 dark:text-slate-200 min-h-[90px] max-h-[350px] overflow-y-auto custom-scrollbar leading-relaxed"></div>
             </div>
 
             <!-- 審查意見與修改回饋 (Review Feedback) -->
@@ -2781,6 +2795,9 @@ node "${gateScriptPath}"
       if (execPlanEl) execPlanEl.value = initialData.executionPlan || '';
       toggleFormRequiresConfirmation(!!initialData.requiresConfirmation);
 
+      switchFieldViewMode('desc', 'edit');
+      switchFieldViewMode('plan', 'edit');
+
       setModalFieldsReadOnly(false);
       updateModalButtonState();
 
@@ -3001,6 +3018,9 @@ node "${gateScriptPath}"
       const execPlanEl = document.getElementById('formExecutionPlan');
       if (execPlanEl) execPlanEl.value = task.executionPlan || '';
       toggleFormRequiresConfirmation(!!task.requiresConfirmation);
+
+      switchFieldViewMode('desc', 'edit');
+      switchFieldViewMode('plan', 'edit');
 
       // 設定 Select2 標籤
       setSelect2Tags(task.tags || []);
@@ -4570,6 +4590,106 @@ node "${gateScriptPath}"
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+    }
+
+    function renderMarkdown(str) {
+      if (!str) return '';
+      let text = String(str);
+
+      // 1. 萃取多行代碼區塊 (Code Blocks) 防止內容被後續標籤規則破壞
+      const codeBlocks = [];
+      text = text.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (m, lang, code) => {
+        const idx = codeBlocks.length;
+        codeBlocks.push(`<pre class="bg-slate-900 text-slate-100 p-2.5 rounded-lg text-xs font-mono overflow-x-auto my-2 border border-slate-700/60 leading-relaxed"><code>${escapeHtml(code.trimEnd())}</code></pre>`);
+        return `___CODE_BLOCK_${idx}___`;
+      });
+
+      // 2. 萃取行內程式碼 (Inline Code)
+      const inlineCodes = [];
+      text = text.replace(/`([^`\n]+)`/g, (m, code) => {
+        const idx = inlineCodes.length;
+        inlineCodes.push(`<code class="bg-slate-200/80 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded font-mono text-[11px]">${escapeHtml(code)}</code>`);
+        return `___INLINE_CODE_${idx}___`;
+      });
+
+      // 3. 全局 HTML 跳脫防禦 XSS
+      text = escapeHtml(text);
+
+      // 4. 標題語法 (H1 - H5)
+      text = text.replace(/^##### (.*?)$/gm, '<h6 class="text-[11px] font-bold text-slate-700 dark:text-slate-300 mt-2 mb-0.5">$1</h6>');
+      text = text.replace(/^#### (.*?)$/gm, '<h5 class="text-xs font-bold text-slate-800 dark:text-slate-200 mt-2.5 mb-1">$1</h5>');
+      text = text.replace(/^### (.*?)$/gm, '<h4 class="text-xs font-bold text-indigo-600 dark:text-indigo-400 mt-3 mb-1.5 flex items-center gap-1.5">$1</h4>');
+      text = text.replace(/^## (.*?)$/gm, '<h3 class="text-sm font-bold text-slate-900 dark:text-white mt-3.5 mb-1.5 border-b border-slate-200 dark:border-slate-800 pb-1">$1</h3>');
+      text = text.replace(/^# (.*?)$/gm, '<h2 class="text-base font-bold text-slate-900 dark:text-white mt-4 mb-2">$1</h2>');
+
+      // 5. 引用區塊 (Blockquotes)
+      text = text.replace(/^&gt;\s?(.*?)$/gm, '<blockquote class="border-l-2 border-indigo-500 pl-2.5 my-1.5 text-slate-500 dark:text-slate-400 italic bg-indigo-50/30 dark:bg-indigo-950/20 py-0.5 rounded-r">$1</blockquote>');
+
+      // 6. 粗體與斜體
+      text = text.replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-slate-900 dark:text-white">$1</strong>');
+      text = text.replace(/\*(.*?)\*/g, '<em class="italic">$1</em>');
+
+      // 7. 超連結 [text](url) (白名單支援 http/https/相對路徑，防禦 javascript: 注入)
+      text = text.replace(/\[(.*?)\]\(((?:https?:\/\/|\/|\.?\/)[^\s\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-indigo-600 dark:text-indigo-400 underline hover:text-indigo-700 dark:hover:text-indigo-300 break-all">$1</a>');
+
+      // 8. 清單項目 (無序清單與有序清單)
+      text = text.replace(/^[-*•]\s+(.*?)$/gm, '<div class="flex items-start gap-1.5 my-0.5 text-slate-700 dark:text-slate-300"><span class="text-indigo-500 dark:text-indigo-400 text-xs leading-5 select-none">•</span><span class="flex-1">$1</span></div>');
+      text = text.replace(/^(\d+)[\.、]\s+(.*?)$/gm, '<div class="flex items-start gap-1.5 my-0.5 text-slate-700 dark:text-slate-300"><span class="font-mono text-[11px] text-indigo-500 dark:text-indigo-400 leading-5 select-none min-w-[14px]">$1.</span><span class="flex-1">$2</span></div>');
+
+      // 9. 段落換行
+      text = text.replace(/\n\n+/g, '<div class="my-2"></div>');
+      text = text.replace(/\n/g, '<br>');
+
+      // 10. 還原行內程式碼與代碼區塊
+      inlineCodes.forEach((c, i) => { text = text.replace(`___INLINE_CODE_${i}___`, c); });
+      codeBlocks.forEach((b, i) => { text = text.replace(`___CODE_BLOCK_${i}___`, b); });
+
+      return text;
+    }
+
+    function switchFieldViewMode(field, mode) {
+      const isDesc = field === 'desc';
+      const inputId = isDesc ? 'formDescription' : 'formExecutionPlan';
+      const previewId = isDesc ? 'formDescriptionPreview' : 'formExecutionPlanPreview';
+      const btnEditId = isDesc ? 'btnDescModeEdit' : 'btnPlanModeEdit';
+      const btnPrevId = isDesc ? 'btnDescModePreview' : 'btnPlanModePreview';
+
+      const inputEl = document.getElementById(inputId);
+      const previewEl = document.getElementById(previewId);
+      const btnEdit = document.getElementById(btnEditId);
+      const btnPrev = document.getElementById(btnPrevId);
+
+      if (!inputEl || !previewEl) return;
+
+      if (mode === 'preview') {
+        const val = inputEl.value || '';
+        previewEl.innerHTML = val.trim() ? renderMarkdown(val) : `<span class="italic text-slate-400">（無內容）</span>`;
+        inputEl.classList.add('hidden');
+        previewEl.classList.remove('hidden');
+
+        if (btnEdit && btnPrev) {
+          if (isDesc) {
+            btnEdit.className = "px-2 py-0.5 rounded text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition";
+            btnPrev.className = "px-2 py-0.5 rounded text-xs font-medium bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 transition";
+          } else {
+            btnEdit.className = "px-2 py-0.5 rounded text-xs font-medium text-amber-700/80 dark:text-amber-400/80 hover:text-amber-900 dark:hover:text-amber-200 transition";
+            btnPrev.className = "px-2 py-0.5 rounded text-xs font-medium bg-amber-200/80 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 transition";
+          }
+        }
+      } else {
+        previewEl.classList.add('hidden');
+        inputEl.classList.remove('hidden');
+
+        if (btnEdit && btnPrev) {
+          if (isDesc) {
+            btnEdit.className = "px-2 py-0.5 rounded text-xs font-medium bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 transition";
+            btnPrev.className = "px-2 py-0.5 rounded text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition";
+          } else {
+            btnEdit.className = "px-2 py-0.5 rounded text-xs font-medium bg-amber-200/80 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 transition";
+            btnPrev.className = "px-2 py-0.5 rounded text-xs font-medium text-amber-700/80 dark:text-amber-400/80 hover:text-amber-900 dark:hover:text-amber-200 transition";
+          }
+        }
+      }
     }
 
     function formatDuration(seconds) {

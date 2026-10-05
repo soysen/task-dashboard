@@ -13,8 +13,8 @@
 
 ## Last Completed Task
 
-- ID: TASK-087
-- Title: 待確認任務未更新確認狀態
+- ID: TASK-088
+- Title: markdown 內容顯示
 - Status: 已完成
 - Last updated: 2026-10-05
 

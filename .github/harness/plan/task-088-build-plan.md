@@ -1,6 +1,6 @@
 # Build Plan: [TASK-088] markdown 內容顯示
 
-- Status: in_progress
+- Status: done
 - Skill Route: dashboard-state-and-sync
 - Feature Name: markdown 內容顯示
 
