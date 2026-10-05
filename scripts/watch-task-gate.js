@@ -20,6 +20,16 @@ const os = require('os');
 const USER_HOME = process.env.HOME || os.homedir();
 const DEFAULT_APP_SUPPORT_DIR = process.env.TASK_DASHBOARD_DATA_DIR || path.join(USER_HOME, 'Library/Application Support/TaskDashboard');
 
+// 解析命令列參數 (例如 node watch-task-gate.js --agent=antigravity 或 --agent=claude)
+let targetAgent = '';
+process.argv.slice(2).forEach(arg => {
+  if (arg.startsWith('--agent=')) {
+    targetAgent = arg.slice(8).trim().toLowerCase();
+  } else if (arg.startsWith('-a=')) {
+    targetAgent = arg.slice(3).trim().toLowerCase();
+  }
+});
+
 // 1. 動態解析真實資料庫目錄 (Single Source of Truth)
 function resolveDataDir() {
   // 優先檢查同目錄或標準 Application Support 目錄中的 settings.json
@@ -59,6 +69,14 @@ function findActionableTask() {
     const tasks = JSON.parse(content);
     return tasks.find(t => {
       if (!t) return false;
+      // 若哨兵指定了 --agent，檢查任務的 assignee / assignedAgent 是否符合
+      if (targetAgent) {
+        const taskAgent = (t.assignedAgent || t.assignee || '').trim().toLowerCase();
+        // 若任務有明確指定 agent 且不相符，跳過不認領（未指定或設為 all 則通用認領）
+        if (taskAgent && taskAgent !== 'all' && taskAgent !== targetAgent) {
+          return false;
+        }
+      }
       if (t.requestCommitGen === true) return true;
       if (t.status === 'in_progress') {
         // 若任務勾選需確認後再執行，且已經產出完整執行計劃，則處於「待確認」等待使用者審閱並點擊「確認並執行」，哨兵暫不喚醒開工
@@ -99,8 +117,8 @@ if (immediateTask) {
   cleanupAndExit(0);
 }
 
-console.log(`[WATCHER_ACTIVE] 任務哨兵已啟動，監聽目標: ${TASKS_FILE}`);
-console.log(`[WATCHER_WAITING] 靜默守候中 (0 Token 消耗)，等待任務切換為 in_progress 或請求產出 Commit 訊息...`);
+console.log(`[WATCHER_ACTIVE] 任務哨兵已啟動 (指定 Agent: ${targetAgent || '全部通用'})，監聽目標: ${TASKS_FILE}`);
+console.log(`[WATCHER_WAITING] 靜默守候中 (0 Token 消耗)，等待${targetAgent ? ` [${targetAgent}] ` : ''}任務切換為 in_progress 或請求產出 Commit 訊息...`);
 
 let debounceTimer = null;
 

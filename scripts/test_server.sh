@@ -291,7 +291,10 @@ else
   exit 1
 fi
 
-echo "🎉 所有 API 整合測試與隔離單元測試順利通過！"
+echo "  [9/9] 測試 前端核心互動邏輯與狀態防線 ..."
+node "$PROJECT_DIR/scripts/test_ui_behavior.js"
+
+echo "🎉 所有後端 API 整合測試與前端核心狀態防線測試順利通過！"
 
 kill -9 $SERVER_PID 2>/dev/null || true
 rm -rf "$TEST_DATA_DIR" 2>/dev/null || true

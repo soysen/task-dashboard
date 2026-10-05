@@ -2,19 +2,19 @@
 
 ## Active Task
 
-- ID: TASK-088
-- Title: markdown 內容顯示
+- ID: TASK-090
+- Title: Retro
 - Status: 已完成
 - Last updated: 2026-10-05
-- Goal: 任務內容考慮 markdown 內容是否需要轉為 html 呈現
+- Goal: 針對本次異動進行 retro
 - Route: dashboard-state-and-sync
-- Scope: markdown 內容顯示
+- Scope: Retro
 - Out of scope: 跨專案副作用
 
 ## Last Completed Task
 
-- ID: TASK-088
-- Title: markdown 內容顯示
+- ID: TASK-090
+- Title: Retro
 - Status: 已完成
 - Last updated: 2026-10-05
 

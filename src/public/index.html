@@ -400,10 +400,11 @@
 
                 <!-- Agent 目標切換器 -->
                 <div class="flex items-center justify-between gap-1 p-0.5 bg-purple-100/70 dark:bg-purple-900/40 rounded-lg text-[10px]">
-                  <button type="button" onclick="selectDesktopAgentTarget('universal')" id="btnAgentTarget_universal" class="flex-1 py-1 px-1.5 rounded-md text-center transition bg-white dark:bg-slate-900 text-purple-700 dark:text-purple-300 shadow-xs font-bold">跨平台通用</button>
-                  <button type="button" onclick="selectDesktopAgentTarget('antigravity')" id="btnAgentTarget_antigravity" class="flex-1 py-1 px-1.5 rounded-md text-center transition text-slate-600 dark:text-slate-400 hover:text-purple-600 font-medium">Antigravity</button>
+                  <button type="button" onclick="selectDesktopAgentTarget('universal')" id="btnAgentTarget_universal" class="flex-1 py-1 px-1.5 rounded-md text-center transition text-slate-600 dark:text-slate-400 hover:text-purple-600 font-medium">全部通用</button>
+                  <button type="button" onclick="selectDesktopAgentTarget('antigravity')" id="btnAgentTarget_antigravity" class="flex-1 py-1 px-1.5 rounded-md text-center transition bg-white dark:bg-slate-900 text-purple-700 dark:text-purple-300 shadow-xs font-bold">Antigravity</button>
                   <button type="button" onclick="selectDesktopAgentTarget('claude')" id="btnAgentTarget_claude" class="flex-1 py-1 px-1.5 rounded-md text-center transition text-slate-600 dark:text-slate-400 hover:text-purple-600 font-medium">Claude</button>
-                  <button type="button" onclick="selectDesktopAgentTarget('codex')" id="btnAgentTarget_codex" class="flex-1 py-1 px-1.5 rounded-md text-center transition text-slate-600 dark:text-slate-400 hover:text-purple-600 font-medium">Codex / Cursor</button>
+                  <button type="button" onclick="selectDesktopAgentTarget('codex')" id="btnAgentTarget_codex" class="flex-1 py-1 px-1.5 rounded-md text-center transition text-slate-600 dark:text-slate-400 hover:text-purple-600 font-medium">Codex</button>
+                  <button type="button" onclick="selectDesktopAgentTarget('copilot')" id="btnAgentTarget_copilot" class="flex-1 py-1 px-1.5 rounded-md text-center transition text-slate-600 dark:text-slate-400 hover:text-purple-600 font-medium">Copilot</button>
                 </div>
 
                 <div id="aiPromptTextDisplay" class="p-2.5 bg-white dark:bg-slate-900 border border-purple-100 dark:border-purple-900/60 rounded-lg font-mono text-[10px] text-slate-700 dark:text-slate-300 select-all break-all max-h-28 overflow-y-auto leading-relaxed whitespace-pre-wrap">請使用終端執行工具...</div>
@@ -711,8 +712,13 @@
               </div>
 
               <div>
-                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 負責人</label>
-                <input type="text" id="formAssignee" value="" placeholder="指定負責人 (例如 Antigravity / CLI)" class="w-full h-9 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500">
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 執行 Agent (模型/助手)</label>
+                <select id="formAssignee" class="w-full h-9 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-medium">
+                  <option value="Antigravity" selected>Antigravity (預設)</option>
+                  <option value="Claude">Claude</option>
+                  <option value="Codex">Codex</option>
+                  <option value="Copilot">Copilot</option>
+                </select>
               </div>
             </div>
 
@@ -794,14 +800,23 @@
             </div>
 
             <!-- 審查意見與修改回饋 (Review Feedback) -->
-            <div id="reviewFeedbackBox" class="bg-purple-50 dark:bg-[#131b2e] border border-purple-200 dark:border-purple-800/60 rounded-xl p-3 space-y-1.5">
+            <div id="reviewFeedbackBox" class="bg-purple-50 dark:bg-[#131b2e] border border-purple-200 dark:border-purple-800/60 rounded-xl p-3 space-y-2">
               <div class="flex items-center justify-between">
                 <label class="text-xs font-bold text-purple-900 dark:text-purple-300 flex items-center gap-1.5">
                   <i data-lucide="message-square-code" class="w-3.5 h-3.5 text-purple-600 dark:text-purple-400"></i> 審查意見與修改回饋 (Review Feedback)
                 </label>
                 <span class="text-[10px] text-purple-600 dark:text-purple-400/80"> 退回時自動附上此意見</span>
               </div>
-              <textarea id="formFeedback" rows="2" placeholder="如需修改或退回重做，請在此輸入修改意見..." class="w-full bg-white dark:bg-slate-950 border border-purple-200 dark:border-purple-900/80 rounded-lg p-2 text-xs text-purple-900 dark:text-purple-100 placeholder-purple-400 focus:outline-none focus:border-purple-500 custom-scrollbar"></textarea>
+              <!-- 快捷標籤列 -->
+              <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+                <span class="text-[10px] font-medium text-purple-500/80 dark:text-purple-400/60 mr-0.5">常用理由:</span>
+                <button type="button" onclick="insertFeedbackPreset('補單元測試與驗證證據')" class="text-[11px] px-2 py-0.5 rounded-full bg-purple-100 hover:bg-purple-200 dark:bg-purple-950/80 dark:hover:bg-purple-900 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 transition-colors">補單元測試</button>
+                <button type="button" onclick="insertFeedbackPreset('修正樣式/RWD與版面間距')" class="text-[11px] px-2 py-0.5 rounded-full bg-purple-100 hover:bg-purple-200 dark:bg-purple-950/80 dark:hover:bg-purple-900 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 transition-colors">修正樣式/RWD</button>
+                <button type="button" onclick="insertFeedbackPreset('請暫存修改 (git stash) 並恢復原狀')" class="text-[11px] px-2 py-0.5 rounded-full bg-purple-100 hover:bg-purple-200 dark:bg-purple-950/80 dark:hover:bg-purple-900 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 transition-colors">清除暫存/stash</button>
+                <button type="button" onclick="insertFeedbackPreset('請調整實作切片邊界，分步驗證')" class="text-[11px] px-2 py-0.5 rounded-full bg-purple-100 hover:bg-purple-200 dark:bg-purple-950/80 dark:hover:bg-purple-900 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 transition-colors">調整實作切片</button>
+                <button type="button" onclick="insertFeedbackPreset('請補充 Phase 3 驗收截圖或詳細日誌')" class="text-[11px] px-2 py-0.5 rounded-full bg-purple-100 hover:bg-purple-200 dark:bg-purple-950/80 dark:hover:bg-purple-900 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 transition-colors">補充驗收證據</button>
+              </div>
+              <textarea id="formFeedback" rows="2" placeholder="如需修改或退回重做，請點選上方標籤或在此輸入修改意見..." class="w-full bg-white dark:bg-slate-950 border border-purple-200 dark:border-purple-900/80 rounded-lg p-2 text-xs text-purple-900 dark:text-purple-100 placeholder-purple-400 focus:outline-none focus:border-purple-500 custom-scrollbar"></textarea>
             </div>
 
             <!-- 工作切片與 Agent 藍圖追蹤 (Active Slice & Build Plan) -->
@@ -1522,11 +1537,11 @@
       await toggleCliAgent(next);
     }
 
-    let currentDesktopAgentTarget = 'universal';
+    let currentDesktopAgentTarget = 'antigravity';
 
     function selectDesktopAgentTarget(target) {
       currentDesktopAgentTarget = target;
-      const targets = ['universal', 'antigravity', 'claude', 'codex'];
+      const targets = ['universal', 'antigravity', 'claude', 'codex', 'copilot'];
       targets.forEach(t => {
         const btn = document.getElementById(`btnAgentTarget_${t}`);
         if (!btn) return;
@@ -1545,8 +1560,8 @@
 
       let promptText = '';
       if (currentDesktopAgentTarget === 'antigravity') {
-        promptText = `在背景執行指令啟動哨兵待命 (0 Token)：
-node "${gateScriptPath}"
+        promptText = `在背景執行指令啟動哨兵待命 (0 Token，專屬認領 Antigravity 任務)：
+node "${gateScriptPath}" --agent=antigravity
 
 【開工指示 (Reactive Wakeup)】：
 1. 喚醒後依情境開工：
@@ -1554,8 +1569,8 @@ node "${gateScriptPath}"
    • requestCommitGen: 依工作區全量 diff 產出 commitMessage 寫回 tasks.json 並重置 flag。
 2. 交付後再次背景執行上述 node 指令重新待命。`;
       } else if (currentDesktopAgentTarget === 'claude') {
-        promptText = `使用 bash/execute_command 背景啟動哨兵待命 (0 Token)：
-node "${gateScriptPath}"
+        promptText = `使用 bash/execute_command 背景啟動哨兵待命 (0 Token，專屬認領 Claude 任務)：
+node "${gateScriptPath}" --agent=claude
 
 【開工指示 (Reactive Wakeup)】：
 1. 喚醒後依情境開工：
@@ -1563,17 +1578,26 @@ node "${gateScriptPath}"
    • requestCommitGen: 依 diff 產出 commitMessage 寫回 tasks.json 並重置請求。
 2. 交付後再次背景執行上述 node 指令重新待命。`;
       } else if (currentDesktopAgentTarget === 'codex') {
-        promptText = `在終端背景執行指令啟動哨兵待命 (0 Token)：
-node "${gateScriptPath}"
+        promptText = `在終端背景執行指令啟動哨兵待命 (0 Token，專屬認領 Codex 任務)：
+node "${gateScriptPath}" --agent=codex
 
 【開工指示 (Reactive Wakeup)】：
 1. 喚醒後依情境開工：
    • in_progress: 優先處理 Feedback，依規範實作驗證；收集全量 diff，依核心主軸產出 commitMessage，寫回 tasks.json 推入 review (feedback 歸入 description 並清空)。
    • requestCommitGen: 依 diff 產出 commitMessage 寫回 tasks.json 並重置請求。
 2. 交付後再次背景執行上述 node 指令重新待命。`;
+      } else if (currentDesktopAgentTarget === 'copilot') {
+        promptText = `在終端背景執行指令啟動哨兵待命 (0 Token，專屬認領 Copilot 任務)：
+node "${gateScriptPath}" --agent=copilot
+
+【開工指示 (Reactive Wakeup)】：
+1. 喚醒後自主開工：
+   • in_progress: 優先滿足 Feedback，依規範實作與測試；收集全量 diff 產出 commitMessage 寫回 tasks.json 推入 review (feedback 歸入 description 並清空)。
+   • requestCommitGen: 依 diff 產出 commitMessage 寫回 tasks.json 並重置請求。
+2. 交付後再次背景執行上述 node 指令重新待命。`;
       } else {
         // universal
-        promptText = `在終端工具背景執行以下指令啟動哨兵待命 (0 Token)：
+        promptText = `在終端工具背景執行以下指令啟動哨兵待命 (0 Token，通用認領所有任務)：
 node "${gateScriptPath}"
 
 【開工指示 (Reactive Wakeup)】：
@@ -1596,7 +1620,8 @@ node "${gateScriptPath}"
         universal: '通用跨平台',
         antigravity: 'Antigravity (run_command)',
         claude: 'Claude (bash)',
-        codex: 'Codex / Cursor'
+        codex: 'Codex / Cursor',
+        copilot: 'GitHub Copilot'
       };
       const label = agentLabels[currentDesktopAgentTarget] || 'Desktop AI';
       navigator.clipboard.writeText(promptText).then(() => {
@@ -2563,6 +2588,14 @@ node "${gateScriptPath}"
                   <span class="text-[10px] px-1.5 py-0.2 rounded bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 font-mono truncate max-w-[110px]" title="${escapeHtml(projName)}">
                      ${escapeHtml(projName)}
                   </span>
+                  <span class="text-[9px] font-mono px-1.5 py-0.2 rounded ${
+                    (t.assignedAgent === 'Claude' || t.assignee === 'Claude') ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800' :
+                    (t.assignedAgent === 'Codex' || t.assignee === 'Codex') ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800' :
+                    (t.assignedAgent === 'Copilot' || t.assignee === 'Copilot') ? 'bg-cyan-100 dark:bg-cyan-950/80 text-cyan-800 dark:text-cyan-300 border border-cyan-300 dark:border-cyan-800' :
+                    'bg-purple-100 dark:bg-purple-950/80 text-purple-800 dark:text-purple-300 border border-purple-300 dark:border-purple-800'
+                  }" title="指定執行 Agent: ${escapeHtml(t.assignedAgent || t.assignee || 'Antigravity')}">
+                    🤖 ${escapeHtml(t.assignedAgent || t.assignee || 'Antigravity')}
+                  </span>
                 </div>
                 <button onclick="copyPrompt('${t.id}', event)" title="複製 AI 指令" class="opacity-80 group-hover:opacity-100 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition">
                   <i data-lucide="copy" class="w-3 h-3"></i>
@@ -2588,6 +2621,11 @@ node "${gateScriptPath}"
                         ${settings.enableCliAgent ? ` CLI (${settings.cliCommand || 'hermes'}) 執行中` : ` AI 輪巡中`}
                       </span>
                       <div class="flex items-center gap-1.5">
+                        ${t.liveStatus?.isStalled ? `
+                          <span class="text-[9px] font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/80 px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-700 flex items-center gap-0.5 animate-pulse" title="超過 10 分鐘無新 worklog/進度更新，請檢視執行狀況">
+                            ⚠️ 切片推進緩慢
+                          </span>
+                        ` : ''}
                         ${settings.enableCliAgent ? `
                         <span class="text-[9px] font-mono font-bold text-indigo-600 dark:text-indigo-300 bg-indigo-200/60 dark:bg-indigo-900/60 px-1.5 py-0.5 rounded border border-indigo-400/30">
                            ${formatDuration(t.liveStatus?.elapsedSeconds || 0)}
@@ -2595,7 +2633,7 @@ node "${gateScriptPath}"
                         ` : ''}
                         ${(t.sliceInfo?.slices && t.sliceInfo.slices.length > 0) ? `
                           <span class="text-[9px] font-mono font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900/80 px-1.5 py-0.5 rounded border border-indigo-300/60 dark:border-indigo-700/60">
-                            ${t.sliceInfo.slices.filter(s => s.status && s.status.includes('已完成')).length}/${t.sliceInfo.slices.length} 切片
+                            ${t.sliceInfo.slices.filter(s => s.status && s.status.includes('已完成')).length}/${t.sliceInfo.slices.length} 切片 (${Math.round((t.sliceInfo.slices.filter(s => s.status && s.status.includes('已完成')).length / t.sliceInfo.slices.length) * 100)}%)
                           </span>
                         ` : ''}
                       </div>
@@ -2732,6 +2770,19 @@ node "${gateScriptPath}"
       el.style.height = `${newHeight}px`;
     }
 
+    function insertFeedbackPreset(presetText) {
+      const fbEl = document.getElementById('formFeedback');
+      if (!fbEl) return;
+      const current = (fbEl.value || '').trim();
+      if (!current) {
+        fbEl.value = presetText;
+      } else if (!current.includes(presetText)) {
+        fbEl.value = `${current}\n- ${presetText}`;
+      }
+      autoResizeTextarea(fbEl, 48, 200);
+      fbEl.focus();
+    }
+
     function resetTextareaHeight(el) {
       if (!el) return;
       el.style.height = '';
@@ -2823,7 +2874,7 @@ node "${gateScriptPath}"
       }
 
       // 2. 所有文字與文字區塊欄位 readonly (若任務處於待確認狀態，執行計劃 formExecutionPlan 允許使用者進行修改)
-      const textInputs = ['formTitle', 'formProjectInput', 'formAssignee', 'formDescription', 'formFeedback', 'select2Input'];
+      const textInputs = ['formTitle', 'formProjectInput', 'formDescription', 'formFeedback', 'select2Input'];
       textInputs.forEach(id => {
         const el = document.getElementById(id);
         if (el) {
@@ -2854,7 +2905,7 @@ node "${gateScriptPath}"
       }
 
       // 3. 下拉選單欄位 (select 不支援 readOnly，改以 disabled 鎖定)
-      const selects = ['formDependenciesSelect', 'formPriority', 'formStatus'];
+      const selects = ['formDependenciesSelect', 'formPriority', 'formStatus', 'formAssignee'];
       selects.forEach(id => {
         const el = document.getElementById(id);
         if (el) {
@@ -3805,6 +3856,7 @@ node "${gateScriptPath}"
           priority,
           status,
           assignee,
+          assignedAgent: assignee,
           tags,
           dependencies: currentTaskDependencies,
           description,
@@ -3877,7 +3929,10 @@ node "${gateScriptPath}"
           const updatedTask = await res.json().catch(() => null);
           if (updatedTask) {
             const idx = tasks.findIndex(t => t.id === id);
-            if (idx !== -1) tasks[idx] = updatedTask;
+            if (idx !== -1) {
+              tasks[idx] = updatedTask;
+              renderTasks(); // 立即 Optimistic 重新渲染看板，消除狀態延遲
+            }
           }
 
           showToast(`已確認任務 ${id} 執行計劃，開始執行！`);
