@@ -28,5 +28,18 @@
 ## 3. 資料庫結構 (`data/`)
 
 - `data/projects.json`: 專案目錄與對話歷程
-- `data/tasks.json`: 任務清單、狀態 (todo / in_progress / review / done)、modifiedFiles、diff、executionLog
+- `data/tasks.json`: 任務清單、狀態 (todo / in_progress / review / done)、modifiedFiles、diff、executionPlan、executionLog
 - `data/settings.json`: 系統全域設定 (enableCliAgent, cliCommand, defaultProject)
+
+---
+
+## 4. Harness 門禁檢核清單 (`npm run harness:check`)
+
+1. **關鍵架構檔案完整性**：驗證核心前後端與原生 macOS 檔案存在。
+2. **JSON 資料格式**：確保 `package.json`、`tasks.json`、`projects.json`、`settings.json` 無語法解析錯誤。
+3. **編譯工具鏈**：檢查 `clang` 編譯器可用性。
+4. **執行環境**：檢查 `node` 執行版本。
+5. **Diff 完整性與 3-Phase Gate / executionPlan 合規門禁**：
+   - **Diff 完整度**：已交付 (review) 與完成 (done) 之任務 diff 不得含有截斷符號或占位符。
+   - **執行計劃同步門禁 (Execution Plan Sync Gate)**：勾選 `requiresConfirmation: true` 的任務，推進至 `review` 或 `done` 時必須確保 `executionPlan` 欄位已完整寫回且非空。
+   - **專案 Build Plan 脫鉤防護**：專案目錄下已產出任務 build plan (`<cleanTaskId>-build-plan.md`) 者，`tasks.json` 之 `executionPlan` 不可為空脫鉤。
