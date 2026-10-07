@@ -767,15 +767,8 @@
 
             <!-- 詳細需求與說明 (Description) -->
             <div>
-              <div class="flex items-center justify-between mb-1">
-                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300"> 詳細需求與說明 (Description)</label>
-                <div class="flex items-center gap-1 text-[11px]">
-                  <button type="button" id="btnDescModeEdit" onclick="switchFieldViewMode('desc', 'edit')" class="px-2 py-0.5 rounded text-xs font-medium bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 transition">編輯</button>
-                  <button type="button" id="btnDescModePreview" onclick="switchFieldViewMode('desc', 'preview')" class="px-2 py-0.5 rounded text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition">預覽</button>
-                </div>
-              </div>
+              <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 詳細需求與說明 (Description)</label>
               <textarea id="formDescription" rows="8" placeholder="描述任務背景、具體需求或待辦重點..." class="w-full bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500 custom-scrollbar"></textarea>
-              <div id="formDescriptionPreview" class="hidden w-full bg-slate-50/80 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-lg p-3 text-xs text-slate-900 dark:text-slate-200 min-h-[90px] max-h-[380px] overflow-y-auto custom-scrollbar leading-relaxed"></div>
             </div>
 
             <!-- 完整執行計劃 (Execution Plan - 需確認機制) -->
@@ -784,19 +777,12 @@
                 <label class="text-xs font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
                   <i data-lucide="clipboard-check" class="w-3.5 h-3.5 text-amber-500"></i> 完整執行計劃 (Execution Plan)
                 </label>
-                <div class="flex items-center gap-2">
-                  <div class="flex items-center gap-1 text-[11px]">
-                    <button type="button" id="btnPlanModeEdit" onclick="switchFieldViewMode('plan', 'edit')" class="px-2 py-0.5 rounded text-xs font-medium bg-amber-200/80 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 transition">編輯</button>
-                    <button type="button" id="btnPlanModePreview" onclick="switchFieldViewMode('plan', 'preview')" class="px-2 py-0.5 rounded text-xs font-medium text-amber-700/80 dark:text-amber-400/80 hover:text-amber-900 dark:hover:text-amber-200 transition">預覽</button>
-                  </div>
-                  <span id="formExecutionPlanBadge" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/60">
-                    待確認
-                  </span>
-                </div>
+                <span id="formExecutionPlanBadge" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/60">
+                  待確認
+                </span>
               </div>
               <p id="formExecutionPlanNotice" class="text-[11px] text-slate-600 dark:text-slate-400">此任務設定為「需確認後再執行」，請檢視下列執行計劃並點選「確認並執行」。</p>
               <textarea id="formExecutionPlan" rows="6" placeholder="此任務之預計執行計劃、步驟與驗證指標..." class="w-full bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800/80 rounded-lg p-2.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-amber-500 custom-scrollbar font-mono"></textarea>
-              <div id="formExecutionPlanPreview" class="hidden w-full bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800/80 rounded-lg p-3 text-xs text-slate-900 dark:text-slate-200 min-h-[90px] max-h-[350px] overflow-y-auto custom-scrollbar leading-relaxed"></div>
             </div>
 
             <!-- 審查意見與修改回饋 (Review Feedback) -->
@@ -938,8 +924,12 @@
 
         <!-- Modal Footer Actions -->
         <div class="p-3 px-5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
-          <div>
-            <button type="button" id="btnDeleteTask" onclick="deleteCurrentTask()" class="hidden bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 text-xs font-medium px-3 py-1.5 rounded-lg transition"> 刪除任務
+          <div class="flex items-center gap-2">
+            <button type="button" id="btnDeleteTask" onclick="promptTaskDeleteOrAbandon(document.getElementById('formTaskId').value, 'delete')" class="hidden bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 text-xs font-medium px-3 py-1.5 rounded-lg transition flex items-center gap-1">
+              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> 刪除任務
+            </button>
+            <button type="button" id="btnAbandonTask" onclick="promptTaskDeleteOrAbandon(document.getElementById('formTaskId').value, 'abandon')" class="hidden bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 dark:hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30 text-xs font-medium px-3 py-1.5 rounded-lg transition flex items-center gap-1" title="放棄此任務並移入封存庫（可選是否還原工作區變更）">
+              <i data-lucide="ban" class="w-3.5 h-3.5"></i> 放棄任務
             </button>
           </div>
           <div class="flex items-center gap-2">
@@ -1323,6 +1313,79 @@
         <button onclick="closeArchiveModal()" class="px-4 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium"> 關閉</button>
       </div>
     </div>
+  <!-- Task Action Confirmation Modal (放棄/刪除 Double-Check 與 Git Diff 檢查) -->
+  <div id="taskActionConfirmModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-xl flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100">
+      <!-- Header -->
+      <div class="p-4 px-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
+        <div class="flex items-center gap-2.5">
+          <div id="actionModalIconWrapper" class="w-8 h-8 rounded-lg flex items-center justify-center bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400">
+            <i id="actionModalIcon" data-lucide="alert-triangle" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 id="actionModalTitle" class="text-sm font-bold text-slate-900 dark:text-white"> 確認操作</h3>
+            <p id="actionModalSubtitle" class="text-[11px] text-slate-500 dark:text-slate-400"> 請審閱任務狀態與工作區異動</p>
+          </div>
+        </div>
+        <button onclick="closeActionConfirmModal()" class="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1 rounded-lg">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Content Body -->
+      <div class="p-5 space-y-4 text-xs overflow-y-auto max-h-[70vh] custom-scrollbar">
+        <!-- Target Task Card Summary -->
+        <div class="p-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-xl space-y-1">
+          <div class="flex items-center gap-2">
+            <span id="actionModalTaskId" class="font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-1.5 py-0.5 rounded border border-indigo-200 dark:border-indigo-800/60 text-[10px]"></span>
+            <span id="actionModalTaskTitle" class="font-bold text-slate-900 dark:text-white text-xs truncate"></span>
+          </div>
+          <p id="actionModalDescription" class="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed"></p>
+        </div>
+
+        <!-- Git Diff Check & Discard Option Section -->
+        <div id="actionModalGitSection" class="p-3.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/50 dark:bg-amber-950/20 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span class="flex items-center gap-1.5 font-bold text-amber-800 dark:text-amber-300 text-xs">
+              <i data-lucide="git-branch" class="w-3.5 h-3.5"></i>
+              <span> 工作區未提交變更 (Git Diff 檢測)</span>
+            </span>
+            <span id="actionModalDiffBadge" class="text-[10px] font-mono px-1.5 py-0.5 rounded font-bold"></span>
+          </div>
+
+          <div id="actionModalDiffFileList" class="bg-white dark:bg-slate-900 border border-amber-200/80 dark:border-amber-900/40 rounded-lg p-2 max-h-32 overflow-y-auto font-mono text-[11px] space-y-1 text-slate-700 dark:text-slate-300 custom-scrollbar">
+            <!-- Files list rendered via JS -->
+          </div>
+
+          <label class="flex items-start gap-2.5 pt-1 cursor-pointer select-none">
+            <input type="checkbox" id="actionModalDiscardCheckbox" class="rounded border-amber-300 text-rose-600 focus:ring-rose-500 w-4 h-4 mt-0.5 cursor-pointer">
+            <div class="space-y-0.5">
+              <span class="font-bold text-rose-700 dark:text-rose-400"> 同時捨棄工作區變更 (git discard changes)</span>
+              <p class="text-[10px] text-slate-500 dark:text-slate-400"> 勾選後將執行 <code class="font-mono bg-slate-200 dark:bg-slate-800 px-1 py-0.2 rounded">git checkout . && git clean -fd</code>，徹底清除此專案所有未提交之代碼異動與新增檔案，此操作無法復原！</p>
+            </div>
+          </label>
+        </div>
+
+        <div id="actionModalNoGitSection" class="hidden p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 text-slate-500 dark:text-slate-400 text-xs flex items-center gap-2">
+          <i data-lucide="check" class="w-4 h-4 text-emerald-500"></i>
+          <span> 專案工作區乾淨，無未提交之代碼變更。</span>
+        </div>
+
+        <!-- Optional Reason for Abandon -->
+        <div id="actionModalReasonWrapper" class="space-y-1.5 hidden">
+          <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300"> 放棄原因備註 (可選)</label>
+          <input type="text" id="actionModalReasonInput" placeholder="例如：需求變更、重複任務或改由其他架構實作..." class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-amber-500">
+        </div>
+      </div>
+
+      <!-- Footer Buttons -->
+      <div class="p-3.5 px-5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2.5 bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
+        <button type="button" onclick="closeActionConfirmModal()" class="px-3.5 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium transition"> 取消</button>
+        <button type="button" id="btnActionConfirmSubmit" onclick="executeTaskActionConfirmed()" class="px-4 py-1.5 rounded-lg text-white text-xs font-bold shadow-md transition flex items-center gap-1.5">
+          <span id="actionConfirmSubmitText"> 確認執行</span>
+        </button>
+      </div>
+    </div>
   </div>
 
   <!-- Toast Notification -->
@@ -1448,9 +1511,23 @@
           fetch('/api/settings' + cacheBuster, { cache: 'no-store' }),
           fetch('/api/git/projects-status' + cacheBuster, { cache: 'no-store' }).catch(() => ({ json: () => ({}) }))
         ]);
-        projects = await projRes.json();
-        tasks = await taskRes.json();
-        settings = await setRes.json();
+        if (!projRes.ok || !taskRes.ok) {
+          console.warn('API returned non-OK status, skipping data refresh');
+          return;
+        }
+        const newProjects = await projRes.json();
+        const newTasks = await taskRes.json();
+        const newSettings = await setRes.json();
+
+        if (Array.isArray(newProjects) && (newProjects.length > 0 || projects.length === 0)) {
+          projects = newProjects;
+        }
+        if (Array.isArray(newTasks) && (newTasks.length > 0 || tasks.length === 0)) {
+          tasks = newTasks;
+        }
+        if (newSettings && typeof newSettings === 'object') {
+          settings = newSettings;
+        }
         try {
           projectGitStatus = await gitRes.json();
         } catch (e) {
@@ -1565,7 +1642,7 @@ node "${gateScriptPath}" --agent=antigravity
 
 【開工指示 (Reactive Wakeup)】：
 1. 喚醒後依情境開工：
-   • in_progress: 3-Phase Gate（優先滿足 Feedback，依規範實作與測試；通過後收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })，回寫 tasks.json 推入 review，若有 feedback 歸入 description 並清空）。
+   • in_progress: 3-Phase Gate（優先滿足 Feedback；若勾選需確認且無執行計劃，首要任務為擬定執行計劃回寫 executionPlan 保持 in_progress 供確認；若已確認或免確認，依規範實作與測試，通過後收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })，回寫 tasks.json 推入 review，若有 feedback 歸入 description 並清空）。
    • requestCommitGen: 依工作區全量 diff 產出 commitMessage 寫回 tasks.json 並重置 flag。
 2. 交付後再次背景執行上述 node 指令重新待命。`;
       } else if (currentDesktopAgentTarget === 'claude') {
@@ -1574,7 +1651,7 @@ node "${gateScriptPath}" --agent=claude
 
 【開工指示 (Reactive Wakeup)】：
 1. 喚醒後依情境開工：
-   • in_progress: 優先處理 Feedback，依規範實作與測試；收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })，寫回 tasks.json 推入 review (feedback 歸入 description 並清空)。
+   • in_progress: 優先處理 Feedback；若勾選需確認且無執行計劃，先擬定執行計劃回寫 executionPlan 保持 in_progress 供確認；若已確認則實作測試，收集全量 diff 產出 commitMessage ({ subject, body }) 寫回 tasks.json 推入 review (feedback 歸入 description 並清空)。
    • requestCommitGen: 依 diff 產出 commitMessage 寫回 tasks.json 並重置請求。
 2. 交付後再次背景執行上述 node 指令重新待命。`;
       } else if (currentDesktopAgentTarget === 'codex') {
@@ -1583,7 +1660,7 @@ node "${gateScriptPath}" --agent=codex
 
 【開工指示 (Reactive Wakeup)】：
 1. 喚醒後依情境開工：
-   • in_progress: 優先處理 Feedback，依規範實作驗證；收集全量 diff，依核心主軸產出 commitMessage，寫回 tasks.json 推入 review (feedback 歸入 description 並清空)。
+   • in_progress: 優先處理 Feedback；若勾選需確認且無執行計劃，先擬定執行計劃回寫 executionPlan 保持 in_progress 供確認；若已確認則實作驗證，收集全量 diff 產出 commitMessage 寫回 tasks.json 推入 review (feedback 歸入 description 並清空)。
    • requestCommitGen: 依 diff 產出 commitMessage 寫回 tasks.json 並重置請求。
 2. 交付後再次背景執行上述 node 指令重新待命。`;
       } else if (currentDesktopAgentTarget === 'copilot') {
@@ -1592,7 +1669,7 @@ node "${gateScriptPath}" --agent=copilot
 
 【開工指示 (Reactive Wakeup)】：
 1. 喚醒後自主開工：
-   • in_progress: 優先滿足 Feedback，依規範實作與測試；收集全量 diff 產出 commitMessage 寫回 tasks.json 推入 review (feedback 歸入 description 並清空)。
+   • in_progress: 優先滿足 Feedback；若勾選需確認且無執行計劃，先擬定執行計劃回寫 executionPlan 保持 in_progress 供確認；若已確認則實作測試，收集全量 diff 產出 commitMessage 寫回 tasks.json 推入 review (feedback 歸入 description 並清空)。
    • requestCommitGen: 依 diff 產出 commitMessage 寫回 tasks.json 並重置請求。
 2. 交付後再次背景執行上述 node 指令重新待命。`;
       } else {
@@ -1602,7 +1679,7 @@ node "${gateScriptPath}"
 
 【開工指示 (Reactive Wakeup)】：
 1. 喚醒後自主開工：
-   • in_progress: 優先處理 Feedback，實作驗證後收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })，寫回 tasks.json 推入 review (feedback 歸入 description 並清空)。
+   • in_progress: 優先處理 Feedback；若勾選需確認且無執行計劃，先擬定執行計劃回寫 executionPlan 保持 in_progress 供確認；若已確認則實作驗證，收集全量 diff 產出 commitMessage ({ subject, body }) 寫回 tasks.json 推入 review (feedback 歸入 description 並清空)。
    • requestCommitGen: 依 diff 產出 commitMessage 寫回 tasks.json 並重置 flag。
 2. 交付後再次背景執行上述 node 指令重新待命。`;
       }
@@ -2597,9 +2674,14 @@ node "${gateScriptPath}"
                     🤖 ${escapeHtml(t.assignedAgent || t.assignee || 'Antigravity')}
                   </span>
                 </div>
-                <button onclick="copyPrompt('${t.id}', event)" title="複製 AI 指令" class="opacity-80 group-hover:opacity-100 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition">
-                  <i data-lucide="copy" class="w-3 h-3"></i>
-                </button>
+                <div class="flex items-center gap-1">
+                  <button onclick="promptTaskDeleteOrAbandon('${t.id}', 'abandon', event)" title="放棄任務 (可選還原 Git 變更)" class="opacity-0 group-hover:opacity-80 hover:!opacity-100 text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition">
+                    <i data-lucide="ban" class="w-3 h-3"></i>
+                  </button>
+                  <button onclick="copyPrompt('${t.id}', event)" title="複製 AI 指令" class="opacity-80 group-hover:opacity-100 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition">
+                    <i data-lucide="copy" class="w-3 h-3"></i>
+                  </button>
+                </div>
               </div>
 
               <h4 class="text-xs font-bold text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition leading-snug">
@@ -2811,6 +2893,8 @@ node "${gateScriptPath}"
       document.getElementById('modalPriorityBadge').innerText = 'P1';
       document.getElementById('modalPriorityBadge').className = 'px-2.5 py-0.5 rounded-md text-xs font-bold font-mono bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40';
       document.getElementById('btnDeleteTask').classList.add('hidden');
+      const btnAbandonNew = document.getElementById('btnAbandonTask');
+      if (btnAbandonNew) btnAbandonNew.classList.add('hidden');
       currentTaskDependencies = [];
 
       if (initialData.status) {
@@ -2845,9 +2929,6 @@ node "${gateScriptPath}"
       const execPlanEl = document.getElementById('formExecutionPlan');
       if (execPlanEl) execPlanEl.value = initialData.executionPlan || '';
       toggleFormRequiresConfirmation(!!initialData.requiresConfirmation);
-
-      switchFieldViewMode('desc', 'edit');
-      switchFieldViewMode('plan', 'edit');
 
       setModalFieldsReadOnly(false);
       updateModalButtonState();
@@ -2963,9 +3044,10 @@ node "${gateScriptPath}"
         logBox.classList.add('hidden');
       }
 
-      // 8. 儲存與刪除按鈕鎖定 (避免中途異動)
+      // 8. 儲存與刪除/放棄按鈕鎖定 (避免中途異動)
       const btnSubmit = document.getElementById('btnSubmitTask');
       const btnDelete = document.getElementById('btnDeleteTask');
+      const btnAbandon = document.getElementById('btnAbandonTask');
       if (btnSubmit) {
         if (isReadOnly) {
           btnSubmit.classList.add('hidden');
@@ -2978,6 +3060,13 @@ node "${gateScriptPath}"
           btnDelete.classList.add('hidden');
         } else if (currentModalEditingTask && currentModalEditingTask.id) {
           btnDelete.classList.remove('hidden');
+        }
+      }
+      if (btnAbandon) {
+        if (isReadOnly) {
+          btnAbandon.classList.add('hidden');
+        } else if (currentModalEditingTask && currentModalEditingTask.id) {
+          btnAbandon.classList.remove('hidden');
         }
       }
     }
@@ -3070,9 +3159,6 @@ node "${gateScriptPath}"
       if (execPlanEl) execPlanEl.value = task.executionPlan || '';
       toggleFormRequiresConfirmation(!!task.requiresConfirmation);
 
-      switchFieldViewMode('desc', 'edit');
-      switchFieldViewMode('plan', 'edit');
-
       // 設定 Select2 標籤
       setSelect2Tags(task.tags || []);
 
@@ -3141,6 +3227,8 @@ node "${gateScriptPath}"
 
 
       document.getElementById('btnDeleteTask').classList.remove('hidden');
+      const btnAbandonEdit = document.getElementById('btnAbandonTask');
+      if (btnAbandonEdit) btnAbandonEdit.classList.remove('hidden');
       updateModalButtonState();
 
       document.getElementById('taskModal').classList.remove('hidden');
@@ -3829,11 +3917,12 @@ node "${gateScriptPath}"
       e.preventDefault();
       const btnSubmit = document.getElementById('btnSubmitTask');
       const btnDelete = document.getElementById('btnDeleteTask');
+      const btnAbandon = document.getElementById('btnAbandonTask');
       const btnApprove = document.getElementById('btnApproveTask');
       const btnReject = document.getElementById('btnRejectTask');
       const btnArchive = document.getElementById('btnArchiveTaskModal');
 
-      const otherButtons = [btnDelete, btnApprove, btnReject, btnArchive].filter(Boolean);
+      const otherButtons = [btnDelete, btnAbandon, btnApprove, btnReject, btnArchive].filter(Boolean);
       otherButtons.forEach(b => { b.disabled = true; b.classList.add('opacity-50', 'pointer-events-none'); });
 
       await withButtonLoading(btnSubmit, '儲存中...', async () => {
@@ -3910,16 +3999,22 @@ node "${gateScriptPath}"
 
       await withButtonLoading(btnConfirm, '啟動中...', async () => {
         try {
-          const executionPlan = (document.getElementById('formExecutionPlan')?.value || '').trim();
+          const nowIso = new Date().toISOString();
+          const confirmLog = '\n[' + nowIso + '] ✅ [Confirmation Gate] 使用者已審閱並確認執行計劃，正式授權進入實作階段！\n----------------------------------------\n';
+          const newExecutionLog = (task.executionLog || '') + confirmLog;
+          const formExecPlan = (document.getElementById('formExecutionPlan')?.value || '').trim();
+          const currentPlan = formExecPlan || task.executionPlan || '';
           const res = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               ...task,
               requiresConfirmation: false,
-              executionPlan: executionPlan || task.executionPlan || '',
+              confirmExecution: true,
+              executionPlan: currentPlan,
+              executionLog: newExecutionLog,
               status: 'in_progress',
-              updatedAt: new Date().toISOString()
+              updatedAt: nowIso
             })
           });
           if (!res.ok) {
@@ -4489,17 +4584,165 @@ node "${gateScriptPath}"
     }
 
     async function deleteSingleArchivedTask(id, event) {
-      if (!confirm(`確定要刪除封存任務 ${id} 嗎？`)) return;
-      const btn = event ? event.currentTarget : null;
-      await withButtonLoading(btn, '刪除中...', async () => {
+      promptTaskDeleteOrAbandon(id, 'delete', event);
+    }
+
+    let currentPendingAction = null; // { taskId, actionType: 'delete' | 'abandon', task: ... }
+
+    async function promptTaskDeleteOrAbandon(id, actionType = 'delete', event) {
+      if (event) {
+        event.stopPropagation();
+      }
+      if (!id) return;
+      const task = tasks.find(t => t.id === id);
+      if (!task) return;
+
+      currentPendingAction = {
+        taskId: id,
+        actionType,
+        task
+      };
+
+      const modalEl = document.getElementById('taskActionConfirmModal');
+      const titleEl = document.getElementById('actionModalTitle');
+      const subEl = document.getElementById('actionModalSubtitle');
+      const iconWrap = document.getElementById('actionModalIconWrapper');
+      const submitBtn = document.getElementById('btnActionConfirmSubmit');
+      const submitText = document.getElementById('actionConfirmSubmitText');
+      const reasonWrap = document.getElementById('actionModalReasonWrapper');
+      const reasonInput = document.getElementById('actionModalReasonInput');
+      const discardCb = document.getElementById('actionModalDiscardCheckbox');
+
+      if (reasonInput) reasonInput.value = '';
+      if (discardCb) discardCb.checked = false;
+
+      document.getElementById('actionModalTaskId').innerText = task.id;
+      document.getElementById('actionModalTaskTitle').innerText = task.title || '';
+      document.getElementById('actionModalDescription').innerText = task.description || '(無詳細描述)';
+
+      if (actionType === 'delete') {
+        titleEl.innerText = '刪除任務確認';
+        subEl.innerText = '此操作將自資料庫永久刪除此任務，無法復原！';
+        iconWrap.className = 'w-8 h-8 rounded-lg flex items-center justify-center bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400';
+        iconWrap.innerHTML = '<i data-lucide="trash-2" class="w-4 h-4"></i>';
+        submitBtn.className = 'px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md transition flex items-center gap-1.5';
+        submitText.innerText = '確認永久刪除';
+        if (reasonWrap) reasonWrap.classList.add('hidden');
+      } else {
+        titleEl.innerText = '放棄任務確認';
+        subEl.innerText = '此操作將把任務標記為已放棄並移入封存庫，您可選擇是否還原工作區異動。';
+        iconWrap.className = 'w-8 h-8 rounded-lg flex items-center justify-center bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400';
+        iconWrap.innerHTML = '<i data-lucide="ban" class="w-4 h-4"></i>';
+        submitBtn.className = 'px-4 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold shadow-md transition flex items-center gap-1.5';
+        submitText.innerText = '確認放棄任務';
+        if (reasonWrap) reasonWrap.classList.remove('hidden');
+      }
+
+      // 檢查 Git Diff
+      const gitSection = document.getElementById('actionModalGitSection');
+      const noGitSection = document.getElementById('actionModalNoGitSection');
+      const diffBadge = document.getElementById('actionModalDiffBadge');
+      const diffFileList = document.getElementById('actionModalDiffFileList');
+
+      gitSection.classList.remove('hidden');
+      noGitSection.classList.add('hidden');
+      diffBadge.className = 'text-[10px] font-mono px-1.5 py-0.5 rounded font-bold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400';
+      diffBadge.innerText = '檢查工作區中...';
+      diffFileList.innerHTML = '<div class="text-slate-400 italic">正在掃描工作區 Git 異動...</div>';
+
+      modalEl.classList.remove('hidden');
+      if (window.lucide) lucide.createIcons();
+
+      try {
+        const res = await fetch(`/api/tasks/${encodeURIComponent(id)}/git-status`);
+        if (res.ok) {
+          const gitData = await res.json();
+          if (gitData.hasDiff && gitData.files && gitData.files.length > 0) {
+            gitSection.classList.remove('hidden');
+            noGitSection.classList.add('hidden');
+            diffBadge.className = 'text-[10px] font-mono px-1.5 py-0.5 rounded font-bold bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-300 dark:border-rose-700';
+            diffBadge.innerText = `${gitData.files.length} 個未提交異動檔案`;
+            diffFileList.innerHTML = gitData.files.map(f => `
+              <div class="flex items-center gap-1.5 py-0.5 border-b border-amber-100/60 dark:border-amber-900/30 last:border-0 truncate">
+                <i data-lucide="file-diff" class="w-3 h-3 text-amber-600 dark:text-amber-400 flex-shrink-0"></i>
+                <span class="truncate">${escapeHtml(f)}</span>
+              </div>
+            `).join('');
+          } else {
+            gitSection.classList.add('hidden');
+            noGitSection.classList.remove('hidden');
+          }
+        } else {
+          gitSection.classList.add('hidden');
+          noGitSection.classList.remove('hidden');
+        }
+      } catch (err) {
+        gitSection.classList.add('hidden');
+        noGitSection.classList.remove('hidden');
+      }
+
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function closeActionConfirmModal() {
+      currentPendingAction = null;
+      document.getElementById('taskActionConfirmModal').classList.add('hidden');
+    }
+
+    async function executeTaskActionConfirmed() {
+      if (!currentPendingAction) return;
+      const { taskId, actionType } = currentPendingAction;
+      const submitBtn = document.getElementById('btnActionConfirmSubmit');
+      const discardCb = document.getElementById('actionModalDiscardCheckbox');
+      const shouldDiscard = !!(discardCb && discardCb.checked);
+      const reasonInput = document.getElementById('actionModalReasonInput');
+      const reason = reasonInput ? reasonInput.value.trim() : '';
+
+      await withButtonLoading(submitBtn, '處理中...', async () => {
         try {
-          await fetch(`/api/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
-          showToast(`已刪除任務 ${id}`);
-          selectedArchiveTaskIds.delete(id);
+          if (actionType === 'delete') {
+            const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ discardChanges: shouldDiscard })
+            });
+            if (!res.ok) {
+              const errData = await res.json().catch(() => ({}));
+              throw new Error(errData.error || `伺服器回應 ${res.status}`);
+            }
+            const resData = await res.json().catch(() => ({}));
+            let msg = `已刪除任務 ${taskId}`;
+            if (resData.discardOutput) msg += ` (${resData.discardOutput})`;
+            showToast(msg);
+          } else {
+            const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/abandon`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                discardChanges: shouldDiscard,
+                reason
+              })
+            });
+            if (!res.ok) {
+              const errData = await res.json().catch(() => ({}));
+              throw new Error(errData.error || `伺服器回應 ${res.status}`);
+            }
+            const resData = await res.json().catch(() => ({}));
+            let msg = `已放棄任務 ${taskId} 並移入封存庫`;
+            if (resData.discardOutput) msg += ` (${resData.discardOutput})`;
+            showToast(msg);
+          }
+
+          closeActionConfirmModal();
+          closeModal();
+          selectedArchiveTaskIds.delete(taskId);
           await loadData();
-          renderArchiveTasksList();
+          if (!document.getElementById('archiveModal').classList.contains('hidden')) {
+            renderArchiveTasksList();
+          }
         } catch (err) {
-          showToast(`刪除失敗: ${err.message}`);
+          console.error('Failed to execute task action:', err);
+          showToast(`操作失敗: ${err.message}`);
         }
       });
     }
@@ -4507,25 +4750,7 @@ node "${gateScriptPath}"
     async function deleteCurrentTask(event) {
       const id = document.getElementById('formTaskId').value;
       if (!id) return;
-      if (!confirm(`確定要刪除任務 ${id} 嗎？此操作無法復原。`)) return;
-
-      const btnDelete = document.getElementById('btnDeleteTask');
-      const btnSubmit = document.getElementById('btnSubmitTask');
-      if (btnSubmit) { btnSubmit.disabled = true; btnSubmit.classList.add('opacity-50', 'pointer-events-none'); }
-
-      await withButtonLoading(btnDelete, '刪除中...', async () => {
-        try {
-          await fetch(`/api/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
-          showToast(`已刪除任務 ${id}`);
-          closeModal();
-          await loadData();
-        } catch (err) {
-          console.error('Failed to delete task:', err);
-          showToast(`刪除失敗: ${err.message}`);
-        }
-      });
-
-      if (btnSubmit) { btnSubmit.disabled = false; btnSubmit.classList.remove('opacity-50', 'pointer-events-none'); }
+      promptTaskDeleteOrAbandon(id, 'delete', event);
     }
 
     function closeModal() {
@@ -4645,106 +4870,6 @@ node "${gateScriptPath}"
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
-    }
-
-    function renderMarkdown(str) {
-      if (!str) return '';
-      let text = String(str);
-
-      // 1. 萃取多行代碼區塊 (Code Blocks) 防止內容被後續標籤規則破壞
-      const codeBlocks = [];
-      text = text.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (m, lang, code) => {
-        const idx = codeBlocks.length;
-        codeBlocks.push(`<pre class="bg-slate-900 text-slate-100 p-2.5 rounded-lg text-xs font-mono overflow-x-auto my-2 border border-slate-700/60 leading-relaxed"><code>${escapeHtml(code.trimEnd())}</code></pre>`);
-        return `___CODE_BLOCK_${idx}___`;
-      });
-
-      // 2. 萃取行內程式碼 (Inline Code)
-      const inlineCodes = [];
-      text = text.replace(/`([^`\n]+)`/g, (m, code) => {
-        const idx = inlineCodes.length;
-        inlineCodes.push(`<code class="bg-slate-200/80 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded font-mono text-[11px]">${escapeHtml(code)}</code>`);
-        return `___INLINE_CODE_${idx}___`;
-      });
-
-      // 3. 全局 HTML 跳脫防禦 XSS
-      text = escapeHtml(text);
-
-      // 4. 標題語法 (H1 - H5)
-      text = text.replace(/^##### (.*?)$/gm, '<h6 class="text-[11px] font-bold text-slate-700 dark:text-slate-300 mt-2 mb-0.5">$1</h6>');
-      text = text.replace(/^#### (.*?)$/gm, '<h5 class="text-xs font-bold text-slate-800 dark:text-slate-200 mt-2.5 mb-1">$1</h5>');
-      text = text.replace(/^### (.*?)$/gm, '<h4 class="text-xs font-bold text-indigo-600 dark:text-indigo-400 mt-3 mb-1.5 flex items-center gap-1.5">$1</h4>');
-      text = text.replace(/^## (.*?)$/gm, '<h3 class="text-sm font-bold text-slate-900 dark:text-white mt-3.5 mb-1.5 border-b border-slate-200 dark:border-slate-800 pb-1">$1</h3>');
-      text = text.replace(/^# (.*?)$/gm, '<h2 class="text-base font-bold text-slate-900 dark:text-white mt-4 mb-2">$1</h2>');
-
-      // 5. 引用區塊 (Blockquotes)
-      text = text.replace(/^&gt;\s?(.*?)$/gm, '<blockquote class="border-l-2 border-indigo-500 pl-2.5 my-1.5 text-slate-500 dark:text-slate-400 italic bg-indigo-50/30 dark:bg-indigo-950/20 py-0.5 rounded-r">$1</blockquote>');
-
-      // 6. 粗體與斜體
-      text = text.replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-slate-900 dark:text-white">$1</strong>');
-      text = text.replace(/\*(.*?)\*/g, '<em class="italic">$1</em>');
-
-      // 7. 超連結 [text](url) (白名單支援 http/https/相對路徑，防禦 javascript: 注入)
-      text = text.replace(/\[(.*?)\]\(((?:https?:\/\/|\/|\.?\/)[^\s\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-indigo-600 dark:text-indigo-400 underline hover:text-indigo-700 dark:hover:text-indigo-300 break-all">$1</a>');
-
-      // 8. 清單項目 (無序清單與有序清單)
-      text = text.replace(/^[-*•]\s+(.*?)$/gm, '<div class="flex items-start gap-1.5 my-0.5 text-slate-700 dark:text-slate-300"><span class="text-indigo-500 dark:text-indigo-400 text-xs leading-5 select-none">•</span><span class="flex-1">$1</span></div>');
-      text = text.replace(/^(\d+)[\.、]\s+(.*?)$/gm, '<div class="flex items-start gap-1.5 my-0.5 text-slate-700 dark:text-slate-300"><span class="font-mono text-[11px] text-indigo-500 dark:text-indigo-400 leading-5 select-none min-w-[14px]">$1.</span><span class="flex-1">$2</span></div>');
-
-      // 9. 段落換行
-      text = text.replace(/\n\n+/g, '<div class="my-2"></div>');
-      text = text.replace(/\n/g, '<br>');
-
-      // 10. 還原行內程式碼與代碼區塊
-      inlineCodes.forEach((c, i) => { text = text.replace(`___INLINE_CODE_${i}___`, c); });
-      codeBlocks.forEach((b, i) => { text = text.replace(`___CODE_BLOCK_${i}___`, b); });
-
-      return text;
-    }
-
-    function switchFieldViewMode(field, mode) {
-      const isDesc = field === 'desc';
-      const inputId = isDesc ? 'formDescription' : 'formExecutionPlan';
-      const previewId = isDesc ? 'formDescriptionPreview' : 'formExecutionPlanPreview';
-      const btnEditId = isDesc ? 'btnDescModeEdit' : 'btnPlanModeEdit';
-      const btnPrevId = isDesc ? 'btnDescModePreview' : 'btnPlanModePreview';
-
-      const inputEl = document.getElementById(inputId);
-      const previewEl = document.getElementById(previewId);
-      const btnEdit = document.getElementById(btnEditId);
-      const btnPrev = document.getElementById(btnPrevId);
-
-      if (!inputEl || !previewEl) return;
-
-      if (mode === 'preview') {
-        const val = inputEl.value || '';
-        previewEl.innerHTML = val.trim() ? renderMarkdown(val) : `<span class="italic text-slate-400">（無內容）</span>`;
-        inputEl.classList.add('hidden');
-        previewEl.classList.remove('hidden');
-
-        if (btnEdit && btnPrev) {
-          if (isDesc) {
-            btnEdit.className = "px-2 py-0.5 rounded text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition";
-            btnPrev.className = "px-2 py-0.5 rounded text-xs font-medium bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 transition";
-          } else {
-            btnEdit.className = "px-2 py-0.5 rounded text-xs font-medium text-amber-700/80 dark:text-amber-400/80 hover:text-amber-900 dark:hover:text-amber-200 transition";
-            btnPrev.className = "px-2 py-0.5 rounded text-xs font-medium bg-amber-200/80 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 transition";
-          }
-        }
-      } else {
-        previewEl.classList.add('hidden');
-        inputEl.classList.remove('hidden');
-
-        if (btnEdit && btnPrev) {
-          if (isDesc) {
-            btnEdit.className = "px-2 py-0.5 rounded text-xs font-medium bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 transition";
-            btnPrev.className = "px-2 py-0.5 rounded text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition";
-          } else {
-            btnEdit.className = "px-2 py-0.5 rounded text-xs font-medium bg-amber-200/80 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 transition";
-            btnPrev.className = "px-2 py-0.5 rounded text-xs font-medium text-amber-700/80 dark:text-amber-400/80 hover:text-amber-900 dark:hover:text-amber-200 transition";
-          }
-        }
-      }
     }
 
     function formatDuration(seconds) {

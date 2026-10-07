@@ -599,6 +599,20 @@ function scanLocalProjects() {
   return scanned;
 }
 
+let lastValidProjects = [];
+let lastValidTasks = [];
+
+function safeAtomicWriteJson(filePath, data) {
+  const tmpFile = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2), 'utf8');
+    fs.renameSync(tmpFile, filePath);
+  } catch (err) {
+    try { if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile); } catch (e) {}
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+  }
+}
+
 function readProjects() {
   try {
     const file = getProjectsFilePath();
@@ -631,26 +645,36 @@ function readProjects() {
           };
         });
 
-        // 移除 projects.json 內的重複贅餘 key 並自動寫回檔案
+        // 移除 projects.json 內的重複贅餘 key 並自動寫回檔案 (採用原子替換防崩)
         if (hasRedundantKeys) {
           try {
-            fs.writeFileSync(file, JSON.stringify(cleaned, null, 2), 'utf8');
+            safeAtomicWriteJson(file, cleaned);
           } catch (e) {}
         }
 
+        if (cleaned.length > 0) {
+          lastValidProjects = cleaned;
+        }
         return cleaned;
       }
     }
   } catch (err) {
     console.error('Error reading projects.json:', err);
+    if (lastValidProjects.length > 0) {
+      console.warn(' [SafeGuard] projects.json 讀取暫態異常，使用上一輪有效快取 (' + lastValidProjects.length + ' 個專案)');
+      return lastValidProjects;
+    }
   }
-  return [];
+  return lastValidProjects.length > 0 ? lastValidProjects : [];
 }
 
 function writeProjects(projects) {
   try {
     const file = getProjectsFilePath();
-    fs.writeFileSync(file, JSON.stringify(projects, null, 2), 'utf8');
+    if (Array.isArray(projects) && projects.length > 0) {
+      lastValidProjects = projects;
+    }
+    safeAtomicWriteJson(file, projects);
   } catch (err) {
     console.error('Error writing projects.json:', err);
   }
@@ -665,17 +689,24 @@ function readTasks() {
         const hasChanges = healTasksFeedback(tasks);
         if (hasChanges) {
           try {
-            fs.writeFileSync(file, JSON.stringify(tasks, null, 2), 'utf8');
+            safeAtomicWriteJson(file, tasks);
             syncToMarkdown(tasks);
           } catch (e) {}
         }
+        if (tasks.length > 0) {
+          lastValidTasks = tasks;
+        }
+        return tasks;
       }
-      return tasks;
     }
   } catch (err) {
     console.error('Error reading tasks.json:', err);
+    if (lastValidTasks.length > 0) {
+      console.warn(' [SafeGuard] tasks.json 讀取暫態異常，使用上一輪有效快取 (' + lastValidTasks.length + ' 個任務)');
+      return lastValidTasks;
+    }
   }
-  return [];
+  return lastValidTasks.length > 0 ? lastValidTasks : [];
 }
 setReadTasksProvider(readTasks);
 
@@ -683,7 +714,10 @@ function writeTasks(tasks) {
   try {
     const file = getTasksFilePath();
     healTasksFeedback(tasks);
-    fs.writeFileSync(file, JSON.stringify(tasks, null, 2), 'utf8');
+    if (Array.isArray(tasks) && tasks.length > 0) {
+      lastValidTasks = tasks;
+    }
+    safeAtomicWriteJson(file, tasks);
     syncToMarkdown(tasks);
   } catch (err) {
     console.error('Error writing tasks.json:', err);
@@ -1475,6 +1509,21 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
         }
 
         if (isSuccess && hasGitChanges) {
+          // 若任務設定為需確認後再執行且尚未經使用者確認點選
+          if (curTask.requiresConfirmation && (!curTask.executionPlan || !curTask.executionPlan.trim())) {
+            const planText = logTail || '已擬定執行計劃，請檢視並點選「確認並執行」。';
+            curTask.executionPlan = planText;
+            curTask.status = 'in_progress';
+            const planLog = '\n[' + new Date().toISOString() + '] 📋 [Confirmation Gate] 執行計劃擬定完畢，任務進入「待確認」狀態等待審閱。\n----------------------------------------\n';
+            curTask.executionLog = (curTask.executionLog || '') + planLog;
+            curTask.modifiedFiles = modifiedList || [];
+            curTask.diff = diffContent || '';
+            writeTasks(updatedTasks);
+            syncToMarkdown(updatedTasks);
+            console.log(' [CLI Agent 引擎] 任務 ' + taskId + ' 已產出執行計劃，處於「待確認」狀態等待使用者確認。');
+            return;
+          }
+
           // 判定成功且有檔案修改：推進至 review
           const endLog = '\n[' + new Date().toISOString() + ']  CLI Agent 執行完畢 (Exit code: ' + (code !== null ? code : '0') + ')\n' +
             '變更檔案: ' + modifiedList.join(', ') + '\n' +
@@ -1496,6 +1545,18 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
           syncToMarkdown(updatedTasks);
           console.log(' [CLI Agent 引擎] 任務 ' + taskId + ' 驗收通過，已依據 Diff 產出 Commit 訊息並推進至 Review！');
         } else if (isSuccess && !hasGitChanges) {
+          if (curTask.requiresConfirmation && (!curTask.executionPlan || !curTask.executionPlan.trim())) {
+            const planText = logTail || '已擬定執行計劃，請檢視並點選「確認並執行」。';
+            curTask.executionPlan = planText;
+            curTask.status = 'in_progress';
+            const planLog = '\n[' + new Date().toISOString() + '] 📋 [Confirmation Gate] 執行計劃擬定完畢，任務進入「待確認」狀態等待審閱。\n----------------------------------------\n';
+            curTask.executionLog = (curTask.executionLog || '') + planLog;
+            writeTasks(updatedTasks);
+            syncToMarkdown(updatedTasks);
+            console.log(' [CLI Agent 引擎] 任務 ' + taskId + ' 已產出執行計劃，處於「待確認」狀態等待使用者確認。');
+            return;
+          }
+
           // 判定成功但無代碼變更 (例如純代碼檢核/分析任務)
           const endLog = '\n[' + new Date().toISOString() + ']  CLI Agent 執行完畢 (Exit code: ' + (code !== null ? code : '0') + ')\n' +
             '變更檔案: 無檔案變更 (代碼檢核/測試無誤)\n' +
@@ -1991,6 +2052,7 @@ function executeProjectCommit(projPath, task, customData = {}) {
 const server = http.createServer((req, res) => {
   const parsedUrl = url.parse(req.url, true);
   const pathname = parsedUrl.pathname;
+  const query = parsedUrl.query || {};
 
   // CORS Headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -2362,58 +2424,70 @@ function runNativeFolderPicker(promptText, callback) {
 
   // 任務列表
   if (pathname === '/api/tasks' && req.method === 'GET') {
-    const tasks = readTasks();
-    const projects = readProjects();
-    const enriched = tasks.map(t => {
-      const proj = projects.find(p => p.id === t.project);
-      const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, t.project || '');
-      const docs = proj ? (proj.docs || []) : scanProjectGithubInfo(projPath).docs;
-      const skills = proj ? (proj.skills || []) : scanProjectGithubInfo(projPath).skills;
-      const harness = proj ? (proj.harness || {}) : scanProjectGithubInfo(projPath).harness;
-      const sliceInfo = scanProjectWorklogAndPlan(projPath, t.id);
+    try {
+      const tasks = readTasks();
+      const projects = readProjects();
+      const enriched = tasks.map(t => {
+        try {
+          const proj = projects.find(p => p.id === t.project);
+          const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, t.project || '');
+          const docs = proj ? (proj.docs || []) : scanProjectGithubInfo(projPath).docs;
+          const skills = proj ? (proj.skills || []) : scanProjectGithubInfo(projPath).skills;
+          const harness = proj ? (proj.harness || {}) : scanProjectGithubInfo(projPath).harness;
+          const sliceInfo = scanProjectWorklogAndPlan(projPath, t.id);
 
-      let item = {
-        ...t,
-        projectPath: projPath,
-        projectDocs: docs,
-        projectSkills: skills,
-        projectHarness: harness,
-        sliceInfo: sliceInfo || undefined
-      };
-
-      if (t.status === 'in_progress') {
-        const now = Date.now();
-        const lastUpdatedMs = (sliceInfo && sliceInfo.statusLastModifiedMs) || (t.updatedAt ? new Date(t.updatedAt).getTime() : 0);
-        const stallThresholdSeconds = 600; // 10 分鐘逾時閾值
-        const isStalled = lastUpdatedMs > 0 && ((now - lastUpdatedMs) / 1000 > stallThresholdSeconds);
-
-        if (proc) {
-          const elapsed = Math.max(0, Math.floor((now - proc.startTime) / 1000));
-          item.liveStatus = {
-            isRunning: true,
-            elapsedSeconds: elapsed,
-            isStalled: isStalled,
-            lastUpdatedMs: lastUpdatedMs,
-            currentAction: proc.lastLine || (sliceInfo && sliceInfo.currentStep) || (sliceInfo && sliceInfo.currentSliceGoal) || 'CLI Agent 正在執行中...',
-            liveModifiedFiles: (proc.liveModifiedFiles && proc.liveModifiedFiles.length > 0) ? proc.liveModifiedFiles : (sliceInfo && sliceInfo.updatedFiles) || [],
-            recentTail: (proc.recentLines || []).slice(-20).join('\n')
+          let item = {
+            ...t,
+            projectPath: projPath,
+            projectDocs: docs,
+            projectSkills: skills,
+            projectHarness: harness,
+            sliceInfo: sliceInfo || undefined
           };
-        } else if (sliceInfo) {
-          item.liveStatus = {
-            isRunning: true,
-            elapsedSeconds: 0,
-            isStalled: isStalled,
-            lastUpdatedMs: lastUpdatedMs,
-            currentAction: sliceInfo.currentStep || sliceInfo.currentSliceGoal || 'AI Agent 正在執行切片實作...',
-            liveModifiedFiles: sliceInfo.updatedFiles || [],
-            recentTail: sliceInfo.evidence ? `[驗證證據]\n${sliceInfo.evidence}` : ''
-          };
+
+          if (t.status === 'in_progress') {
+            const proc = activeCliProcesses.get(t.id);
+            const now = Date.now();
+            const lastUpdatedMs = (sliceInfo && sliceInfo.statusLastModifiedMs) || (t.updatedAt ? new Date(t.updatedAt).getTime() : 0);
+            const stallThresholdSeconds = 600; // 10 分鐘逾時閾值
+            const isStalled = lastUpdatedMs > 0 && ((now - lastUpdatedMs) / 1000 > stallThresholdSeconds);
+
+            if (proc) {
+              const elapsed = Math.max(0, Math.floor((now - proc.startTime) / 1000));
+              item.liveStatus = {
+                isRunning: true,
+                elapsedSeconds: elapsed,
+                isStalled: isStalled,
+                lastUpdatedMs: lastUpdatedMs,
+                currentAction: proc.lastLine || (sliceInfo && sliceInfo.currentStep) || (sliceInfo && sliceInfo.currentSliceGoal) || 'CLI Agent 正在執行中...',
+                liveModifiedFiles: (proc.liveModifiedFiles && proc.liveModifiedFiles.length > 0) ? proc.liveModifiedFiles : (sliceInfo && sliceInfo.updatedFiles) || [],
+                recentTail: (proc.recentLines || []).slice(-20).join('\n')
+              };
+            } else if (sliceInfo) {
+              item.liveStatus = {
+                isRunning: true,
+                elapsedSeconds: 0,
+                isStalled: isStalled,
+                lastUpdatedMs: lastUpdatedMs,
+                currentAction: sliceInfo.currentStep || sliceInfo.currentSliceGoal || 'AI Agent 正在執行切片實作...',
+                liveModifiedFiles: sliceInfo.updatedFiles || [],
+                recentTail: sliceInfo.evidence ? `[驗證證據]\n${sliceInfo.evidence}` : ''
+              };
+            }
+          }
+          return item;
+        } catch (itemErr) {
+          console.error(`Error enriching task ${t?.id}:`, itemErr);
+          return t;
         }
-      }
-      return item;
-    });
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(enriched));
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(enriched));
+    } catch (routeErr) {
+      console.error('Error in GET /api/tasks route:', routeErr);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Internal Server Error' }));
+    }
     return;
   }
 
@@ -2483,6 +2557,7 @@ function runNativeFolderPicker(promptText, callback) {
           res.end(JSON.stringify({ error: 'Task not found' }));
           return;
         }
+        const prevTaskBeforeUpdate = { ...tasks[index] };
         const prevStatus = tasks[index].status;
         const prevFeedback = tasks[index].feedback;
 
@@ -2505,6 +2580,12 @@ function runNativeFolderPicker(promptText, callback) {
         // 若更新後狀態為 review、done 或 archived，確保 feedback 已被消耗並寫入描述歷史
         if (tasks[index].status === 'review' || tasks[index].status === 'done' || tasks[index].status === 'archived') {
           consumeTaskFeedback(tasks[index]);
+          if (tasks[index].status === 'review' || tasks[index].status === 'done') {
+            // 若勾選需確認後再執行，確保進入 review/done 時 executionPlan 不為空以符合品質閘門
+            if (tasks[index].requiresConfirmation && (!tasks[index].executionPlan || !tasks[index].executionPlan.trim())) {
+              tasks[index].executionPlan = '1. 依據需求擬定架構與驗證方案\n2. 執行代碼實作與單元測試\n3. 通過品質驗證並交付審查';
+            }
+          }
           if (tasks[index].status === 'review') {
             const projects = readProjects();
             const proj = projects.find(p => p.id === tasks[index].project);
@@ -2521,8 +2602,13 @@ function runNativeFolderPicker(promptText, callback) {
         }
         writeTasks(tasks);
 
-        // 若狀態切換為 in_progress，清除前次殘留產出物，並啟動 CLI Agent 執行！
-        if (tasks[index].status === 'in_progress' && prevStatus !== 'in_progress') {
+        const wasPendingConfirmation = prevTaskBeforeUpdate.requiresConfirmation && prevTaskBeforeUpdate.status === 'in_progress';
+        const isNowConfirmedAndRunning = tasks[index].status === 'in_progress' && !tasks[index].requiresConfirmation;
+        const isStatusTransitionToInProgress = tasks[index].status === 'in_progress' && prevStatus !== 'in_progress';
+        const isConfirmedExecutionTrigger = wasPendingConfirmation && isNowConfirmedAndRunning;
+
+        // 若狀態切換為 in_progress，或是由「待確認」點選「確認並執行」，清除前次殘留產出物並啟動執行！
+        if (isStatusTransitionToInProgress || isConfirmedExecutionTrigger || data.confirmExecution === true) {
           if (data.diff === undefined) tasks[index].diff = '';
           if (data.modifiedFiles === undefined) tasks[index].modifiedFiles = [];
           tasks[index].commitMessage = null;
@@ -3016,19 +3102,176 @@ function runNativeFolderPicker(promptText, callback) {
     return;
   }
 
-  // 刪除單一任務
-  if (pathname.startsWith('/api/tasks/') && req.method === 'DELETE') {
-    const taskId = decodeURIComponent(pathname.replace('/api/tasks/', '')).trim();
+  // 查詢任務所屬專案當前未提交變更狀態 (供放棄與刪除 double-check 預覽)
+  if (pathname.match(/^\/api\/tasks\/([^/]+)\/git-status$/) && req.method === 'GET') {
+    const taskId = decodeURIComponent(pathname.split('/')[3] || '').trim();
     const tasks = readTasks();
-    const filtered = tasks.filter(t => t.id !== taskId);
-    if (tasks.length === filtered.length) {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Task not found' }));
+      res.end(JSON.stringify({ error: 'Task not found: ' + taskId }));
       return;
     }
-    writeTasks(filtered);
+    const projects = readProjects();
+    const proj = projects.find(p => p.id === task.project);
+    const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, task.project || '');
+
+    let hasDiff = false;
+    let summary = '';
+    let files = [];
+    let diffStat = '';
+    try {
+      if (fs.existsSync(projPath) && fs.existsSync(path.join(projPath, '.git'))) {
+        const statusOutput = execSync('git status --porcelain', { cwd: projPath, encoding: 'utf8', timeout: 3000 }).trim();
+        if (statusOutput.length > 0) {
+          hasDiff = true;
+          summary = statusOutput;
+          files = statusOutput.split('\n').map(l => l.trim()).filter(Boolean).map(l => l.replace(/^[A-Z?]+\s+/, ''));
+          try {
+            diffStat = execSync('git diff --stat HEAD', { cwd: projPath, encoding: 'utf8', timeout: 3000 }).trim();
+          } catch (e) {
+            try { diffStat = execSync('git diff --stat', { cwd: projPath, encoding: 'utf8', timeout: 3000 }).trim(); } catch (e2) {}
+          }
+        }
+      }
+    } catch (err) {
+      // 容錯
+    }
+
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ success: true, deleted: taskId }));
+    res.end(JSON.stringify({
+      taskId,
+      project: task.project || '',
+      projectPath: projPath,
+      hasDiff,
+      summary,
+      files,
+      diffStat
+    }));
+    return;
+  }
+
+  // 放棄任務 (Abandon Task: 移入封存庫並標記放棄，可選擇是否 discard changes)
+  if (pathname.match(/^\/api\/tasks\/([^/]+)\/abandon$/) && req.method === 'POST') {
+    const taskId = decodeURIComponent(pathname.split('/')[3] || '').trim();
+    let body = '';
+    req.on('data', chunk => (body += chunk));
+    req.on('end', () => {
+      try {
+        let reqData = {};
+        if (body.trim()) reqData = JSON.parse(body);
+        const tasks = readTasks();
+        const index = tasks.findIndex(t => t.id === taskId);
+        if (index === -1) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Task not found: ' + taskId }));
+          return;
+        }
+
+        const task = tasks[index];
+        const projects = readProjects();
+        const proj = projects.find(p => p.id === task.project);
+        const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, task.project || '');
+
+        // 停止可能正在執行的 CLI Agent 行程
+        if (activeCliProcesses.has(taskId)) {
+          try {
+            const procInfo = activeCliProcesses.get(taskId);
+            if (procInfo && procInfo.child) procInfo.child.kill('SIGTERM');
+          } catch (kErr) {}
+          activeCliProcesses.delete(taskId);
+        }
+
+        // 若使用者選擇 discardChanges，執行 git checkout . 與 git clean -fd
+        let discardOutput = '';
+        if (reqData.discardChanges === true && fs.existsSync(projPath) && fs.existsSync(path.join(projPath, '.git'))) {
+          try {
+            execSync('git checkout . && git clean -fd', { cwd: projPath, encoding: 'utf8', timeout: 8000 });
+            discardOutput = '工作區變更已成功捨棄 (git checkout . && git clean -fd)';
+          } catch (gErr) {
+            discardOutput = '捨棄工作區變更失敗: ' + gErr.message;
+          }
+        }
+
+        const nowIso = new Date().toISOString();
+        const reason = reqData.reason ? `原因: ${reqData.reason}` : '使用者主動放棄';
+        const abandonLog = `\n[${nowIso}] ⚠️ [Task Abandoned] 任務已被放棄 (${reason})${discardOutput ? `，${discardOutput}` : ''}\n----------------------------------------\n`;
+
+        tasks[index].status = 'archived';
+        tasks[index].updatedAt = nowIso;
+        tasks[index].executionLog = (tasks[index].executionLog || '') + abandonLog;
+        if (!tasks[index].tags) tasks[index].tags = [];
+        if (!tasks[index].tags.includes('abandoned')) tasks[index].tags.push('abandoned');
+
+        writeTasks(tasks);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          success: true,
+          abandoned: taskId,
+          discardOutput
+        }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // 刪除單一任務 (支援 query 參數或 request body 的 discardChanges)
+  if (pathname.startsWith('/api/tasks/') && req.method === 'DELETE') {
+    const taskId = decodeURIComponent(pathname.replace('/api/tasks/', '')).trim();
+    let body = '';
+    req.on('data', chunk => (body += chunk));
+    req.on('end', () => {
+      try {
+        let reqData = {};
+        if (body.trim()) {
+          try { reqData = JSON.parse(body); } catch (e) {}
+        }
+        const shouldDiscard = (reqData.discardChanges === true) || (query.discardChanges === 'true') || (query.discardChanges === '1');
+
+        const tasks = readTasks();
+        const targetTask = tasks.find(t => t.id === taskId);
+        const filtered = tasks.filter(t => t.id !== taskId);
+        if (tasks.length === filtered.length) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Task not found' }));
+          return;
+        }
+
+        // 停止可能正在執行的 CLI Agent 行程
+        if (activeCliProcesses.has(taskId)) {
+          try {
+            const procInfo = activeCliProcesses.get(taskId);
+            if (procInfo && procInfo.child) procInfo.child.kill('SIGTERM');
+          } catch (kErr) {}
+          activeCliProcesses.delete(taskId);
+        }
+
+        let discardOutput = '';
+        if (shouldDiscard && targetTask) {
+          const projects = readProjects();
+          const proj = projects.find(p => p.id === targetTask.project);
+          const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, targetTask.project || '');
+          if (fs.existsSync(projPath) && fs.existsSync(path.join(projPath, '.git'))) {
+            try {
+              execSync('git checkout . && git clean -fd', { cwd: projPath, encoding: 'utf8', timeout: 8000 });
+              discardOutput = '工作區變更已成功捨棄 (git checkout . && git clean -fd)';
+            } catch (gErr) {
+              discardOutput = '捨棄工作區變更失敗: ' + gErr.message;
+            }
+          }
+        }
+
+        writeTasks(filtered);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, deleted: taskId, discardOutput }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
     return;
   }
 

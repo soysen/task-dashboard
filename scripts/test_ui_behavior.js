@@ -81,6 +81,19 @@ console.log('  ✅ 多 Agent 認領選單與卡片識別徽章驗證通過');
 const gateContent = fs.readFileSync(path.join(__dirname, 'watch-task-gate.js'), 'utf8');
 assert(gateContent.includes('arg.startsWith(\'--agent=\')'), 'watch-task-gate.js 必須解析 --agent 參數');
 assert(gateContent.includes('taskAgent !== targetAgent'), 'watch-task-gate.js 必須支援非所屬 agent 任務過濾');
-console.log('  ✅ watch-task-gate 哨兵 --agent 分流過濾邏輯驗證通過');
+// 10. 驗證 「確認並執行」開工觸發防線 (confirmExecution 與狀態轉換)
+assert(htmlContent.includes('confirmExecution: true'), 'confirmAndExecuteTask 必須傳送 confirmExecution: true 旗標');
+assert(htmlContent.includes('✅ [Confirmation Gate]'), 'confirmAndExecuteTask 必須在日誌中註記 Confirmation Gate 授權確認');
+console.log('  ✅ 「確認並執行」開工觸發與 Confirmation Gate 驗證通過');
+
+// 11. 驗證 任務放棄與刪除機制 (Double Check Modal 與 Git Diff / Discard Changes)
+assert(htmlContent.includes('id="taskActionConfirmModal"'), '必須包含 taskActionConfirmModal 雙重確認彈窗');
+assert(htmlContent.includes('id="actionModalDiscardCheckbox"'), '必須包含 actionModalDiscardCheckbox 捨棄工作區變更核取方塊');
+assert(htmlContent.includes('promptTaskDeleteOrAbandon'), '必須具備 promptTaskDeleteOrAbandon 啟動器函式');
+assert(htmlContent.includes('executeTaskActionConfirmed'), '必須具備 executeTaskActionConfirmed 執行函式');
+assert(htmlContent.includes('git-status'), '前端必須呼叫 /api/tasks/:id/git-status 取得即時異動預覽');
+assert(htmlContent.includes('/abandon'), '前端必須支援 POST /api/tasks/:id/abandon');
+assert(htmlContent.includes('btnAbandonTask'), '任務彈窗必須具備 btnAbandonTask 放棄按鈕');
+console.log('  ✅ 任務放棄與刪除 Double-Check 及 Git Discard 機制驗證通過');
 
 console.log('🎉 所有前端核心互動邏輯與防禦機制測試通過！\n');

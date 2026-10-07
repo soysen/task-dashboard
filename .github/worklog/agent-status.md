@@ -2,21 +2,21 @@
 
 ## Active Task
 
-- ID: TASK-090
-- Title: Retro
+- ID: TASK-001
+- Title: 測試 in_progress 巡檢
 - Status: 已完成
-- Last updated: 2026-10-05
-- Goal: 針對本次異動進行 retro
+- Last updated: 2026-10-07
+- Goal: 測試 in_progress 巡檢
 - Route: dashboard-state-and-sync
-- Scope: Retro
+- Scope: 測試 in_progress 巡檢
 - Out of scope: 跨專案副作用
 
 ## Last Completed Task
 
-- ID: TASK-090
-- Title: Retro
+- ID: TASK-094
+- Title: 取消 markdown 預覽機制
 - Status: 已完成
-- Last updated: 2026-10-05
+- Last updated: 2026-10-07
 
 ## Execution Tracking
 

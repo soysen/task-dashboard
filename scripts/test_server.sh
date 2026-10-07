@@ -35,10 +35,10 @@ for i in {1..10}; do
   sleep 0.5
 done
 
-# 測試 API 響應
-echo "  [1/5] 測試 GET /api/tasks ..."
+echo "  [1/5] 測試 GET /api/tasks (含 in_progress 任務之 proc 變數與 liveStatus 健全性) ..."
+curl -s -f -X POST "http://localhost:$TEST_PORT/api/tasks" -H "Content-Type: application/json" -d '{"title":"測試 in_progress 巡檢","project":"task-dashboard","status":"in_progress","requiresConfirmation":true}' > /dev/null
 curl -s -f "http://localhost:$TEST_PORT/api/tasks" > /dev/null
-echo "    ✅ /api/tasks 正常"
+echo "    ✅ /api/tasks 正常 (含 in_progress 任務)"
 
 echo "  [2/5] 測試 GET /api/projects ..."
 curl -s -f "http://localhost:$TEST_PORT/api/projects" > /dev/null
@@ -72,6 +72,36 @@ echo "  [6/7] 測試 GET /api/tasks/:id/slice-info 隔離性 ..."
 if [ -n "$TASK_ID" ]; then
   SLICE_RES=$(curl -s -f "http://localhost:$TEST_PORT/api/tasks/$TASK_ID/slice-info")
   echo "    ✅ /api/tasks/:id/slice-info 呼叫正常"
+fi
+
+echo "  [6.5/7] 測試 任務放棄、刪除與 Git Diff 預覽 API ..."
+if [ -n "$TASK_ID" ]; then
+  # 測試 GET /api/tasks/:id/git-status
+  GIT_STATUS_RES=$(curl -s -f "http://localhost:$TEST_PORT/api/tasks/$TASK_ID/git-status")
+  if echo "$GIT_STATUS_RES" | grep -q '"taskId"'; then
+    echo "    ✅ /api/tasks/:id/git-status 查詢正常"
+  else
+    echo "    ❌ /api/tasks/:id/git-status 異常: $GIT_STATUS_RES"
+    exit 1
+  fi
+
+  # 測試 POST /api/tasks/:id/abandon
+  ABANDON_RES=$(curl -s -f -X POST "http://localhost:$TEST_PORT/api/tasks/$TASK_ID/abandon" -H "Content-Type: application/json" -d '{"discardChanges":false,"reason":"測試放棄"}')
+  if echo "$ABANDON_RES" | grep -q '"abandoned"'; then
+    echo "    ✅ /api/tasks/:id/abandon 放棄任務成功"
+  else
+    echo "    ❌ /api/tasks/:id/abandon 失敗: $ABANDON_RES"
+    exit 1
+  fi
+
+  # 測試 DELETE /api/tasks/:id
+  DELETE_RES=$(curl -s -f -X DELETE "http://localhost:$TEST_PORT/api/tasks/$TASK_ID" -H "Content-Type: application/json" -d '{"discardChanges":false}')
+  if echo "$DELETE_RES" | grep -q '"deleted"'; then
+    echo "    ✅ DELETE /api/tasks/:id 刪除任務成功"
+  else
+    echo "    ❌ DELETE /api/tasks/:id 失敗: $DELETE_RES"
+    exit 1
+  fi
 fi
 
 echo "  [7/7] 測試 多任務 agent-status 與切片隔離單元測試 ..."
@@ -273,13 +303,14 @@ assert(indexHtmlContent.includes("const isPendingConfirmation = isReqConfirmChec
 const harnessScript = fs.readFileSync("./scripts/harness_check.sh", "utf8");
 assert(harnessScript.includes("requiresConfirmation") && harnessScript.includes("executionPlan"), "harness_check.sh 必須包含 executionPlan 同步檢核門禁");
 
-// 驗證 index.html 具備 Markdown 轉 HTML 渲染與編輯/預覽切換機制
-assert(indexHtmlContent.includes("function renderMarkdown(str)"), "前端必須具備 renderMarkdown 函式");
-assert(indexHtmlContent.includes("function switchFieldViewMode("), "前端必須具備 switchFieldViewMode 函式");
-assert(indexHtmlContent.includes("formDescriptionPreview"), "前端彈窗必須具備 formDescriptionPreview 預覽容器");
-assert(indexHtmlContent.includes("formExecutionPlanPreview"), "前端彈窗必須具備 formExecutionPlanPreview 預覽容器");
+// 驗證 index.html 移除冗餘 markdown 預覽機制並保留原生流暢編輯體驗
+assert(!indexHtmlContent.includes("function renderMarkdown(str)"), "前端已移除冗餘之 renderMarkdown 函式");
+assert(!indexHtmlContent.includes("function switchFieldViewMode("), "前端已移除冗餘之 switchFieldViewMode 函式");
+assert(!indexHtmlContent.includes("formDescriptionPreview"), "前端彈窗已移除 formDescriptionPreview 預覽容器");
+assert(!indexHtmlContent.includes("formExecutionPlanPreview"), "前端彈窗已移除 formExecutionPlanPreview 預覽容器");
+assert(indexHtmlContent.includes("autoResizeTextarea"), "前端保留原生彈性 autoResizeTextarea 編輯體驗");
 
-console.log("    ✅ agent-status、build-plan 隔離保護、多輪 Feedback Commit 訊息、consumeTaskFeedback、executionPlan 門禁與 Markdown 轉 HTML 預覽單元測試通過！");
+console.log("    ✅ agent-status、build-plan 隔離保護、多輪 Feedback Commit 訊息、consumeTaskFeedback、executionPlan 門禁與簡潔編輯器單元測試通過！");
 '
 
 echo "  [8/8] 測試 POST /api/projects/:id/init-harness API ..."
