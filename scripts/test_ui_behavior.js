@@ -69,13 +69,14 @@ console.log('  ✅ 切片卡滯/逾時預警標籤驗證通過');
 
 // 7. 驗證 測試覆蓋率採集函式
 const { extractCoverageSummary } = require('../src/server/feedbackManager');
-// 8. 驗證 多 Agent 認領選單與卡片徽章 (Antigravity / Claude / Codex / Copilot)
+// 8. 驗證 多 Agent 認領選單與卡片下方顯示 (Antigravity / Claude / Codex / Copilot)
 assert(htmlContent.includes('<option value="Antigravity" selected>Antigravity (預設)</option>'), '必須具備 Antigravity 預設選項');
 assert(htmlContent.includes('<option value="Claude">Claude</option>'), '必須具備 Claude 選項');
 assert(htmlContent.includes('<option value="Codex">Codex</option>'), '必須具備 Codex 選項');
 assert(htmlContent.includes('<option value="Copilot">Copilot</option>'), '必須具備 Copilot 選項');
-assert(htmlContent.includes('🤖 ${escapeHtml(t.assignedAgent'), '看板卡片必須渲染 assignedAgent 徽章');
-console.log('  ✅ 多 Agent 認領選單與卡片識別徽章驗證通過');
+assert(!htmlContent.includes('title="指定執行 Agent:'), '看板卡片不得再渲染上方重複 Agent tag');
+assert(htmlContent.includes('<span>${escapeHtml(t.assignee)}</span>'), '看板卡片必須保留下方 Agent 顯示');
+console.log('  ✅ 多 Agent 認領選單與卡片下方單一顯示驗證通過');
 
 // 9. 驗證 watch-task-gate.js 支援 --agent 參數分流與過濾
 const gateContent = fs.readFileSync(path.join(__dirname, 'watch-task-gate.js'), 'utf8');

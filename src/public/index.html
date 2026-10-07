@@ -2665,14 +2665,6 @@ node "${gateScriptPath}"
                   <span class="text-[10px] px-1.5 py-0.2 rounded bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 font-mono truncate max-w-[110px]" title="${escapeHtml(projName)}">
                      ${escapeHtml(projName)}
                   </span>
-                  <span class="text-[9px] font-mono px-1.5 py-0.2 rounded ${
-                    (t.assignedAgent === 'Claude' || t.assignee === 'Claude') ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800' :
-                    (t.assignedAgent === 'Codex' || t.assignee === 'Codex') ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800' :
-                    (t.assignedAgent === 'Copilot' || t.assignee === 'Copilot') ? 'bg-cyan-100 dark:bg-cyan-950/80 text-cyan-800 dark:text-cyan-300 border border-cyan-300 dark:border-cyan-800' :
-                    'bg-purple-100 dark:bg-purple-950/80 text-purple-800 dark:text-purple-300 border border-purple-300 dark:border-purple-800'
-                  }" title="指定執行 Agent: ${escapeHtml(t.assignedAgent || t.assignee || 'Antigravity')}">
-                    🤖 ${escapeHtml(t.assignedAgent || t.assignee || 'Antigravity')}
-                  </span>
                 </div>
                 <div class="flex items-center gap-1">
                   <button onclick="promptTaskDeleteOrAbandon('${t.id}', 'abandon', event)" title="放棄任務 (可選還原 Git 變更)" class="opacity-0 group-hover:opacity-80 hover:!opacity-100 text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition">
@@ -3994,6 +3986,7 @@ node "${gateScriptPath}"
       if (!task) return;
 
       const btnConfirm = document.getElementById('btnConfirmAndExecute');
+      if (btnConfirm?.disabled) return;
       const btnSubmit = document.getElementById('btnSubmitTask');
       [btnSubmit].filter(Boolean).forEach(b => { b.disabled = true; b.classList.add('opacity-50', 'pointer-events-none'); });
 
@@ -4018,20 +4011,20 @@ node "${gateScriptPath}"
             })
           });
           if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
+            const errData = await res.json();
             throw new Error(errData.error || `伺服器回應 ${res.status}`);
           }
-          const updatedTask = await res.json().catch(() => null);
-          if (updatedTask) {
-            const idx = tasks.findIndex(t => t.id === id);
-            if (idx !== -1) {
-              tasks[idx] = updatedTask;
-              renderTasks(); // 立即 Optimistic 重新渲染看板，消除狀態延遲
-            }
+          const updatedTask = await res.json();
+          if (!updatedTask || updatedTask.id !== id || updatedTask.status !== 'in_progress' || updatedTask.requiresConfirmation !== false) {
+            throw new Error('伺服器未回傳已確認的任務狀態，請重新載入後檢查。');
           }
+          const idx = tasks.findIndex(t => t.id === id);
+          if (idx !== -1) tasks[idx] = updatedTask;
 
-          showToast(`已確認任務 ${id} 執行計劃，開始執行！`);
           closeModal();
+          renderKanban();
+          renderMetrics();
+          showToast(`已確認任務 ${id} 執行計劃，開始執行！`);
           await loadData();
         } catch (err) {
           console.error('Failed to confirm and execute task:', err);
