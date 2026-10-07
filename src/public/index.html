@@ -4099,7 +4099,8 @@ node "${gateScriptPath}"
         const tasksFilePath = `${configDir}/tasks.json`;
         const notifyPrompt = `【任務退回重做】[${task.id}] ${task.title}
 • 審查意見: ${feedback || '請根據最新需求調整與修復'}
-• 結案規範: 修復並驗證後寫回 ${tasksFilePath}（status: review，填寫 modifiedFiles, diff, executionLog，feedback 歸入 description 並清空）。`;
+• 結案規範: 修復並驗證後寫回 ${tasksFilePath}（status: review，填寫 modifiedFiles, diff, executionLog，feedback 歸入 description 並清空）。
+• 執行紀錄: 必須包含實際檢閱檔案、診斷證據、修改原因，以及驗證命令、工作目錄、退出碼與完整可用 stdout/stderr；區分摘要與執行細節，不得只回報「工作完成／測試通過」或宣稱未執行的檢查已通過，敏感憑證不得寫入日誌。`;
 
         try {
           if (navigator.clipboard) {

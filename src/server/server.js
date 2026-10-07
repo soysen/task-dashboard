@@ -1355,7 +1355,8 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
     '【3-Phase Gate 規範】：\n' +
     '1. Pre-Flight: 優先滿足 Feedback，檢閱規範並執行前置驗證（' + harnessCmd + '）；若任務勾選需確認後再執行且未具備執行計劃，必須先產出完整執行計劃回寫 executionPlan 供確認；面對 > 500 行大檔嚴禁整檔閱讀，必須以 grep-n 先定位後切片 30-50 行，檢索上限 2 次避免 Loop。\n' +
     '2. Implementation: 遵循專案架構最小範圍實作並補齊測試，嚴禁跨專案副作用。\n' +
-    '3. Review Promotion: 驗證通過後收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })，推進至 review 並清空 feedback。';
+    '3. Review Promotion: 驗證通過後收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })，推進至 review 並清空 feedback。\n' +
+    '【執行紀錄證據】：executionLog 必須逐步記錄實際檢閱檔案、診斷結果、修改檔案與原因，以及每項驗證的命令、工作目錄、退出碼與實際 stdout/stderr。區分工作摘要與原始執行細節，不得僅寫「測試通過／工作完成」，不得宣稱未執行的檢查已通過；保留可用輸出且不得截斷，敏感憑證不得寫入日誌。';
 
   const rawCliCmd = (settings.cliCommand || 'hermes').trim();
   const customEnv = buildCustomEnv();
@@ -1388,7 +1389,13 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
 
   // 建立實體日誌檔案
   const logFile = path.join(getLogsDir(), `${taskId}.log`);
+  const runLogOffset = fs.existsSync(logFile) ? fs.statSync(logFile).size : 0;
   const logStream = fs.createWriteStream(logFile, { flags: 'a' });
+  let logWriteError = null;
+  logStream.on('error', (err) => {
+    logWriteError = err;
+    console.error(' [CLI Agent 引擎] 日誌寫入失敗 (Task: ' + taskId + '):', err);
+  });
 
   // 記錄開始日誌
   const startLog = '[' + new Date().toISOString() + ']  CLI Agent 自動觸發 (' + rawCliCmd + ')\n' +
@@ -1439,11 +1446,14 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
     }, CLI_TIMEOUT_MS);
 
     let liveOutputBuffer = '';
+    let hasOutputErrors = false;
     const MAX_BUFFER_SIZE = 100 * 1024; // 100KB cap to prevent unbounded memory growth
+    const errorKeywords = /API call failed|HTTP (?:429|401|403|500|502|503|529)|rate limit|Traceback \(most recent call last\)|AuthenticationError|quota exceeded|Fatal error|model is temporarily at capacity/i;
 
     const handleChunk = (chunk) => {
       const text = chunk.toString();
       liveOutputBuffer += text;
+      hasOutputErrors = hasOutputErrors || errorKeywords.test(liveOutputBuffer);
       // Cap buffer: keep only the most recent portion to prevent memory growth
       if (liveOutputBuffer.length > MAX_BUFFER_SIZE) {
         liveOutputBuffer = liveOutputBuffer.slice(-MAX_BUFFER_SIZE);
@@ -1478,125 +1488,144 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
     child.on('close', (code, signal) => {
       clearTimeout(timeoutTimer);
       activeCliProcesses.delete(taskId);
-      logStream.end();
       captureAndTagCliSession(bin, taskId, task.title, projPath, procStartTime, liveOutputBuffer);
 
       console.log(' [CLI Agent 引擎] 任務 ' + taskId + ' 行程結束 (Code: ' + code + ', Signal: ' + signal + ')，執行智慧交付驗收...');
 
-      // Smart Git Delivery Gate: 檢查專案是否產出變更
-      collectGitDiff(projPath, customEnv, (modifiedList, diffContent) => {
-        const updatedTasks = readTasks();
-        const curTask = updatedTasks.find(t => t.id === taskId);
-        if (!curTask) return;
-
-        curTask.assignee = 'CLI';
-        curTask.updatedAt = new Date().toISOString();
-
-        const hasGitChanges = Array.isArray(modifiedList) && modifiedList.length > 0;
-
-        // 檢驗是否有上游 API 報錯或常見致命錯誤 (如 HTTP 429/401/500、額度不足、未定義異常等)
-        const hasErrorKeywords = /API call failed|HTTP (?:429|401|403|500|502|503|529)|rate limit|Traceback \(most recent call last\)|AuthenticationError|quota exceeded|Fatal error|model is temporarily at capacity/i.test(liveOutputBuffer);
-
-        // 成功判定條件：
-        // 1. 未逾時
-        // 2. 產出實質 Git 變更且無致命報錯，或者 (無變更但 Exit Code 0 且明確無報錯)
-        // 注意：若 Exit Code 0 但 liveOutputBuffer 含有 429/API failed 等致命錯誤，不得判定為成功
-        const isSuccess = !isTimedOut && (code === 0) && (hasGitChanges || !hasErrorKeywords) && !hasErrorKeywords;
-
-        let logTail = liveOutputBuffer.trim();
-        if (logTail.length > 2000) {
-          logTail = logTail.slice(-2000);
+      // 等待日誌落盤；記憶體緩衝僅供即時狀態，不能當作完整交付證據。
+      const finalizeRun = () => {
+        let runOutput = '';
+        let logReadError = null;
+        try {
+          const outputOffset = runLogOffset + Buffer.byteLength(startLog, 'utf8');
+          runOutput = fs.readFileSync(logFile).subarray(outputOffset).toString('utf8');
+        } catch (err) {
+          logReadError = err;
+          console.error(' [CLI Agent 引擎] 日誌讀取失敗 (Task: ' + taskId + '):', err);
         }
+        // Smart Git Delivery Gate: 檢查專案是否產出變更
+        collectGitDiff(projPath, customEnv, (modifiedList, diffContent) => {
+          const updatedTasks = readTasks();
+          const curTask = updatedTasks.find(t => t.id === taskId);
+          if (!curTask) return;
 
-        if (isSuccess && hasGitChanges) {
-          // 若任務設定為需確認後再執行且尚未經使用者確認點選
-          if (curTask.requiresConfirmation && (!curTask.executionPlan || !curTask.executionPlan.trim())) {
-            const planText = logTail || '已擬定執行計劃，請檢視並點選「確認並執行」。';
-            curTask.executionPlan = planText;
-            curTask.status = 'in_progress';
-            const planLog = '\n[' + new Date().toISOString() + '] 📋 [Confirmation Gate] 執行計劃擬定完畢，任務進入「待確認」狀態等待審閱。\n----------------------------------------\n';
-            curTask.executionLog = (curTask.executionLog || '') + planLog;
+          curTask.assignee = 'CLI';
+          curTask.updatedAt = new Date().toISOString();
+          const logError = logWriteError || logReadError;
+          const outputLog = runOutput
+            ? '\n--- 本輪完整執行輸出 (stdout / stderr) ---\n' + runOutput + '\n--- 本輪執行輸出結束 ---\n'
+            : (logError ? '\n[CLI Output] 本輪輸出無法完整取得。\n' : '\n[CLI Output] 本輪未產生 stdout/stderr。\n');
+          curTask.executionLog = (curTask.executionLog || '') +
+            '\n[CLI Result] Exit code: ' + code + ', Signal: ' + (signal || 'none') + '\n' + outputLog +
+            (logError ? '\n[CLI Log Error] 完整執行輸出無法保存: ' + logError.message + '\n' : '');
+
+          const hasGitChanges = Array.isArray(modifiedList) && modifiedList.length > 0;
+
+          // 檢驗是否有上游 API 報錯或常見致命錯誤 (如 HTTP 429/401/500、額度不足、未定義異常等)
+          const hasErrorKeywords = hasOutputErrors || errorKeywords.test(runOutput);
+
+          // 成功判定條件：
+          // 1. 未逾時
+          // 2. 產出實質 Git 變更且無致命報錯，或者 (無變更但 Exit Code 0 且明確無報錯)
+          // 注意：若 Exit Code 0 但 liveOutputBuffer 含有 429/API failed 等致命錯誤，不得判定為成功
+          const isSuccess = !logError && !isTimedOut && (code === 0) && (hasGitChanges || !hasErrorKeywords) && !hasErrorKeywords;
+
+          if (isSuccess && hasGitChanges) {
+            // 若任務設定為需確認後再執行且尚未經使用者確認點選
+            if (curTask.requiresConfirmation && (!curTask.executionPlan || !curTask.executionPlan.trim())) {
+              const planText = runOutput.trim() || '已擬定執行計劃，請檢視並點選「確認並執行」。';
+              curTask.executionPlan = planText;
+              curTask.status = 'in_progress';
+              const planLog = '\n[' + new Date().toISOString() + '] 📋 [Confirmation Gate] 執行計劃擬定完畢，任務進入「待確認」狀態等待審閱。\n----------------------------------------\n';
+              curTask.executionLog = (curTask.executionLog || '') + planLog;
+              curTask.modifiedFiles = modifiedList || [];
+              curTask.diff = diffContent || '';
+              writeTasks(updatedTasks);
+              syncToMarkdown(updatedTasks);
+              console.log(' [CLI Agent 引擎] 任務 ' + taskId + ' 已產出執行計劃，處於「待確認」狀態等待使用者確認。');
+              return;
+            }
+
+            // 判定成功且有檔案修改：推進至 review
+            const endLog = '\n[' + new Date().toISOString() + ']  CLI Agent 執行完畢 (Exit code: ' + (code !== null ? code : '0') + ')\n' +
+              'Signal: ' + (signal || 'none') + '\n' +
+              '變更檔案: ' + modifiedList.join(', ') + '\n' +
+              '----------------------------------------\n';
+            curTask.executionLog = (curTask.executionLog || '') + endLog;
+            curTask.status = 'review';
+            consumeTaskFeedback(curTask);
             curTask.modifiedFiles = modifiedList || [];
             curTask.diff = diffContent || '';
-            writeTasks(updatedTasks);
-            syncToMarkdown(updatedTasks);
-            console.log(' [CLI Agent 引擎] 任務 ' + taskId + ' 已產出執行計劃，處於「待確認」狀態等待使用者確認。');
-            return;
-          }
-
-          // 判定成功且有檔案修改：推進至 review
-          const endLog = '\n[' + new Date().toISOString() + ']  CLI Agent 執行完畢 (Exit code: ' + (code !== null ? code : '0') + ')\n' +
-            '變更檔案: ' + modifiedList.join(', ') + '\n' +
-            (logTail ? '\n--- 執行日誌末端摘要 ---\n' + logTail + '\n' : '') +
-            '----------------------------------------\n';
-          curTask.executionLog = (curTask.executionLog || '') + endLog;
-          curTask.status = 'review';
-          consumeTaskFeedback(curTask);
-          curTask.modifiedFiles = modifiedList || [];
-          curTask.diff = diffContent || '';
-          curTask.requestCommitGen = false;
-          const commitMsg = formatCommitMessageFromSkill(projPath, curTask, diffContent, modifiedList);
-          curTask.commitMessage = {
-            subject: commitMsg.message,
-            body: commitMsg.body || ''
-          };
-          curTask._retryCount = 0;
-          writeTasks(updatedTasks);
-          syncToMarkdown(updatedTasks);
-          console.log(' [CLI Agent 引擎] 任務 ' + taskId + ' 驗收通過，已依據 Diff 產出 Commit 訊息並推進至 Review！');
-        } else if (isSuccess && !hasGitChanges) {
-          if (curTask.requiresConfirmation && (!curTask.executionPlan || !curTask.executionPlan.trim())) {
-            const planText = logTail || '已擬定執行計劃，請檢視並點選「確認並執行」。';
-            curTask.executionPlan = planText;
-            curTask.status = 'in_progress';
-            const planLog = '\n[' + new Date().toISOString() + '] 📋 [Confirmation Gate] 執行計劃擬定完畢，任務進入「待確認」狀態等待審閱。\n----------------------------------------\n';
-            curTask.executionLog = (curTask.executionLog || '') + planLog;
-            writeTasks(updatedTasks);
-            syncToMarkdown(updatedTasks);
-            console.log(' [CLI Agent 引擎] 任務 ' + taskId + ' 已產出執行計劃，處於「待確認」狀態等待使用者確認。');
-            return;
-          }
-
-          // 判定成功但無代碼變更 (例如純代碼檢核/分析任務)
-          const endLog = '\n[' + new Date().toISOString() + ']  CLI Agent 執行完畢 (Exit code: ' + (code !== null ? code : '0') + ')\n' +
-            '變更檔案: 無檔案變更 (代碼檢核/測試無誤)\n' +
-            (logTail ? '\n--- 執行日誌末端摘要 ---\n' + logTail + '\n' : '') +
-            '----------------------------------------\n';
-          curTask.executionLog = (curTask.executionLog || '') + endLog;
-          curTask.status = 'review';
-          consumeTaskFeedback(curTask);
-          curTask.modifiedFiles = [];
-          curTask.diff = '';
-          curTask._retryCount = 0;
-          writeTasks(updatedTasks);
-          syncToMarkdown(updatedTasks);
-          console.log(' [CLI Agent 引擎] 任務 ' + taskId + ' 執行完畢 (無檔案變更)，已推進至 Review。');
-        } else {
-          // 失敗 (包括有 API 429 報錯、超時或無產出且異常)
-          const reasonMsg = isTimedOut ? '執行逾時' : (hasErrorKeywords ? '上游 API 或模型報錯 (如 Rate Limit / HTTP 429)' : `Exit code: ${code}`);
-          const retryCount = (curTask._retryCount || 0);
-          if (retryCount < 2) {
-            const retryLog = '\n[' + new Date().toISOString() + '] ⚠️ CLI Agent 執行異常 (' + reasonMsg + ') 且無有效代碼產出，正在重試 (' + (retryCount + 1) + '/2)...\n' +
-              (logTail ? '\n--- 異常輸出摘要 ---\n' + logTail + '\n' : '') +
-              '----------------------------------------\n';
-            curTask.executionLog = (curTask.executionLog || '') + retryLog;
-            curTask._retryCount = retryCount + 1;
-            writeTasks(updatedTasks);
-            syncToMarkdown(updatedTasks);
-            setTimeout(() => executeTaskWithCliAgent(taskId), 5000);
-          } else {
-            const failLog = '\n[' + new Date().toISOString() + '] ❌ CLI Agent 執行失敗 (' + reasonMsg + ')，無有效變更產出。\n' +
-              (logTail ? '\n--- 錯誤日誌摘要 ---\n' + logTail + '\n' : '') +
-              '----------------------------------------\n';
-            curTask.executionLog = (curTask.executionLog || '') + failLog;
-            curTask.status = 'todo';
+            curTask.requestCommitGen = false;
+            const commitMsg = formatCommitMessageFromSkill(projPath, curTask, diffContent, modifiedList);
+            curTask.commitMessage = {
+              subject: commitMsg.message,
+              body: commitMsg.body || ''
+            };
             curTask._retryCount = 0;
             writeTasks(updatedTasks);
             syncToMarkdown(updatedTasks);
-            console.error(' [CLI Agent 引擎] 任務 ' + taskId + ' 執行失敗，已重置為 Todo。');
+            console.log(' [CLI Agent 引擎] 任務 ' + taskId + ' 驗收通過，已依據 Diff 產出 Commit 訊息並推進至 Review！');
+          } else if (isSuccess && !hasGitChanges) {
+            if (curTask.requiresConfirmation && (!curTask.executionPlan || !curTask.executionPlan.trim())) {
+              const planText = runOutput.trim() || '已擬定執行計劃，請檢視並點選「確認並執行」。';
+              curTask.executionPlan = planText;
+              curTask.status = 'in_progress';
+              const planLog = '\n[' + new Date().toISOString() + '] 📋 [Confirmation Gate] 執行計劃擬定完畢，任務進入「待確認」狀態等待審閱。\n----------------------------------------\n';
+              curTask.executionLog = (curTask.executionLog || '') + planLog;
+              writeTasks(updatedTasks);
+              syncToMarkdown(updatedTasks);
+              console.log(' [CLI Agent 引擎] 任務 ' + taskId + ' 已產出執行計劃，處於「待確認」狀態等待使用者確認。');
+              return;
+            }
+
+            // 判定成功但無代碼變更 (例如純代碼檢核/分析任務)
+            const endLog = '\n[' + new Date().toISOString() + ']  CLI Agent 執行完畢 (Exit code: ' + (code !== null ? code : '0') + ')\n' +
+              'Signal: ' + (signal || 'none') + '\n' +
+              '變更檔案: 無檔案變更；驗證結果請參閱實際執行輸出。\n' +
+              '----------------------------------------\n';
+            curTask.executionLog = (curTask.executionLog || '') + endLog;
+            curTask.status = 'review';
+            consumeTaskFeedback(curTask);
+            curTask.modifiedFiles = [];
+            curTask.diff = '';
+            curTask._retryCount = 0;
+            writeTasks(updatedTasks);
+            syncToMarkdown(updatedTasks);
+            console.log(' [CLI Agent 引擎] 任務 ' + taskId + ' 執行完畢 (無檔案變更)，已推進至 Review。');
+          } else {
+            // 失敗 (包括有 API 429 報錯、超時或無產出且異常)
+            const reasonMsg = logError ? '完整日誌保存失敗: ' + logError.message : (isTimedOut ? '執行逾時' : (hasErrorKeywords ? '上游 API 或模型報錯 (如 Rate Limit / HTTP 429)' : `Exit code: ${code}, Signal: ${signal || 'none'}`));
+            const retryCount = (curTask._retryCount || 0);
+            if (retryCount < 2) {
+              const retryLog = '\n[' + new Date().toISOString() + '] ⚠️ CLI Agent 執行異常 (' + reasonMsg + ') 且無有效代碼產出，正在重試 (' + (retryCount + 1) + '/2)...\n' +
+                'Exit code: ' + code + ', Signal: ' + (signal || 'none') + '\n' +
+                '----------------------------------------\n';
+              curTask.executionLog = (curTask.executionLog || '') + retryLog;
+              curTask._retryCount = retryCount + 1;
+              writeTasks(updatedTasks);
+              syncToMarkdown(updatedTasks);
+              setTimeout(() => executeTaskWithCliAgent(taskId), 5000);
+            } else {
+              const failLog = '\n[' + new Date().toISOString() + '] ❌ CLI Agent 執行失敗 (' + reasonMsg + ')，無有效變更產出。\n' +
+                'Exit code: ' + code + ', Signal: ' + (signal || 'none') + '\n' +
+                '----------------------------------------\n';
+              curTask.executionLog = (curTask.executionLog || '') + failLog;
+              curTask.status = 'todo';
+              curTask._retryCount = 0;
+              writeTasks(updatedTasks);
+              syncToMarkdown(updatedTasks);
+              console.error(' [CLI Agent 引擎] 任務 ' + taskId + ' 執行失敗，已重置為 Todo。');
+            }
           }
-        }
-      });
+        });
+      };
+      if (logStream.closed) {
+        finalizeRun();
+      } else {
+        logStream.once('close', finalizeRun);
+        logStream.end();
+      }
     });
 
   } catch (spawnErr) {
@@ -2591,7 +2620,7 @@ function runNativeFolderPicker(promptText, callback) {
             const proj = projects.find(p => p.id === tasks[index].project);
             const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, tasks[index].project || '');
             const coverageStr = extractCoverageSummary(projPath);
-            let phase3Option = '執行專案驗證指令與全量 Diff 收集。';
+            let phase3Option = '驗證命令、退出碼與結果請參閱實際執行記錄；未提供者不視為驗證通過。';
             if (coverageStr) {
               phase3Option += `\n- 單元測試覆蓋率: ${coverageStr}`;
             }

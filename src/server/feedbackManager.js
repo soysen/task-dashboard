@@ -57,14 +57,14 @@ function healTasksFeedback(tasks) {
  * @returns {string} 結構化日誌
  */
 function formatStructuredExecutionLog(rawLog = '', options = {}) {
-  const content = (rawLog || '').trim();
+  const content = rawLog || '';
   if (content.includes('### Phase 1') && content.includes('### Phase 2') && content.includes('### Phase 3')) {
     return content;
   }
   const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19);
-  const p1 = options.phase1 || '已檢閱架構規範文檔與前置門禁。';
-  const p2 = options.phase2 || '依照切片計畫完成最小範圍合規修改。';
-  const p3 = options.phase3 || '執行專案驗證指令與全量 Diff 收集。';
+  const p1 = options.phase1 || '未提供前置檢閱細節；請以實際執行記錄為準。';
+  const p2 = options.phase2 || '未提供實作步驟細節；請以實際執行記錄為準。';
+  const p3 = options.phase3 || '未提供驗證命令與結果；不能僅憑摘要判定驗證通過。';
 
   return `### Phase 1: Pre-Flight & Review Feedback Ingestion
 - 時間: [${timestamp}]
@@ -74,8 +74,7 @@ function formatStructuredExecutionLog(rawLog = '', options = {}) {
 - 說明: ${p2}
 
 ### Phase 3: Compliance Manifest & Review Promotion
-- 驗證說明: ${p3}
-${content ? `\n--- 執行詳細記錄 / 原生驗證輸出 ---\n${content}` : ''}`.trim();
+- 驗證說明: ${p3}${content ? `\n\n--- 執行詳細記錄 / 原生驗證輸出 ---\n${content}` : ''}`;
 }
 
 /**
