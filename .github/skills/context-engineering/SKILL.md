@@ -1,15 +1,30 @@
 ---
 name: context-engineering
-description: "優化 AI 代理人於 Task Dashboard 的上下文結構與規範設置，防止幻覺、大檔過載與循環陷阱。"
+description: "優化 AI 代理人於 Task Dashboard 的上下文結構與規範設置，防止幻覺、大檔過載與循環陷阱。使用時機：規劃任務上下文、檢索大檔程式碼、防範 Token 浪費或設定代理人規範時觸發。"
 argument-hint: "描述要優化的上下文範圍或規則設定"
 user-invocable: true
+freedom: medium
+models-tested: [flash, sonnet, opus]
 ---
 
 # 上下文工程 (Context Engineering)
 
-## 概覽
+## 目錄
+1. [硬性規則 (Must)](#硬性規則-must)
+2. [適用時機與豁免規則](#適用時機與豁免規則)
+3. [Context 的層次結構](#context-的層次結構)
+4. [常見陷阱與防範矩陣](#常見陷阱與防範矩陣)
+5. [完成前檢核](#完成前檢核)
 
-在正確的時機提供正確的資訊給 AI 代理人。Task Dashboard 專案具備較長的前端與後端檔案（如 `src/public/index.html` > 4900 行、`src/server/server.js` > 4000 行），因此刻意管理代理人看到什麼、何時看到、以及精準檢索切片，是保障品質與節約 Token 的最核心槓桿。
+## 硬性規則 (Must)
+1. **[MUST] 嚴禁大檔整檔全覽**：面對 > 500 行檔案（如 `index.html` > 4900 行、`server.js` > 4000 行），嚴禁無上限 view_file 或整檔閱讀；一律先使用 `grep -n` 定位關鍵行號後閱讀前後 30-50 行。
+2. **[MUST] 檢索上限防止迴圈 (Max 2 Inspections)**：同一檔案相同區塊最多檢索 2 次；確定關鍵邏輯後立即進入實作與測試驗證，嚴防原地循環。
+3. **[MUST] 優先滿足 Feedback**：若任務帶有 `task.feedback`，必須視為最高優先權目標，不因其他上下文干擾而偏離。
+4. **[MUST] SSOT 隔離防污染**：禁止將任何執行時資料寫入專案內 `data/` 範本，避免污染 Git 上下文。
+
+## 適用時機與豁免規則
+- **適用時機**：探索大型檔案結構、規劃任務執行前置檢閱、遭遇 Token 消耗過大或排查重複呼叫迴圈時。
+- **豁免規則**：小型設定檔（< 100 行）或純文字說明可直接全覽，無需刻意切片。
 
 ## Context 的層次結構
 
@@ -37,9 +52,8 @@ user-invocable: true
 | Commit 漂移 | 歷次 Feedback 導致 Commit 主旨偏離 | Commit 主旨 (subject) 必須鎖定任務原始核心主軸，內文 (body) 綜合實際異動與歷次修正 |
 | 盲目重構 | 擅自更動未指涉的架構模組 | 遵循最小修改範圍原則（Fast-Track），不產生無關副作用 |
 
-## 實踐檢查清單
-
-- [ ] 是否已優先檢查並滿足 `task.feedback`？
-- [ ] 檢索目標檔案前，是否已先用 `grep -n` 鎖定行號，避免整檔載入？
-- [ ] 程式碼修改完成後，是否已執行 `npm run harness:check` 與 `npm test`？
-- [ ] 收集 Diff 時是否包含已追蹤與未追蹤之全量內容？
+## 完成前檢核
+- [ ] 檢索目標檔案前，已先用 `grep -n` 鎖定行號，避免整檔載入。
+- [ ] 相同片段檢索不超過 2 次，避免陷入 Loop。
+- [ ] 保持 Single Source of Truth，未污染倉庫範本。
+- [ ] 程式碼修改完成後，已執行 `npm run harness:check` 與 `npm test`。

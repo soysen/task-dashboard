@@ -55,7 +55,7 @@ fi
 echo "    ✅ node $(node --version)"
 
 # 5. 驗證 tasks.json 的 Diff 完整性與 3-Phase Gate / executionPlan 合規門禁
-echo "  [5/5] 檢驗 Task Diff 完整性與 3-Phase Gate / executionPlan 合規度..."
+echo "  [5/6] 檢驗 Task Diff 完整性與 3-Phase Gate / executionPlan 合規度..."
 node -e '
 const fs = require("fs");
 const path = require("path");
@@ -104,5 +104,10 @@ for (const task of tasks) {
 }
 '
 echo "    ✅ 所有已交付任務之 git diff 與 executionPlan 均符合全量完整度與同步門禁規範"
+
+# 6. 驗證現代化 Skills 規範與目錄完整性
+echo "  [6/6] 檢驗 .github/skills 現代化架構與規範門禁..."
+node "$PROJECT_DIR/.github/scripts/validate-skills.js"
+echo "    ✅ 所有核心 Skills 符合現代化規格 (TOC、Must 前置、Freedom 分級與檢核清單)"
 
 echo "🎉 Harness Check 通過！專案處於健康且合規狀態。"

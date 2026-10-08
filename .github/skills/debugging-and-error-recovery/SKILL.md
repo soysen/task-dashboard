@@ -1,31 +1,32 @@
 ---
 name: debugging-and-error-recovery
-description: "系統性診斷並修復 Task Dashboard 系統錯誤（後端 Node.js API、前端 DOM 互動、macOS 原生外殼、FSEvents 哨兵）。"
+description: "系統性診斷並修復 Task Dashboard 系統錯誤（後端 Node.js API、前端 DOM 互動、macOS 原生外殼、FSEvents 哨兵）。使用時機：遭遇語法錯誤、測試紅燈、API 異常回傳或進程終止時觸發。"
 argument-hint: "描述遇到的錯誤或報錯內容，例如：watch-task-gate 喚醒異常或 API 回傳 500"
 user-invocable: true
+freedom: high
+models-tested: [flash, sonnet, opus]
 ---
 
 # 除錯與錯誤恢復 (Debugging & Error Recovery)
 
-## 核心原則與絕對邊界
+## 目錄
+1. [硬性規則 (Must)](#硬性規則-must)
+2. [適用時機與豁免規則](#適用時機與豁免規則)
+3. [除錯六步驟 (Root-Cause Flow)](#除錯六步驟-root-cause-flow)
+4. [常見情境排查指南](#常見情境排查指南)
+5. [完成前檢核](#完成前檢核)
 
-> **[Task Dashboard 除錯鐵律]**：
-> 1. **嚴禁憑感覺猜測 (No Vibe Debugging)**：在取得精確報錯訊息、HTTP 狀態碼或終端 Traceback 前，禁止盲目修改後端或前端程式碼。
-> 2. **重現優先 (Reproduction Mandatory)**：先以最小 curl 指令、單元測試腳本或明確操作步驟穩定重現錯誤。
-> 3. **治本不治標 (No Symptom Patching)**：嚴禁使用空 catch 吞掉異常或隨便給予假資料 fallback。修復必須針對 Root Cause。
-> 4. **大檔掃描與 Token 節約防迴圈 (Anti-Loop & Fast-Track)**：
->    - `src/public/index.html` 與 `src/server/server.js` 均為長檔案（> 4000 行），**嚴禁整檔閱讀或連續翻頁**。
->    - 一律先使用 `grep -n` 定位目標行，以切片檢索前後 30-50 行。
->    - 相同目標檢索上限為 2 次，確認問題後立即進入實作與測試驗證，嚴防原地陷入循環。
+## 硬性規則 (Must)
+1. **[MUST] 嚴禁憑感覺猜測 (No Vibe Debugging)**：在取得精確報錯訊息、HTTP 狀態碼或 Traceback 前，禁止盲目修改任何後端或前端代碼。
+2. **[MUST] 穩定重現優先 (Reproduction Mandatory)**：先以最小測試案例、curl 請求或重現腳本確認錯誤存在，修復後以同一案例驗證。
+3. **[MUST] 治本不治標 (No Symptom Patching)**：嚴禁使用空 catch 吞掉異常或給予不合規的 mock fallback；修復必須直指 Root Cause。
+4. **[MUST] 大檔切片檢索與防迴圈 (Anti-Loop & Fast-Track)**：面對 `index.html` 或 `server.js` 嚴禁整檔全覽；一律以 `grep -n` 定位後切片檢視，相同區塊檢索上限 2 次。
 
-## 適用時機
+## 適用時機與豁免規則
+- **適用時機**：執行 `npm test` 或 `npm run harness:check` 遭遇紅燈；後端 HTTP API 拋錯；哨兵進程異常退出；前端 Modal/看板渲染異常。
+- **豁免規則**：單純文檔修正或已知預期行為微調，無需進入完整除錯循環。
 
-- 執行 `npm test` 或 `npm run harness:check` 遭遇紅燈或語法錯誤。
-- 後端 HTTP API（`/api/tasks`, `/api/projects` 等）拋出 400/404/500 錯誤。
-- 哨兵腳本（`watch-task-gate.js`）無法正確感應檔案異動或意外退出。
-- 前端面板 Modal 彈窗或 Kanban 卡片狀態顯示不一致。
-
-## 除錯六步驟 (Root-Cause Recovery Flow)
+## 除錯六步驟 (Root-Cause Flow)
 
 ```text
 1. REPRODUCE → 穩定重現（透過 curl、單元測試或 scripts/test_server.sh 執行）
@@ -50,3 +51,9 @@ user-invocable: true
 ### 3. 哨兵與背景進程喚醒
 - 檢查目標監控檔案是否存在：`tasks.json`。
 - 檢查 `watch-task-gate.js` 的 `fs.watch` 或檔案輪巡機制是否保持在背景守候。
+
+## 完成前檢核
+- [ ] 錯誤已被重現且有具體修復依據，非暫時性治標。
+- [ ] 執行 `npm test` 與 `npm run harness:check` 確保 100% 綠燈。
+- [ ] 無遺留除錯用 `console.log` 或未清理之臨時測試檔案。
+- [ ] 符合大檔切片讀取規範，未造成上下文膨脹。
