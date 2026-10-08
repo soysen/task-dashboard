@@ -95,6 +95,12 @@ assert(htmlContent.includes('executeTaskActionConfirmed'), '必須具備 execute
 assert(htmlContent.includes('git-status'), '前端必須呼叫 /api/tasks/:id/git-status 取得即時異動預覽');
 assert(htmlContent.includes('/abandon'), '前端必須支援 POST /api/tasks/:id/abandon');
 assert(htmlContent.includes('btnAbandonTask'), '任務彈窗必須具備 btnAbandonTask 放棄按鈕');
+assert(!htmlContent.includes('<button type="button" id="btnDeleteTask"'), '任務彈窗底部必須移除獨立的刪除任務按鈕，統一保留放棄任務');
+assert(htmlContent.includes("t.status !== 'backlog' ?"), '看板卡片在 backlog 狀態不應渲染放棄按鈕');
+assert(htmlContent.includes("isBacklog"), '任務彈窗在 backlog 狀態必須隱藏放棄任務按鈕');
+assert(htmlContent.includes('discardCb.checked = true'), '放棄確認彈窗必須預設勾選捨棄工作區變更');
+const archiveCloseIndex = htmlContent.indexOf('</div>\n  </div>\n\n  <!-- Task Action Confirmation Modal');
+assert(archiveCloseIndex !== -1, 'taskActionConfirmModal 不可被包覆在 archiveModal 內，必須為頂層獨立彈窗');
 console.log('  ✅ 任務放棄與刪除 Double-Check 及 Git Discard 機制驗證通過');
 
 // 12. 驗證 Grill-Me 專案邊界確認與替代處理機制

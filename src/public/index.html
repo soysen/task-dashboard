@@ -947,10 +947,7 @@
         <!-- Modal Footer Actions -->
         <div class="p-3 px-5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
           <div class="flex items-center gap-2">
-            <button type="button" id="btnDeleteTask" onclick="promptTaskDeleteOrAbandon(document.getElementById('formTaskId').value, 'delete')" class="hidden bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 text-xs font-medium px-3 py-1.5 rounded-lg transition flex items-center gap-1">
-              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> 刪除任務
-            </button>
-            <button type="button" id="btnAbandonTask" onclick="promptTaskDeleteOrAbandon(document.getElementById('formTaskId').value, 'abandon')" class="hidden bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 dark:hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30 text-xs font-medium px-3 py-1.5 rounded-lg transition flex items-center gap-1" title="放棄此任務並移入封存庫（可選是否還原工作區變更）">
+            <button type="button" id="btnAbandonTask" onclick="promptTaskDeleteOrAbandon(document.getElementById('formTaskId').value, 'abandon')" class="hidden bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 dark:hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30 text-xs font-medium px-3 py-1.5 rounded-lg transition flex items-center gap-1" title="放棄此任務（可選是否還原工作區變更）">
               <i data-lucide="ban" class="w-3.5 h-3.5"></i> 放棄任務
             </button>
           </div>
@@ -1336,6 +1333,8 @@
         <button onclick="closeArchiveModal()" class="px-4 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium"> 關閉</button>
       </div>
     </div>
+  </div>
+
   <!-- Task Action Confirmation Modal (放棄/刪除 Double-Check 與 Git Diff 檢查) -->
   <div id="taskActionConfirmModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-4">
     <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-xl flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100">
@@ -2721,9 +2720,11 @@ node "${gateScriptPath}"
                   </span>
                 </div>
                 <div class="flex items-center gap-1">
+                  ${t.status !== 'backlog' ? `
                   <button onclick="promptTaskDeleteOrAbandon('${t.id}', 'abandon', event)" title="放棄任務 (可選還原 Git 變更)" class="opacity-0 group-hover:opacity-80 hover:!opacity-100 text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition">
                     <i data-lucide="ban" class="w-3 h-3"></i>
                   </button>
+                  ` : ''}
                   <button onclick="copyPrompt('${t.id}', event)" title="複製 AI 指令" class="opacity-80 group-hover:opacity-100 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition">
                     <i data-lucide="copy" class="w-3 h-3"></i>
                   </button>
@@ -2967,7 +2968,8 @@ node "${gateScriptPath}"
       document.getElementById('modalHeaderTitle').innerText = '新增任務';
       document.getElementById('modalPriorityBadge').innerText = 'P1';
       document.getElementById('modalPriorityBadge').className = 'px-2.5 py-0.5 rounded-md text-xs font-bold font-mono bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40';
-      document.getElementById('btnDeleteTask').classList.add('hidden');
+      const btnDeleteNew = document.getElementById('btnDeleteTask');
+      if (btnDeleteNew) btnDeleteNew.classList.add('hidden');
       const btnAbandonNew = document.getElementById('btnAbandonTask');
       if (btnAbandonNew) btnAbandonNew.classList.add('hidden');
       currentTaskDependencies = [];
@@ -3131,16 +3133,13 @@ node "${gateScriptPath}"
         }
       }
       if (btnDelete) {
-        if (isReadOnly) {
-          btnDelete.classList.add('hidden');
-        } else if (currentModalEditingTask && currentModalEditingTask.id) {
-          btnDelete.classList.remove('hidden');
-        }
+        btnDelete.classList.add('hidden');
       }
       if (btnAbandon) {
-        if (isReadOnly) {
+        const isBacklog = (currentModalEditingTask && currentModalEditingTask.status === 'backlog') || (document.getElementById('formStatus')?.value === 'backlog');
+        if (isReadOnly || isBacklog || !currentModalEditingTask || !currentModalEditingTask.id) {
           btnAbandon.classList.add('hidden');
-        } else if (currentModalEditingTask && currentModalEditingTask.id) {
+        } else {
           btnAbandon.classList.remove('hidden');
         }
       }
@@ -3301,9 +3300,16 @@ node "${gateScriptPath}"
 
 
 
-      document.getElementById('btnDeleteTask').classList.remove('hidden');
+      const btnDeleteEdit = document.getElementById('btnDeleteTask');
+      if (btnDeleteEdit) btnDeleteEdit.classList.add('hidden');
       const btnAbandonEdit = document.getElementById('btnAbandonTask');
-      if (btnAbandonEdit) btnAbandonEdit.classList.remove('hidden');
+      if (btnAbandonEdit) {
+        if (task.status === 'backlog') {
+          btnAbandonEdit.classList.add('hidden');
+        } else {
+          btnAbandonEdit.classList.remove('hidden');
+        }
+      }
       updateModalButtonState();
 
       document.getElementById('taskModal').classList.remove('hidden');
@@ -4735,29 +4741,18 @@ node "${gateScriptPath}"
       const discardCb = document.getElementById('actionModalDiscardCheckbox');
 
       if (reasonInput) reasonInput.value = '';
-      if (discardCb) discardCb.checked = false;
+      if (discardCb) discardCb.checked = true;
 
       document.getElementById('actionModalTaskId').innerText = task.id;
       document.getElementById('actionModalTaskTitle').innerText = task.title || '';
       document.getElementById('actionModalDescription').innerText = task.description || '(無詳細描述)';
 
-      if (actionType === 'delete') {
-        titleEl.innerText = '刪除任務確認';
-        subEl.innerText = '此操作將自資料庫永久刪除此任務，無法復原！';
-        iconWrap.className = 'w-8 h-8 rounded-lg flex items-center justify-center bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400';
-        iconWrap.innerHTML = '<i data-lucide="trash-2" class="w-4 h-4"></i>';
-        submitBtn.className = 'px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md transition flex items-center gap-1.5';
-        submitText.innerText = '確認永久刪除';
-        if (reasonWrap) reasonWrap.classList.add('hidden');
-      } else {
-        titleEl.innerText = '放棄任務確認';
-        subEl.innerText = '此操作將把任務標記為已放棄並移入封存庫，您可選擇是否還原工作區異動。';
-        iconWrap.className = 'w-8 h-8 rounded-lg flex items-center justify-center bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400';
-        iconWrap.innerHTML = '<i data-lucide="ban" class="w-4 h-4"></i>';
-        submitBtn.className = 'px-4 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold shadow-md transition flex items-center gap-1.5';
-        submitText.innerText = '確認放棄任務';
-        if (reasonWrap) reasonWrap.classList.remove('hidden');
-      }
+      titleEl.innerText = '放棄任務確認';
+      iconWrap.className = 'w-8 h-8 rounded-lg flex items-center justify-center bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400';
+      iconWrap.innerHTML = '<i data-lucide="ban" class="w-4 h-4"></i>';
+      submitBtn.className = 'px-4 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold shadow-md transition flex items-center gap-1.5';
+      submitText.innerText = '確認放棄並刪除';
+      if (reasonWrap) reasonWrap.classList.add('hidden');
 
       // 檢查 Git Diff
       const gitSection = document.getElementById('actionModalGitSection');
@@ -4781,6 +4776,7 @@ node "${gateScriptPath}"
           if (gitData.hasDiff && gitData.files && gitData.files.length > 0) {
             gitSection.classList.remove('hidden');
             noGitSection.classList.add('hidden');
+            subEl.innerText = '此任務專案有未提交之工作區異動，請確認是否要同時捨棄變更 (git discard changes) 並自看板刪除此任務。';
             diffBadge.className = 'text-[10px] font-mono px-1.5 py-0.5 rounded font-bold bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-300 dark:border-rose-700';
             diffBadge.innerText = `${gitData.files.length} 個未提交異動檔案`;
             diffFileList.innerHTML = gitData.files.map(f => `
@@ -4792,14 +4788,17 @@ node "${gateScriptPath}"
           } else {
             gitSection.classList.add('hidden');
             noGitSection.classList.remove('hidden');
+            subEl.innerText = '專案工作區無未提交之代碼變更。確認後將自看板刪除此任務。';
           }
         } else {
           gitSection.classList.add('hidden');
           noGitSection.classList.remove('hidden');
+          subEl.innerText = '專案工作區無未提交之代碼變更。確認後將自看板刪除此任務。';
         }
       } catch (err) {
         gitSection.classList.add('hidden');
         noGitSection.classList.remove('hidden');
+        subEl.innerText = '專案工作區無未提交之代碼變更。確認後將自看板刪除此任務。';
       }
 
       if (window.lucide) lucide.createIcons();
@@ -4815,44 +4814,28 @@ node "${gateScriptPath}"
       const { taskId, actionType } = currentPendingAction;
       const submitBtn = document.getElementById('btnActionConfirmSubmit');
       const discardCb = document.getElementById('actionModalDiscardCheckbox');
-      const shouldDiscard = !!(discardCb && discardCb.checked);
+      const gitSection = document.getElementById('actionModalGitSection');
+      const hasGitDiffVisible = gitSection && !gitSection.classList.contains('hidden');
+      const shouldDiscard = hasGitDiffVisible && !!(discardCb && discardCb.checked);
       const reasonInput = document.getElementById('actionModalReasonInput');
       const reason = reasonInput ? reasonInput.value.trim() : '';
 
       await withButtonLoading(submitBtn, '處理中...', async () => {
         try {
-          if (actionType === 'delete') {
-            const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
-              method: 'DELETE',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ discardChanges: shouldDiscard })
-            });
-            if (!res.ok) {
-              const errData = await res.json().catch(() => ({}));
-              throw new Error(errData.error || `伺服器回應 ${res.status}`);
-            }
-            const resData = await res.json().catch(() => ({}));
-            let msg = `已刪除任務 ${taskId}`;
-            if (resData.discardOutput) msg += ` (${resData.discardOutput})`;
-            showToast(msg);
-          } else {
-            const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/abandon`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                discardChanges: shouldDiscard,
-                reason
-              })
-            });
-            if (!res.ok) {
-              const errData = await res.json().catch(() => ({}));
-              throw new Error(errData.error || `伺服器回應 ${res.status}`);
-            }
-            const resData = await res.json().catch(() => ({}));
-            let msg = `已放棄任務 ${taskId} 並移入封存庫`;
-            if (resData.discardOutput) msg += ` (${resData.discardOutput})`;
-            showToast(msg);
+          // 支援 /abandon 與 DELETE 統一流程：若有 git diff 且確認捨棄則 discard 並刪除任務；無 diff 則直接刪除任務
+          const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ discardChanges: shouldDiscard })
+          });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error || `伺服器回應 ${res.status}`);
           }
+          const resData = await res.json().catch(() => ({}));
+          let msg = `已放棄並刪除任務 ${taskId}`;
+          if (resData.discardOutput) msg += ` (${resData.discardOutput})`;
+          showToast(msg);
 
           closeActionConfirmModal();
           closeModal();

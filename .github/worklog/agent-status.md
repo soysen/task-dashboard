@@ -2,26 +2,26 @@
 
 ## Active Task
 
-- ID: TASK-101
-- Title: 有 grill-me 的專案在任務卡牌看到需確認的內容
+- ID: TASK-104
+- Title: 點選”放棄任務“沒有動作
 - Status: 已完成
 - Last updated: 2026-10-08
-- Goal: 將“確認後執行”與 grill-me 確認做整合，於任務卡牌提供需確認內容與 Grill-Me 專屬徽章，並於任務彈窗提供邊界確認、快捷決策標籤與確認執行一體化操作
-- Route: dashboard-state-and-sync
-- Scope: 卡牌 Grill-Me 識別與待確認摘要、任務彈窗 Grill-Me 邊界確認一體化、專案切換動態連動、單元與回歸測試
+- Goal: 在新增與待處理任務不出現放棄任務；刪除任務與放棄任務保留放棄任務；修復點選無反應問題，有 git diff 確認 discard 並刪除任務，無 git diff 直接刪除
+- Route: debugging-and-error-recovery / dashboard-state-and-sync
+- Scope: DOM 結構修復、按鈕一體化、backlog 顯示防線、git diff discard 確認機制與測試
 - Out of scope: 跨專案副作用
 
 ## Last Completed Task
 
-- ID: TASK-101
-- Title: 有 grill-me 的專案在任務卡牌看到需確認的內容
+- ID: TASK-104
+- Title: 點選”放棄任務“沒有動作
 - Status: 已完成
 - Last updated: 2026-10-08
 
 ## Execution Tracking
 
 - CurrentStep: 任務驗收通過，已成功結案
-- Evidence: 卡牌 Grill-Me 徽章與摘要、任務彈窗替代處理介面、test_ui_behavior.js、test_server.sh 與 harness:check 100% 綠燈
+- Evidence: test_ui_behavior.js、test_server.sh 與 harness:check 100% 綠燈通過
 - NextStep: 使用者驗收與發佈
 
 ## Reset Decision Log
@@ -37,4 +37,4 @@
 ## Resume Entry
 
 - Start here: .github/worklog/agent-status.md
-- Context: TASK-101 深度整合「確認後執行」與 Grill-Me 邊界確認機制
+- Context: TASK-104 完成放棄任務 DOM 修復、backlog 隱藏防線與 Git Diff Discard 健全化
