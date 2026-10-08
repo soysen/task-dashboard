@@ -1383,7 +1383,7 @@
             <input type="checkbox" id="actionModalDiscardCheckbox" class="rounded border-amber-300 text-rose-600 focus:ring-rose-500 w-4 h-4 mt-0.5 cursor-pointer">
             <div class="space-y-0.5">
               <span class="font-bold text-rose-700 dark:text-rose-400"> 同時捨棄工作區變更 (git discard changes)</span>
-              <p class="text-[10px] text-slate-500 dark:text-slate-400"> 勾選後將執行 <code class="font-mono bg-slate-200 dark:bg-slate-800 px-1 py-0.2 rounded">git checkout . && git clean -fd</code>，徹底清除此專案所有未提交之代碼異動與新增檔案，此操作無法復原！</p>
+              <p class="text-[10px] text-slate-500 dark:text-slate-400"> 勾選後將執行 <code class="font-mono bg-slate-200 dark:bg-slate-800 px-1 py-0.2 rounded">git reset --hard HEAD && git clean -fd</code>，徹底清除此專案所有未提交之代碼異動與新增檔案，此操作無法復原！</p>
             </div>
           </label>
         </div>
@@ -4814,9 +4814,7 @@ node "${gateScriptPath}"
       const { taskId, actionType } = currentPendingAction;
       const submitBtn = document.getElementById('btnActionConfirmSubmit');
       const discardCb = document.getElementById('actionModalDiscardCheckbox');
-      const gitSection = document.getElementById('actionModalGitSection');
-      const hasGitDiffVisible = gitSection && !gitSection.classList.contains('hidden');
-      const shouldDiscard = hasGitDiffVisible && !!(discardCb && discardCb.checked);
+      const shouldDiscard = !!(discardCb && discardCb.checked);
       const reasonInput = document.getElementById('actionModalReasonInput');
       const reason = reasonInput ? reasonInput.value.trim() : '';
 

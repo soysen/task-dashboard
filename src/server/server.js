@@ -3199,8 +3199,12 @@ function runNativeFolderPicker(promptText, callback) {
 
         const task = tasks[index];
         const projects = readProjects();
-        const proj = projects.find(p => p.id === task.project);
-        const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, task.project || '');
+        const proj = projects.find(p => p.id === task.project || p.name === task.project);
+        let projPath = (proj && proj.path) || task.projectPath || path.join(PROJECTS_ROOT, task.project || '');
+        if (typeof projPath === 'string' && projPath.startsWith('~')) {
+          projPath = path.join(os.homedir(), projPath.slice(1));
+        }
+        projPath = path.resolve(projPath);
 
         // 停止可能正在執行的 CLI Agent 行程
         if (activeCliProcesses.has(taskId)) {
@@ -3211,12 +3215,15 @@ function runNativeFolderPicker(promptText, callback) {
           activeCliProcesses.delete(taskId);
         }
 
-        // 若使用者選擇 discardChanges，執行 git checkout . 與 git clean -fd
+        // 若使用者選擇 discardChanges，執行 git reset --hard HEAD 與 git clean -fd 徹底還原
         let discardOutput = '';
         if (reqData.discardChanges === true && fs.existsSync(projPath) && fs.existsSync(path.join(projPath, '.git'))) {
           try {
-            execSync('git checkout . && git clean -fd', { cwd: projPath, encoding: 'utf8', timeout: 8000 });
-            discardOutput = '工作區變更已成功捨棄 (git checkout . && git clean -fd)';
+            try { execSync('git reset --hard HEAD', { cwd: projPath, encoding: 'utf8', timeout: 8000 }); } catch (rErr) {
+              try { execSync('git checkout .', { cwd: projPath, encoding: 'utf8', timeout: 5000 }); } catch (e) {}
+            }
+            try { execSync('git clean -fd', { cwd: projPath, encoding: 'utf8', timeout: 8000 }); } catch (cErr) {}
+            discardOutput = '工作區變更已成功捨棄 (git reset --hard HEAD && git clean -fd)';
           } catch (gErr) {
             discardOutput = '捨棄工作區變更失敗: ' + gErr.message;
           }
@@ -3281,12 +3288,19 @@ function runNativeFolderPicker(promptText, callback) {
         let discardOutput = '';
         if (shouldDiscard && targetTask) {
           const projects = readProjects();
-          const proj = projects.find(p => p.id === targetTask.project);
-          const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, targetTask.project || '');
+          const proj = projects.find(p => p.id === targetTask.project || p.name === targetTask.project);
+          let projPath = (proj && proj.path) || targetTask.projectPath || path.join(PROJECTS_ROOT, targetTask.project || '');
+          if (typeof projPath === 'string' && projPath.startsWith('~')) {
+            projPath = path.join(os.homedir(), projPath.slice(1));
+          }
+          projPath = path.resolve(projPath);
           if (fs.existsSync(projPath) && fs.existsSync(path.join(projPath, '.git'))) {
             try {
-              execSync('git checkout . && git clean -fd', { cwd: projPath, encoding: 'utf8', timeout: 8000 });
-              discardOutput = '工作區變更已成功捨棄 (git checkout . && git clean -fd)';
+              try { execSync('git reset --hard HEAD', { cwd: projPath, encoding: 'utf8', timeout: 8000 }); } catch (rErr) {
+                try { execSync('git checkout .', { cwd: projPath, encoding: 'utf8', timeout: 5000 }); } catch (e) {}
+              }
+              try { execSync('git clean -fd', { cwd: projPath, encoding: 'utf8', timeout: 8000 }); } catch (cErr) {}
+              discardOutput = '工作區變更已成功捨棄 (git reset --hard HEAD && git clean -fd)';
             } catch (gErr) {
               discardOutput = '捨棄工作區變更失敗: ' + gErr.message;
             }

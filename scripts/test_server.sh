@@ -102,6 +102,27 @@ if [ -n "$TASK_ID" ]; then
     echo "    ❌ DELETE /api/tasks/:id 失敗: $DELETE_RES"
     exit 1
   fi
+
+  # 測試 DELETE /api/tasks/:id 帶有 discardChanges: true (包含 git add -N 與 untracked 檔案)
+  DUMMY_DIR="/tmp/test-git-discard-repo-$$"
+  mkdir -p "$DUMMY_DIR"
+  git -C "$DUMMY_DIR" init > /dev/null 2>&1
+  git -C "$DUMMY_DIR" commit --allow-empty -m "init" > /dev/null 2>&1
+  echo "dummy" > "$DUMMY_DIR/file.txt"
+  git -C "$DUMMY_DIR" add -N "$DUMMY_DIR/file.txt"
+  echo "untracked" > "$DUMMY_DIR/untracked.txt"
+  curl -s -f -X POST "http://localhost:$TEST_PORT/api/projects" -H "Content-Type: application/json" -d "{\"id\":\"test-discard-repo\",\"name\":\"test-discard-repo\",\"path\":\"$DUMMY_DIR\"}" > /dev/null 2>&1
+  DISCARD_TASK=$(curl -s -f -X POST "http://localhost:$TEST_PORT/api/tasks" -H "Content-Type: application/json" -d "{\"title\":\"測試 discard\",\"project\":\"test-discard-repo\",\"status\":\"in_progress\"}")
+  DISCARD_TASK_ID=$(echo "$DISCARD_TASK" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)
+  DELETE_DISCARD_RES=$(curl -s -f -X DELETE "http://localhost:$TEST_PORT/api/tasks/$DISCARD_TASK_ID" -H "Content-Type: application/json" -d '{"discardChanges":true}')
+  DIFF_AFTER=$(git -C "$DUMMY_DIR" status --porcelain)
+  if [ -z "$DIFF_AFTER" ]; then
+    echo "    ✅ DELETE /api/tasks/:id 徹底捨棄工作區變更 (含 intent-to-add 與 untracked) 成功"
+  else
+    echo "    ❌ 工作區變更未徹底捨棄: $DIFF_AFTER"
+    exit 1
+  fi
+  rm -rf "$DUMMY_DIR"
 fi
 
 echo "  [7/7] 測試 多任務 agent-status 與切片隔離單元測試 ..."
