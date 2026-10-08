@@ -772,16 +772,38 @@
             </div>
 
             <!-- 完整執行計劃 (Execution Plan - 需確認機制) -->
-            <div id="formExecutionPlanBox" class="hidden bg-amber-500/5 dark:bg-amber-950/20 border border-amber-500/30 rounded-xl p-3 space-y-2">
+            <div id="formExecutionPlanBox" class="hidden bg-amber-500/5 dark:bg-amber-950/20 border border-amber-500/30 rounded-xl p-3 space-y-2.5">
               <div class="flex items-center justify-between">
                 <label class="text-xs font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
-                  <i data-lucide="clipboard-check" class="w-3.5 h-3.5 text-amber-500"></i> 完整執行計劃 (Execution Plan)
+                  <i id="formExecutionPlanLabelIcon" data-lucide="clipboard-check" class="w-3.5 h-3.5 text-amber-500"></i>
+                  <span id="formExecutionPlanLabelText">完整執行計劃 (Execution Plan)</span>
                 </label>
                 <span id="formExecutionPlanBadge" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/60">
                   待確認
                 </span>
               </div>
               <p id="formExecutionPlanNotice" class="text-[11px] text-slate-600 dark:text-slate-400">此任務設定為「需確認後再執行」，請檢視下列執行計劃並點選「確認並執行」。</p>
+
+              <!-- Grill-Me 專屬邊界確認與替代處理面板 (專案支援 grill-me 時動態展示) -->
+              <div id="grillMeBanner" class="hidden p-3 rounded-xl bg-orange-50/90 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800/60 space-y-2">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-bold text-orange-800 dark:text-orange-300 flex items-center gap-1.5">
+                    <i data-lucide="flame" class="w-3.5 h-3.5 text-orange-500"></i>
+                    <span>Grill-Me 邊界確認替代介面</span>
+                  </span>
+                  <span class="text-[9px] font-mono px-1.5 py-0.2 rounded bg-orange-200/80 dark:bg-orange-900/70 text-orange-900 dark:text-orange-200 font-bold">免去 AI Chat</span>
+                </div>
+                <p class="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                  此專案配備 Grill-Me 主動質詢技能。您可直接於彈窗中審閱邊界、點選快捷決策或補充說明，點選「確認並執行」將直接授權 Agent 實作，無需切換至 AI Chat。
+                </p>
+                <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+                  <span class="text-[10px] font-semibold text-orange-700/80 dark:text-orange-400/80 mr-0.5">常用決策標籤:</span>
+                  <button type="button" onclick="insertGrillMeDecision('✅ 已確認邊界假設無誤，依此計劃推進')" class="text-[10px] px-2 py-0.5 rounded-full bg-white dark:bg-slate-900 hover:bg-orange-100 dark:hover:bg-orange-900/50 text-orange-800 dark:text-orange-200 border border-orange-300 dark:border-orange-700 transition">✅ 確認邊界無誤</button>
+                  <button type="button" onclick="insertGrillMeDecision('🚫 明確界定 Non-goals：排除跨模組改動與非必要套件')" class="text-[10px] px-2 py-0.5 rounded-full bg-white dark:bg-slate-900 hover:bg-orange-100 dark:hover:bg-orange-900/50 text-orange-800 dark:text-orange-200 border border-orange-300 dark:border-orange-700 transition">🚫 排除 Non-goals</button>
+                  <button type="button" onclick="insertGrillMeDecision('⚡️ 採用最小解法 Fast-Track，先以測試覆蓋驗收')" class="text-[10px] px-2 py-0.5 rounded-full bg-white dark:bg-slate-900 hover:bg-orange-100 dark:hover:bg-orange-900/50 text-orange-800 dark:text-orange-200 border border-orange-300 dark:border-orange-700 transition">⚡️ 最小 Fast-Track</button>
+                </div>
+              </div>
+
               <textarea id="formExecutionPlan" rows="6" placeholder="此任務之預計執行計劃、步驟與驗證指標..." class="w-full bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800/80 rounded-lg p-2.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-amber-500 custom-scrollbar font-mono"></textarea>
             </div>
 
@@ -935,7 +957,7 @@
           <div class="flex items-center gap-2">
             <label id="formRequiresConfirmationWrapper" class="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer mr-1.5 select-none" title="勾選後將在卡片標記待確認，需先檢視執行計劃並點選確認後才開始執行">
               <input type="checkbox" id="formRequiresConfirmation" onchange="toggleFormRequiresConfirmation(this.checked)" class="rounded border-slate-300 text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer">
-              <span class="font-medium">需確認後再執行</span>
+              <span id="formRequiresConfirmationText" class="font-medium">需確認後再執行</span>
             </label>
             <button type="button" onclick="closeModal()" class="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium px-3.5 py-1.5 rounded-lg transition"> 取消
             </button>
@@ -943,7 +965,8 @@
               <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> 退回重做
             </button>
             <button type="button" id="btnConfirmAndExecute" onclick="confirmAndExecuteTask()" class="hidden bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-md shadow-amber-500/25 transition flex items-center gap-1.5" title="確認執行計劃並立即啟動任務執行">
-              <i data-lucide="play-circle" class="w-4 h-4"></i> 確認並執行
+              <i id="btnConfirmAndExecuteIcon" data-lucide="play-circle" class="w-4 h-4"></i>
+              <span id="btnConfirmAndExecuteText">確認並執行</span>
             </button>
             <button type="button" id="btnApproveTask" onclick="approveTaskAsDone()" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-emerald-500/25 transition flex items-center gap-1.5">
               <i data-lucide="check-circle" class="w-4 h-4"></i> 驗收通過
@@ -1975,6 +1998,28 @@ node "${gateScriptPath}"
       initSelect2Dropdown('');
       renderSelect2Chips();
       updateDependencyOptions(currentModalEditingTask ? currentModalEditingTask.id : '');
+      updateConfirmationGateForProject(proj.id);
+    }
+
+    function updateConfirmationGateForProject(projId) {
+      const proj = projects.find(p => p.id === projId);
+      const projSkills = (proj && Array.isArray(proj.skills)) ? proj.skills : [];
+      const hasGrillMe = projSkills.some(s => s.id === 'grill-me' || s.label === 'grill-me');
+      const reqText = document.getElementById('formRequiresConfirmationText');
+      const reqCheckbox = document.getElementById('formRequiresConfirmation');
+      if (reqText) {
+        if (hasGrillMe) {
+          reqText.innerHTML = '<span class="text-orange-600 dark:text-orange-400 font-semibold flex items-center gap-1"><i data-lucide="flame" class="w-3 h-3 text-orange-500"></i> 需經 Grill-Me 邊界確認後執行</span>';
+        } else {
+          reqText.innerText = '需確認後再執行';
+        }
+      }
+      // 新增任務且該專案有 grill-me 時，主動預設勾選邊界確認
+      if (!currentModalEditingTask && hasGrillMe && reqCheckbox && !reqCheckbox.checked) {
+        reqCheckbox.checked = true;
+        toggleFormRequiresConfirmation(true);
+      }
+      if (window.lucide) lucide.createIcons();
     }
 
     function clearFormProject(e) {
@@ -1990,6 +2035,7 @@ node "${gateScriptPath}"
       initSelect2Dropdown('');
       updateProjectClearButtonVisibility('');
       updateDependencyOptions(currentModalEditingTask ? currentModalEditingTask.id : '');
+      updateConfirmationGateForProject('');
       if (window.lucide) lucide.createIcons();
     }
 
@@ -2652,16 +2698,24 @@ node "${gateScriptPath}"
                                   isReviewStatus ? 'border-purple-400 dark:border-purple-500/80 bg-purple-50/20 dark:bg-purple-950/40 ring-1 ring-purple-500/40' : 
                                   'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/90 hover:border-slate-300 dark:hover:border-slate-500 shadow-sm';
 
+          const projSkills = (t.projectSkills && Array.isArray(t.projectSkills)) ? t.projectSkills : (proj && Array.isArray(proj.skills) ? proj.skills : []);
+          const hasGrillMe = projSkills.some(s => (s.id === 'grill-me' || s.label === 'grill-me'));
+          const isPendingConfirm = (t.status === 'in_progress' && t.requiresConfirmation);
+
           return `
             <div data-id="${t.id}" tabindex="0" role="button" aria-label="${escapeHtml(t.title)}" onclick="openModalForEdit('${t.id}')" onkeydown="handleCardKeyDown(event, '${t.id}')" class="kanban-card p-3 rounded-lg border ${cardBorderClass} shadow-sm transition-all cursor-pointer group hover:scale-[1.01] space-y-2 relative focus:outline-none">
               <div class="flex items-start justify-between gap-1.5">
                 <div class="flex items-center gap-1.5 flex-wrap">
                   <span class="text-[10px] font-bold px-1.5 py-0.2 rounded border ${priorityColor} font-mono">${t.priority || 'P1'}</span>
-                  ${(t.status === 'in_progress' && t.requiresConfirmation && t.executionPlan && t.executionPlan.trim()) ? `
+                  ${(t.status === "in_progress" && t.requiresConfirmation && t.executionPlan && t.executionPlan.trim()) ? (hasGrillMe ? `
+                    <span class="text-[10px] font-bold px-1.5 py-0.2 rounded border bg-orange-50 dark:bg-orange-950/60 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-800/60 font-mono flex items-center gap-0.5" title="此專案具備 Grill-Me 邊界確認機制，點擊彈窗審閱與處理">
+                      🔥 Grill-Me 待確認
+                    </span>
+                  ` : `
                     <span class="text-[10px] font-bold px-1.5 py-0.2 rounded border bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-500/40 font-mono flex items-center gap-0.5">
                       待確認
                     </span>
-                  ` : ''}
+                  `) : ''}
                   <span class="text-[10px] px-1.5 py-0.2 rounded bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 font-mono truncate max-w-[110px]" title="${escapeHtml(projName)}">
                      ${escapeHtml(projName)}
                   </span>
@@ -2681,6 +2735,22 @@ node "${gateScriptPath}"
               </h4>
 
               ${t.description ? `<p class="text-[11px] text-slate-600 dark:text-slate-400 line-clamp-2 leading-relaxed">${escapeHtml(t.description)}</p>` : ''}
+
+              ${isPendingConfirm ? `
+                <!-- 待確認內容與邊界質詢摘要卡片 (支援 Grill-Me 專案) -->
+                <div class="p-2 rounded-lg border ${hasGrillMe ? 'bg-orange-50/70 dark:bg-orange-950/30 border-orange-200 dark:border-orange-800/60 text-orange-950 dark:text-orange-200' : 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/60 text-amber-950 dark:text-amber-200'} space-y-1 text-[11px]">
+                  <div class="flex items-center justify-between font-bold text-[10px]">
+                    <span class="flex items-center gap-1 ${hasGrillMe ? 'text-orange-700 dark:text-orange-400' : 'text-amber-800 dark:text-amber-300'}">
+                      <i data-lucide="${hasGrillMe ? 'flame' : 'clipboard-check'}" class="w-3 h-3 ${hasGrillMe ? 'text-orange-500' : 'text-amber-600'}"></i>
+                      ${hasGrillMe ? 'Grill-Me 邊界質詢內容' : '需確認執行內容'}
+                    </span>
+                    <span class="text-[9px] px-1 py-0.2 rounded font-mono font-normal ${hasGrillMe ? 'bg-orange-200/60 dark:bg-orange-900/60 text-orange-800 dark:text-orange-300' : 'bg-amber-200/60 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300'}">點擊彈窗處理</span>
+                  </div>
+                  <p class="text-[10px] text-slate-700 dark:text-slate-300 line-clamp-2 leading-relaxed font-mono">
+                    ${escapeHtml(t.executionPlan ? t.executionPlan.replace(/^#+\s+/gm, '').trim() : (hasGrillMe ? '此專案具備 Grill-Me 機制，等待邊界確認與執行計劃...' : '等待擬定執行計劃...'))}
+                  </p>
+                </div>
+              ` : ''}
 
               ${isInProgress ? `
                 <div class="space-y-1.5 pt-0.5">
@@ -2855,6 +2925,19 @@ node "${gateScriptPath}"
       }
       autoResizeTextarea(fbEl, 48, 200);
       fbEl.focus();
+    }
+
+    function insertGrillMeDecision(decisionText) {
+      const planEl = document.getElementById('formExecutionPlan');
+      if (!planEl) return;
+      const current = (planEl.value || '').trim();
+      const decisionBlock = `\n\n【Grill-Me 邊界決策】\n${decisionText}`;
+      if (!current.includes(decisionText)) {
+        planEl.value = current ? `${current}${decisionBlock}` : `【Grill-Me 邊界決策】\n${decisionText}`;
+      }
+      autoResizeTextarea(planEl, 60, 300);
+      planEl.focus();
+      showToast(`已套用邊界決策標籤：「${decisionText}」`);
     }
 
     function resetTextareaHeight(el) {
@@ -3812,24 +3895,44 @@ node "${gateScriptPath}"
       const planBox = document.getElementById('formExecutionPlanBox');
       const planBadge = document.getElementById('formExecutionPlanBadge');
       const planNotice = document.getElementById('formExecutionPlanNotice');
+      const grillMeBanner = document.getElementById('grillMeBanner');
+      const hasGrillMeSkill = projSkills.some(s => (s.id === 'grill-me' || s.label === 'grill-me'));
+
+      if (grillMeBanner) {
+        if (hasGrillMeSkill && isReqConfirmChecked && status === 'in_progress' && !!taskId) {
+          grillMeBanner.classList.remove('hidden');
+        } else {
+          grillMeBanner.classList.add('hidden');
+        }
+      }
+
       if (planBox) {
         if (isReqConfirmChecked && status === 'in_progress' && !!taskId) {
           planBox.classList.remove('hidden');
           if (hasExecutionPlan) {
             if (planBadge) {
-              planBadge.innerText = '待確認';
-              planBadge.className = 'text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/60';
+              if (hasGrillMeSkill) {
+                planBadge.innerText = '🔥 Grill-Me 待確認';
+                planBadge.className = 'text-[10px] font-mono px-1.5 py-0.5 rounded bg-orange-100 dark:bg-orange-900/60 text-orange-800 dark:text-orange-300 border border-orange-300/60 dark:border-orange-700/60';
+              } else {
+                planBadge.innerText = '待確認';
+                planBadge.className = 'text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/60';
+              }
             }
             if (planNotice) {
-              planNotice.innerText = '此任務設定為「需確認後再執行」，請檢視下列執行計劃並點選「確認並執行」。';
+              if (hasGrillMeSkill) {
+                planNotice.innerText = '此專案具備 Grill-Me 邊界確認機制，請檢視下列執行計劃或套用決策標籤，點選「確認並執行」。';
+              } else {
+                planNotice.innerText = '此任務設定為「需確認後再執行」，請檢視下列執行計劃並點選「確認並執行」。';
+              }
             }
           } else {
             if (planBadge) {
-              planBadge.innerText = '規劃中 (尚未產出計劃)';
+              planBadge.innerText = hasGrillMeSkill ? '🔥 Grill-Me 邊界規劃中' : '規劃中 (尚未產出計劃)';
               planBadge.className = 'text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-300/60 dark:border-blue-700/60';
             }
             if (planNotice) {
-              planNotice.innerText = '此任務設定為「需確認後再執行」，AI / 負責人尚未產出執行計劃。待執行計劃填寫完成後方可進行確認。';
+              planNotice.innerText = hasGrillMeSkill ? '此專案具備 Grill-Me 機制，AI / 負責人尚未產出邊界質詢與執行計劃。' : '此任務設定為「需確認後再執行」，AI / 負責人尚未產出執行計劃。待執行計劃填寫完成後方可進行確認。';
             }
           }
         } else {
@@ -3847,9 +3950,33 @@ node "${gateScriptPath}"
         }
       }
 
+      const planLabelIcon = document.getElementById('formExecutionPlanLabelIcon');
+      const planLabelText = document.getElementById('formExecutionPlanLabelText');
+      if (planLabelText) {
+        planLabelText.innerText = hasGrillMeSkill ? 'Grill-Me 邊界確認與執行計劃' : '完整執行計劃 (Execution Plan)';
+      }
+      if (planLabelIcon) {
+        planLabelIcon.setAttribute('data-lucide', hasGrillMeSkill ? 'flame' : 'clipboard-check');
+        planLabelIcon.className = hasGrillMeSkill ? 'w-3.5 h-3.5 text-orange-500' : 'w-3.5 h-3.5 text-amber-500';
+      }
+
       if (btnConfirmAndExecute) {
         if (isPendingConfirmation) {
           btnConfirmAndExecute.classList.remove('hidden');
+          const btnIcon = document.getElementById('btnConfirmAndExecuteIcon');
+          const btnText = document.getElementById('btnConfirmAndExecuteText');
+          if (hasGrillMeSkill) {
+            if (btnIcon) btnIcon.setAttribute('data-lucide', 'flame');
+            if (btnText) btnText.innerText = '確認邊界並執行';
+            btnConfirmAndExecute.className = 'bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-md shadow-orange-500/25 transition flex items-center gap-1.5';
+            btnConfirmAndExecute.title = '確認 Grill-Me 邊界決策與執行計劃，授權開始執行';
+          } else {
+            if (btnIcon) btnIcon.setAttribute('data-lucide', 'play-circle');
+            if (btnText) btnText.innerText = '確認並執行';
+            btnConfirmAndExecute.className = 'bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-md shadow-amber-500/25 transition flex items-center gap-1.5';
+            btnConfirmAndExecute.title = '確認執行計劃並立即啟動任務執行';
+          }
+          if (window.lucide) lucide.createIcons();
         } else {
           btnConfirmAndExecute.classList.add('hidden');
         }

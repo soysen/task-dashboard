@@ -97,4 +97,12 @@ assert(htmlContent.includes('/abandon'), '前端必須支援 POST /api/tasks/:id
 assert(htmlContent.includes('btnAbandonTask'), '任務彈窗必須具備 btnAbandonTask 放棄按鈕');
 console.log('  ✅ 任務放棄與刪除 Double-Check 及 Git Discard 機制驗證通過');
 
+// 12. 驗證 Grill-Me 專案邊界確認與替代處理機制
+assert(htmlContent.includes('hasGrillMe'), '卡片渲染邏輯必須具備 hasGrillMe 專案技能判定');
+assert(htmlContent.includes('🔥 Grill-Me 待確認'), '具備 grill-me 之專案在待確認狀態必須渲染專屬徽章');
+assert(htmlContent.includes('id="grillMeBanner"'), '任務彈窗必須具備 grillMeBanner 邊界確認替代介面');
+assert(htmlContent.includes('insertGrillMeDecision'), '必須具備 insertGrillMeDecision 快捷決策標籤函式');
+assert(htmlContent.includes('Grill-Me 邊界確認替代介面'), '任務彈窗必須展示 Grill-Me 替代介面標題');
+console.log('  ✅ Grill-Me 專案卡牌邊界待確認與彈窗替代處理機制驗證通過');
+
 console.log('🎉 所有前端核心互動邏輯與防禦機制測試通過！\n');

@@ -2,26 +2,26 @@
 
 ## Active Task
 
-- ID: TASK-102
-- Title: skill 優化
+- ID: TASK-101
+- Title: 有 grill-me 的專案在任務卡牌看到需確認的內容
 - Status: 已完成
 - Last updated: 2026-10-08
-- Goal: 參考 projects/plan-to-build 優化 skills
-- Route: context-engineering
-- Scope: 現代化改造 6 個核心 Skills、建立自動校驗器 validate-skills.js、整合 harness 檢核
+- Goal: 將“確認後執行”與 grill-me 確認做整合，於任務卡牌提供需確認內容與 Grill-Me 專屬徽章，並於任務彈窗提供邊界確認、快捷決策標籤與確認執行一體化操作
+- Route: dashboard-state-and-sync
+- Scope: 卡牌 Grill-Me 識別與待確認摘要、任務彈窗 Grill-Me 邊界確認一體化、專案切換動態連動、單元與回歸測試
 - Out of scope: 跨專案副作用
 
 ## Last Completed Task
 
-- ID: TASK-102
-- Title: skill 優化
+- ID: TASK-101
+- Title: 有 grill-me 的專案在任務卡牌看到需確認的內容
 - Status: 已完成
 - Last updated: 2026-10-08
 
 ## Execution Tracking
 
 - CurrentStep: 任務驗收通過，已成功結案
-- Evidence: validate-skills.js 6 個現代化 Skill 通過，harness:check 100% 綠燈，test_server.sh 通過
+- Evidence: 卡牌 Grill-Me 徽章與摘要、任務彈窗替代處理介面、test_ui_behavior.js、test_server.sh 與 harness:check 100% 綠燈
 - NextStep: 使用者驗收與發佈
 
 ## Reset Decision Log
@@ -37,4 +37,4 @@
 ## Resume Entry
 
 - Start here: .github/worklog/agent-status.md
-- Context: TASK-102 完成 Skills 現代化改造與自動化門禁整合
+- Context: TASK-101 深度整合「確認後執行」與 Grill-Me 邊界確認機制
