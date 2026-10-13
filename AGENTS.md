@@ -1,110 +1,95 @@
-# Task Dashboard - AI Autonomous Inspection & Dual Automation Standard
+# Task Dashboard — 專案開發與 AI Agent 指南
 
-## 1. 雙軌自動執行機制 (Dual Automation Engines)
-
-本專案支援 **Antigravity IDE / Desktop** 與 **獨立 CLI Agent** 兩種自動化驅動模式：
-
-### 模式 A：Desktop AI 哨兵待命 (Reactive Wakeup 即時喚醒 / 或 2 分鐘排程)
-- **推薦（即時零延遲）**：透過 `run_command`（Antigravity）、`bash`（Claude）或 terminal（Codex/Cursor）在背景啟動哨兵腳本：
-  `node "$HOME/Library/Application Support/TaskDashboard/watch-task-gate.js"`
-  腳本透過 macOS 原生 FSEvents 在背景靜默守候（0 Token 開銷）。一旦偵測到 `tasks.json` 有任務變更為 `in_progress`，立即 exit(0) 觸發系統 Reactive Wakeup 喚醒 Agent 自動開工！
-- **備用（傳統排程）**：若環境無背景終端權限，亦可掛載 2 分鐘一次的循環排程 (`schedule`) 監控 `tasks.json`。
-- 一旦偵測到 `status === "in_progress"` 任務，Agent 將自動執行以下 **3-Phase Execution Gate**，完成推進至 `review` 後再次啟動哨兵進入下一輪待命。
-
-### 模式 B：本機 CLI Agent 自動即時觸發
-- 若使用者在 Dashboard 設定中啟用了 **「CLI Agent 模式」**：
-- 當任務被建立或拖曳切換至 `in_progress` 時，Web Server 會**立即自動呼叫本機 CLI 指令**（預設為 `agy` 或自訂 CLI 工具），將當前專案目錄與任務內容帶入執行。
-- CLI 執行完畢後，執行日誌 (stdout/stderr) 會自動同步回 `tasks.json` 的 `executionLog`，並將任務推進至 `review` 階段。
+本文件為 **Task Dashboard** 專案的架構導覽、開發指令與程式碼規範指南。
+> [!NOTE]
+> 關於 Task Dashboard 平台的雙軌自動化機制、3-Phase 執行門禁與任務執行報告標準，請參閱平台核心規範：[`docs/AUTOMATION_STANDARD.md`](docs/AUTOMATION_STANDARD.md)。
 
 ---
 
-## 2. 嚴格 3-Phase Execution Gate (執行 SOP)
+## 1. 專案概述與系統架構
 
-不論由 Antigravity 還是 CLI Agent 驅動，所有 AI 代理人皆須恪遵三階段門禁標準：
+Task Dashboard 是一個專為 AI Pair Programming 與自主 Agent 協作設計的本機輕量任務總控台。系統採用無繁重依賴的極簡架構：
 
-### Phase 1: Pre-Flight & Review Feedback Ingestion (審查回饋與前置檢閱)
-1. **最高優先級門禁（Review Feedback 檢查）**：
-   - 讀取任務物件中的 `task.feedback`。
-   - **若 `feedback` 包含內容**：該內容代表使用者對前次審查提出的最高指示（如具體修改、重構、暫存 `git stash`、切換狀態至 `blocked` 等）。AI **必須優先將 Feedback 作為本次開工的絕對目標**，嚴禁在未滿足 Feedback 要求前直接判斷為已完成並推回 `review`。
-2. 切換至目標專案路徑 (`~/projects/<project>`)。
-3. **閱讀架構規範文檔**：
-   - `AGENTS.md`、`CLAUDE.md`、`.github/copilot-instructions.md`、`README.md`、`HARNESS.md`
-4. 執行該專案的診斷或 Harness 指令（如 `npm run harness:check` 或測試套件）。
-5. **大檔掃描與 Token 節約鐵律 (Targeted Inspection & Anti-Loop Gate)**：
-   - **禁止大檔整檔盲讀**：目標檔案若超過 500 行，嚴禁無上限 `view_file` 或連續全覽。一律先以 `grep -n` 定位關鍵函式、變數或路由行號，再以切片閱讀前後 30-50 行。
-   - **單點檢索上限 (Max 2 Inspections)**：同一檔案相同區塊最多檢索 2 次；確定關鍵邏輯後立即進入修改與單元測試，嚴禁原地循環重複呼叫。
-   - **Fast-Track 輕量分流**：單一變數/邏輯修正優先進行精準微調與單元測試，避免發散式跨組件多輪思維。
-6. **GitNexus 風險評估與切片規劃門禁 (GitNexus Risk Assessment & Slicing Gate)**：
-   - 若專案具備 GitNexus（存在 `.gitnexus` 或 GitNexus 索引）：在異動任何函式、類別、檔案前，**必須使用 GitNexus 進行影響分析 (`impact`) 評估風險**。
-   - **中高級以上風險管控**：若風險等級為 **MEDIUM（中級）、HIGH（高級）、CRITICAL（極高）** 或 `UNKNOWN`：
-     - **必須建立 Plan（實作計畫 / Implementation Plan）**，嚴禁直接盲目異動。
-     - **必須切片處理（Task Slicing）**：將大範圍變更拆解為清晰、獨立、可個別驗證的子切片（Slices），依序分步推進。
-     - 若為 HIGH 或 CRITICAL 風險，必須於執行前明確向使用者示警或在 Plan 中標註風險。
-7. **需確認後執行門禁 (Execution Plan Confirmation Gate)**：
-   - 若任務標記為 `requiresConfirmation: true` 且尚未提供 `executionPlan`（或為空）：
-     - Agent 開工首要任務為**擬定完整執行計劃**（包含執行步驟、架構評估、驗證方式）。
-     - 將執行計劃寫入 Application Support 資料庫之 `task.executionPlan`。
-     - **嚴禁在未填寫執行計劃前跳過規劃**；任務在計劃填妥後方會正式進入「待確認」狀態，並供使用者點擊「確認並執行」。使用者確認點選後，方可進入 Phase 2 代碼實作。
-
-### Phase 2: Rule-Compliant Implementation (合規實作)
-1. 嚴格遵守該專案的目錄架構、狀態流轉規則、大檔切片讀取規範與 GitNexus 切片計畫。
-2. 僅在該專案的範疇內修改程式碼，不得跨專案產生不相關的副作用。
-3. 若存在切片計畫，按切片逐步進行最小範圍實作與即時驗證。
-
-### Phase 3: Compliance Manifest & Review Promotion (合規驗證與交付)
-1. 執行該專案的測試與驗證指令（如 `npm test`、`npm run build:app`）。
-2. 更新 `tasks.json`（**全量完整度規範**）：
-   - 記錄實際修改檔案 `modifiedFiles`
-   - 記錄產生的 `diff`：**必須包含已追蹤 (`git diff HEAD`) 與未追蹤 (`git diff --no-index /dev/null <untracked>`) 檔案之全量完整無截斷 diff**。嚴禁使用 `...` 或占位符文字替代。
-   - **依據任務核心主軸與 Diff 產出標準 Commit 訊息 (`commitMessage`)**：AI 必須根據任務原始主軸（Task Title / 核心目標）推導主旨，並結合收集到的全量 `diff` 與專案 Conventional Commit / .github skills 規範分析實際異動細節，智慧產出包含主旨與條列內文之結構化 Commit 訊息：`task.commitMessage = { "subject": "<type>(<scope>): <clean_subject>", "body": "- <重點 1>\n- <重點 2>" }`。**【重要原則】即使任務歷經多次 Feedback 修訂，Commit 主旨 (subject) 必須嚴格鎖定任務原始核心主軸，內文 (body) 則綜合全量實際異動項目與歷次 Feedback 修訂重點，嚴禁將主旨退化為最後單一一次 Feedback 的局部微調。**
-   - 填寫詳細的 `executionLog`：**必須以標準結構化『任務執行報告 (Task Execution Report)』撰寫**，以回報問題如何處理、根因分析、修復與架構異動決策、驗證方式為主，嚴禁僅傾倒無解讀的 harness/test dump。標準格式須包含：
-     1. `# 📋 任務執行報告 (Task Execution Report)`
-     2. `## 1. 任務目標與根因分析 (Objective & Root Cause)`
-     3. `## 2. 解決方案與核心異動 (Resolution & Key Changes)`
-     4. `## 3. 歷次審查因應 (Feedback Addressed)`（若有 feedback）
-     5. `## 4. 品質驗證與交付證明 (Verification & Test Evidence)`（包含指令、退出碼、單元測試指標）
-     6. 原生終端輸出與 Harness 檢查記錄一律收納於 `<details><summary>點擊展開原生終端與 Harness 輸出記錄 (Raw Terminal Output)</summary>...` 折疊區塊中，保留可用輸出且不得截斷，敏感憑證不得寫入日誌。
-   - **【對齊回報原則 (Chat-Report Symmetry)】**：AI 在 chat 視窗回報給使用者的「實作變更」與「測試驗證」核心內容，**必須 100% 同步寫入 `task.executionLog` 的核心章節**。嚴禁在 chat 中輸出詳盡分析但在 `executionLog` 只寫單行狀態戳記。若日誌未包含具體函式/變數/邏輯更動與測試指令結果，視為品質門禁未通過！
-3. 標準 Tasks 回寫 Node.js 指令範例：
-   ```bash
-   node -e '
-   const fs = require("fs"); const { execSync } = require("child_process");
-   const projPath = "<project_path>";
-   const tracked = execSync("git -C \"" + projPath + "\" diff HEAD", { encoding: "utf8" });
-   const status = execSync("git -C \"" + projPath + "\" status --porcelain -uall", { encoding: "utf8" });
-   let untrackedDiff = "";
-   const lines = status.split("\n").filter(l => l.length >= 4);
-   lines.filter(l => l.startsWith("??")).map(l => l.slice(3).trim()).forEach(f => {
-     try { untrackedDiff += "\n\n" + execSync("git -C \"" + projPath + "\" --no-pager diff --no-index /dev/null \"" + f + "\"", { encoding: "utf8" }); }
-     catch(e) { untrackedDiff += "\n\n" + (e.stdout || ""); }
-   });
-   const fullDiff = tracked + untrackedDiff;
-   // 回寫 tasks.json (含 modifiedFiles, diff, executionLog, commitMessage)
-   '
-   ```
-4. 若本輪處理包含 `task.feedback`，完成前須將 feedback 內容附加寫入 `task.description` 尾端（保留原始需求，並以 `\n\n--- 【歷次審查意見 / Feedback 記錄】 ---\n[Timestamp]\n- <feedback>` 區分歷次回饋），隨後將 `task.feedback` 欄位清空。
-5. 將任務狀態推進為 `status: "review"`，並將 `requestCommitGen` 重置為 `false`。
-6. 僅將任務記錄寫入唯一真實資料庫（`~/Library/Application Support/TaskDashboard/tasks.json` 或透過 REST API），**嚴禁覆寫專案倉庫內的 `data/tasks.json` 範本檔案**。同步更新 `dashboard.md`。
+- **原生 macOS 外殼 (Native Host)**：由 Objective-C (`src/native/main.m`) 封裝的輕量 macOS 視窗，內嵌 WebKit (WKWebView) 直接載入本機 Web 服務，修改前端檔案即可享受即時熱更新。
+- **後端服務 (HTTP/REST Server)**：基於 Node.js 原生模組 (`http`, `fs`, `path`, `child_process`) 建構，零第三方套件依賴，負責任務調度、API、Git Diff 採集與 CLI Agent 行程管理。
+- **前端儀表板 (SPA UI)**：單一檔案前端架構 (`src/public/index.html`)，基於 Vanilla JavaScript 與 Tailwind CSS，提供看板拖曳、雙行號 Git Diff 檢視器、任務執行報告與即時終端輸出。
+- **後台哨兵 (Zero-Token Sentinel)**：`scripts/watch-task-gate.js` 運用 macOS 原生 FSEvents 在背景靜默監聽任務狀態，以 0 Token 消耗支援 Desktop AI（Antigravity、Claude 等）即時喚醒。
 
 ---
 
-## 3. Single Source of Truth (唯一真實來源規範)
+## 2. 目錄架構導覽
 
-- **專案路徑**：`~/projects/task-dashboard/`
-- **前端面板**：`src/public/index.html`
-- **後端服務**：`src/server/server.js`
-- **原生封裝**：`src/native/main.m`
-- **資料庫**：`~/Library/Application Support/TaskDashboard/`（或透過 REST API `http://localhost:3030/api/tasks`）。專案目錄下的 `data/` 僅作為全新檢出時的初始結構範本，執行時不得污染或覆寫。
-- **macOS App**：原生 App 將直接載入本地 Web Server，修改原始碼即可即時熱更新。
+```text
+task-dashboard/
+├── src/
+│   ├── native/
+│   │   └── main.m                 # 原生 macOS Cocoa / WebKit 封裝應用
+│   ├── server/
+│   │   ├── server.js              # REST API 伺服器、任務調度與 CLI 行程管理器
+│   │   ├── feedbackManager.js     # Feedback 歷史歸檔、結構化執行報告與覆蓋率採集
+│   │   └── worklogParser.js       # agent-status.md 與 build-plan.md 雙向同步解析
+│   └── public/
+│       └── index.html             # 單頁應用前端 (看板、Diff 檢視器、執行報告、設定)
+├── scripts/
+│   ├── build_app.sh               # 編譯原生 macOS .app 產物
+│   ├── harness_check.sh           # 專案 Harness 健康度與規範合規檢查
+│   ├── test_server.sh             # 後端 API 與狀態防線整合測試
+│   ├── watch-task-gate.js         # 哨兵待命守候腳本 (Reactive Wakeup)
+│   ├── start.sh / stop.sh         # 本地服務啟動與關閉腳本
+│   └── test_execution_logs.js     # 執行報告結構化單元測試
+├── docs/
+│   ├── AUTOMATION_STANDARD.md     # 平台雙軌自動化、3-Phase Gate 與執行報告標準
+│   ├── STATE_MACHINE_RFC.md       # 狀態機流轉規範與 Git Diff 判定準則
+│   └── RETROSPECTIVE.md           # 系統架構演進技術回顧
+└── data/                          # 初始資料庫範本 (執行時嚴禁直接寫入此目錄)
+```
 
 ---
 
-## 4. 狀態機流轉與 Git Diff 判定準則 (State Machine & Diff Criteria)
+## 3. 開發、測試與 Harness 驗證指令
 
-詳見架構文件 [`docs/STATE_MACHINE_RFC.md`](docs/STATE_MACHINE_RFC.md)：
-1. **Diff 為交付成果物而非觸發條件**：Git Diff 絕不得單獨作為任務推進至 `review` 的自動判斷基準。
-2. **顯式完工信號**：任務推進必須由執行者（CLI 行程明確輸出完工標記、或 Antigravity 走完 Phase 1~3 門禁）主動發出指令，後端定時巡檢不得因工作區有未提交 diff 就自動推入 `review`。
-3. **產物隔離**：任務切換至 `in_progress` 時自動重置前次殘留之 `diff` 與 `modifiedFiles`，避免跨任務殘留造成誤判。
+在進行任何功能修改或交付前，必須在專案根目錄執行以下驗證指令：
+
+- **啟動本地開發伺服器**：
+  ```bash
+  npm start
+  # 預設監聽 http://localhost:3030
+  ```
+- **執行全套整合測試**：
+  ```bash
+  npm test
+  # 執行 scripts/test_server.sh，包含所有 API、狀態防線與日誌解析測試
+  ```
+- **執行專案 Harness 規範檢核**：
+  ```bash
+  npm run harness:check
+  # 檢查架構完整度、編譯器、JSON 格式、Diff 完整性與 Skills 規範
+  ```
+- **單獨執行執行日誌與報告測試**：
+  ```bash
+  node scripts/test_execution_logs.js
+  ```
+- **編譯原生 macOS App**：
+  ```bash
+  npm run build:app
+  # 編譯產物輸出至 dist/TaskDashboard.app
+  ```
+
+---
+
+## 4. 核心工程規範與開發鐵律
+
+1. **Single Source of Truth (資料庫唯一真實來源)**：
+   - 運行期資料庫唯一路徑為：`~/Library/Application Support/TaskDashboard/tasks.json`（或透過 REST API `http://localhost:3030/api/tasks` 存取）。
+   - 專案根目錄下的 `data/` 目錄僅為全新檢出時的結構範本，**嚴禁在開發或執行時寫入或污染 `data/tasks.json`**。
+2. **零肥大依賴 (Zero Bloat Dependency)**：
+   - 後端維護保持純 Node.js 原生 API，嚴禁引入非必要大型 NPM 依賴。
+   - 前端維持 Vanilla JavaScript，避免重型框架打包複雜度，確保直接修改即可在 macOS 視窗熱更新。
+3. **平台標準遵照 (Platform Execution SOP)**：
+   - 執行本專案任務時，須依循 [`docs/AUTOMATION_STANDARD.md`](docs/AUTOMATION_STANDARD.md) 規範：
+     - 恪遵 3-Phase Gate（Pre-Flight、Implementation、Review Promotion）。
+     - 交付時必須產出符合規範的**結構化任務執行報告**，並落實 **Chat-Report Symmetry（對齊回報原則）**。
+     - 依任務核心主軸產出標準 Conventional Commit 訊息。
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

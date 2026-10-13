@@ -106,14 +106,38 @@ process.on('SIGTERM', () => cleanupAndExit(0));
 
 // --- 主流程 ---
 
+function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
+  let projPath = '';
+  try {
+    const projFile = path.join(DATA_DIR, 'projects.json');
+    if (fs.existsSync(projFile)) {
+      const projs = JSON.parse(fs.readFileSync(projFile, 'utf8'));
+      const p = projs.find(item => item.id === task.project);
+      if (p && p.path) projPath = p.path;
+    }
+  } catch (e) {}
+
+  if (task.requestCommitGen) {
+    return `[${triggerType}] 任務請求依據 Diff 智慧產出 Commit 訊息：[${task.id}] ${task.title} (專案: ${task.project || '預設'}${projPath ? ` @ ${projPath}` : ''})\n` +
+      `請檢閱當前專案 Git Diff，依據 Conventional Commit 規範產出結構化 commitMessage: { subject, body } 並推進。`;
+  }
+
+  const feedbackText = task.feedback ? `\n• 【最高優先 Feedback】: ${task.feedback}` : '';
+  return `================================================================================\n` +
+    `[${triggerType}] 任務開工通知：[${task.id}] ${task.title}\n` +
+    `• 專案: ${task.project || '預設'}${projPath ? ` (${projPath})` : ''}\n` +
+    `• 需求: ${task.description || '無'}${feedbackText}\n\n` +
+    `【Task Dashboard 3-Phase Gate 平台執行標準】：\n` +
+    `1. Phase 1 (Pre-Flight): 優先滿足 Feedback；檢閱專案文檔與執行 Harness 驗證；>500 行大檔一律以 grep-n 切片檢索；若勾選需確認後執行且 executionPlan 為空，須先填妥執行計劃供確認。\n` +
+    `2. Phase 2 (Implementation): 遵循目錄規範最小範圍實作並補齊測試，嚴禁跨專案副作用。\n` +
+    `3. Phase 3 (Review Promotion): 執行測試通過 (Exit Code 0)；撰寫標準結構化『任務執行報告 (Task Execution Report)』(含目標與根因、解決方案與核心異動、歷次審查因應、品質驗證與交付證明、原生輸出折疊)；恪遵 Chat-Report Symmetry 對齊原則；呼叫 API (PUT /api/tasks/${task.id}) 或回寫 tasks.json 推進至 review。\n` +
+    `================================================================================`;
+}
+
 // 1. 若當前本來就已有進行中或請求 Commit 訊息之任務，立即退出喚醒開工
 const immediateTask = findActionableTask();
 if (immediateTask) {
-  if (immediateTask.requestCommitGen) {
-    console.log(`[WAKEUP_IMMEDIATE] 偵測到任務請求依據 Diff 產出 Commit 訊息: [${immediateTask.id}] ${immediateTask.title} (專案: ${immediateTask.project || '預設'})`);
-  } else {
-    console.log(`[WAKEUP_IMMEDIATE] 偵測到已有進行中任務: [${immediateTask.id}] ${immediateTask.title} (專案: ${immediateTask.project || '預設'})`);
-  }
+  console.log(formatWakeupBrief(immediateTask, 'WAKEUP_IMMEDIATE'));
   cleanupAndExit(0);
 }
 
@@ -138,11 +162,7 @@ function startWatching() {
       debounceTimer = setTimeout(() => {
         const task = findActionableTask();
         if (task) {
-          if (task.requestCommitGen) {
-            console.log(`[WAKEUP_TRIGGERED] 任務請求依據 Diff 產出 Commit 訊息: [${task.id}] ${task.title} (專案: ${task.project || '預設'})`);
-          } else {
-            console.log(`[WAKEUP_TRIGGERED] 任務狀態變更為 in_progress: [${task.id}] ${task.title} (專案: ${task.project || '預設'})`);
-          }
+          console.log(formatWakeupBrief(task, 'WAKEUP_TRIGGERED'));
           cleanupAndExit(0);
         }
       }, 150);
