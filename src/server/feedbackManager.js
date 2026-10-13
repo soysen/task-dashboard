@@ -58,7 +58,8 @@ function healTasksFeedback(tasks) {
  */
 function formatStructuredExecutionLog(rawLog = '', options = {}) {
   const content = rawLog || '';
-  if (content.includes('### Phase 1') && content.includes('### Phase 2') && content.includes('### Phase 3')) {
+  if ((content.includes('### Phase 1') && content.includes('### Phase 2') && content.includes('### Phase 3')) ||
+      content.includes('📋 任務執行報告')) {
     return content;
   }
   const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -75,6 +76,74 @@ function formatStructuredExecutionLog(rawLog = '', options = {}) {
 
 ### Phase 3: Compliance Manifest & Review Promotion
 - 驗證說明: ${p3}${content ? `\n\n--- 執行詳細記錄 / 原生驗證輸出 ---\n${content}` : ''}`;
+}
+
+/**
+ * 建立標準結構之任務執行報告 (Task Execution Report)
+ * @param {Object} reportInfo
+ * @returns {string} Markdown 格式執行報告
+ */
+function buildTaskExecutionReport(reportInfo = {}) {
+  const {
+    objective = '',
+    rootCause = '',
+    resolution = '',
+    keyChanges = [],
+    feedbackAddressed = '',
+    verification = {},
+    rawLog = ''
+  } = reportInfo;
+
+  const lines = ['# 📋 任務執行報告 (Task Execution Report)\n'];
+
+  lines.push('## 1. 任務目標與根因分析 (Objective & Root Cause)');
+  lines.push(`- **核心目標**：${objective || '未提供目標說明'}`);
+  if (rootCause) {
+    lines.push(`- **問題根因 / 挑戰**：${rootCause}`);
+  }
+  lines.push('');
+
+  lines.push('## 2. 解決方案與核心異動 (Resolution & Key Changes)');
+  lines.push(`- **處理邏輯**：${resolution || '未提供處理邏輯說明'}`);
+  if (Array.isArray(keyChanges) && keyChanges.length > 0) {
+    lines.push('- **檔案異動明細**：');
+    keyChanges.forEach(kc => {
+      const p = typeof kc === 'string' ? kc : (kc.path || kc.file || '');
+      const d = typeof kc === 'object' && kc.description ? kc.description : '核心邏輯異動';
+      lines.push(`  - \`${p}\`: ${d}`);
+    });
+  }
+  lines.push('');
+
+  if (feedbackAddressed && feedbackAddressed.trim().length > 0) {
+    lines.push('## 3. 歷次審查因應 (Feedback Addressed)');
+    lines.push(`- ${feedbackAddressed.trim()}`);
+    lines.push('');
+  }
+
+  lines.push('## 4. 品質驗證與交付證明 (Verification & Test Evidence)');
+  const cmd = verification.command || 'npm test';
+  const exitCode = verification.exitCode !== undefined ? verification.exitCode : 0;
+  lines.push(`- **執行指令**：\`${cmd}\``);
+  lines.push(`- **退出碼 (Exit Code)**：\`${exitCode}\`${exitCode === 0 ? ' (驗證通過 ✅)' : ' (異常 ⚠️)'}`);
+  if (verification.summary) {
+    lines.push(`- **測試指標**：${verification.summary}`);
+  }
+  if (verification.coverage) {
+    lines.push(`- **單元測試覆蓋率**：${verification.coverage}`);
+  }
+  lines.push('');
+
+  if (rawLog && rawLog.trim().length > 0) {
+    lines.push('<details>');
+    lines.push('<summary>點擊展開原生終端與 Harness 輸出記錄 (Raw Terminal Output)</summary>\n');
+    lines.push('```text');
+    lines.push(rawLog.trim());
+    lines.push('```');
+    lines.push('</details>');
+  }
+
+  return lines.join('\n');
 }
 
 /**
@@ -101,5 +170,6 @@ module.exports = {
   consumeTaskFeedback,
   healTasksFeedback,
   formatStructuredExecutionLog,
+  buildTaskExecutionReport,
   extractCoverageSummary
 };

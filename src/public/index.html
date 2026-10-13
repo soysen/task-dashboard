@@ -148,6 +148,42 @@
     .dark .diff-line-chunk {
       color: #a5b4fc;
     }
+    .diff-row {
+      display: flex;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .diff-num {
+      width: 36px;
+      min-width: 36px;
+      text-align: right;
+      padding-right: 6px;
+      color: #94a3b8;
+      user-select: none;
+      border-right: 1px solid rgba(226, 232, 240, 0.7);
+      font-size: 10px;
+    }
+    .dark .diff-num {
+      color: #64748b;
+      border-right-color: rgba(51, 65, 85, 0.7);
+    }
+    .diff-sign {
+      width: 18px;
+      min-width: 18px;
+      text-align: center;
+      user-select: none;
+      font-weight: 700;
+    }
+    .diff-content {
+      flex: 1;
+      padding-left: 6px;
+      white-space: pre;
+      overflow-x: auto;
+    }
+    .diff-card.is-collapsed .diff-card-body {
+      display: none;
+    }
 
     :root {
       font-size: 16px;
@@ -631,9 +667,14 @@
             <span id="modalSessionIdText"></span>
           </div>
         </div>
-        <button onclick="closeModal()" class="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition">
-          <i data-lucide="x" class="w-4 h-4"></i>
-        </button>
+        <div class="flex items-center gap-1">
+          <button type="button" onclick="toggleModalFullscreen()" id="btnModalFullscreen" class="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition" title="切換視窗全螢幕 / 預設大小">
+            <i id="modalFullscreenIcon" data-lucide="maximize" class="w-4 h-4"></i>
+          </button>
+          <button type="button" onclick="closeModal()" class="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
       </div>
 
       <!-- Modal Form Body (Grid 2 Columns) -->
@@ -894,12 +935,27 @@
               </div>
             </div>
 
-            <!-- 執行紀錄與測試 Log (不加滾軸，直接完整展開) -->
+            <!-- 執行紀錄與測試 Log / 任務執行報告 -->
             <div id="formLogBox" class="hidden space-y-1.5">
-              <label class="text-xs font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
-                <i data-lucide="terminal" class="w-3.5 h-3.5"></i> 執行紀錄與測試 Log
-              </label>
-              <pre id="formLogVisual" class="bg-slate-100 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg p-3 text-xs font-mono text-amber-800 dark:text-amber-200/90 whitespace-pre-wrap leading-relaxed"></pre>
+              <div class="flex items-center justify-between">
+                <label class="text-xs font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                  <i data-lucide="clipboard-check" class="w-3.5 h-3.5"></i> 任務執行與驗證報告
+                </label>
+                <div class="flex items-center gap-1 bg-slate-200/80 dark:bg-slate-800 p-0.5 rounded-lg text-[10px] font-medium">
+                  <button type="button" id="btnLogTabVisual" onclick="switchLogViewTab('visual')" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 shadow-xs text-indigo-600 dark:text-indigo-400 font-bold transition">
+                    視覺化報告
+                  </button>
+                  <button type="button" id="btnLogTabRaw" onclick="switchLogViewTab('raw')" class="px-2 py-0.5 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition">
+                    原始 Log
+                  </button>
+                </div>
+              </div>
+
+              <!-- 結構化卡片式報告視圖 -->
+              <div id="formReportVisual" class="space-y-2 text-xs"></div>
+
+              <!-- 原生文字視圖 (保留原始 ID 以滿足既有文字與測試契約) -->
+              <pre id="formLogVisual" class="hidden bg-slate-100 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg p-3 text-xs font-mono text-amber-800 dark:text-amber-200/90 whitespace-pre-wrap leading-relaxed max-h-96 overflow-y-auto custom-scrollbar"></pre>
               <input type="hidden" id="formExecutionLog">
             </div>
 
@@ -908,6 +964,35 @@
           <!-- RIGHT COLUMN: 異動檔案清單與即時互動 Git Diff 檢視器 (可滾動) -->
           <div id="modalRightColumn" class="flex-1 overflow-y-auto pl-2 border-t lg:border-t-0 lg:border-l border-slate-200 dark:border-slate-800 flex flex-col space-y-3 custom-scrollbar">
             
+            <!-- 變更總覽儀表條 (Diff Summary Header) -->
+            <div id="diffSummaryBar" class="hidden flex-shrink-0 bg-slate-100/80 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                  <i data-lucide="layers" class="w-3.5 h-3.5 text-indigo-500"></i>
+                  <span id="diffStatFilesCount">0 個檔案</span>
+                </span>
+                <span id="diffStatAdditionsBadge" class="px-2 py-0.5 rounded text-[11px] font-bold font-mono bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                  +0
+                </span>
+                <span id="diffStatDeletionsBadge" class="px-2 py-0.5 rounded text-[11px] font-bold font-mono bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                  -0
+                </span>
+              </div>
+              <div class="flex items-center gap-1.5 flex-shrink-0">
+                <button type="button" onclick="toggleCollapseAllDiffs()" id="btnToggleCollapseAll" class="px-2 py-1 rounded-md text-[11px] font-medium bg-white dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 transition flex items-center gap-1" title="折疊或展開所有檔案 Diff">
+                  <i data-lucide="chevrons-up-down" class="w-3 h-3"></i>
+                  <span id="btnToggleCollapseAllText">全部折疊</span>
+                </button>
+                <button type="button" onclick="toggleDiffFocusMode()" id="btnToggleFocusMode" class="px-2 py-1 rounded-md text-[11px] font-medium bg-white dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 transition flex items-center gap-1" title="切換寬版專注檢閱模式">
+                  <i id="btnToggleFocusModeIcon" data-lucide="maximize-2" class="w-3 h-3 text-indigo-500"></i>
+                  <span id="btnToggleFocusModeText">專注檢閱</span>
+                </button>
+                <button type="button" onclick="copyCurrentDiff()" class="p-1.5 rounded-md text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition" title="複製完整 Diff">
+                  <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
+            </div>
+
             <!-- 異動檔案清單 -->
             <div class="flex-shrink-0 space-y-1.5">
               <div class="flex items-center justify-between">
@@ -3267,13 +3352,32 @@ node "${gateScriptPath}"
       } else {
         renderModalSliceInfo(task);
         if (task.modifiedFiles && task.modifiedFiles.length > 0) {
+          const stats = parseDiffStats(task.diff || '');
           modFilesList.innerHTML = task.modifiedFiles.map(f => {
             const filePath = typeof f === 'string' ? f : f.path;
             const desc = (typeof f === 'object' && f.description) ? f.description : '';
+            const baseName = filePath.split('/').pop();
+            const fStat = (stats.filesMap && (stats.filesMap[filePath] || stats.filesMap[baseName])) || { status: 'M', additions: 0, deletions: 0 };
+            const status = fStat.status || 'M';
+            const statusBadge = status === 'A'
+              ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">A</span>'
+              : (status === 'D'
+                ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">D</span>'
+                : '<span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">M</span>');
+            const linesStat = (fStat.additions > 0 || fStat.deletions > 0)
+              ? `<span class="text-[10px] font-mono flex items-center gap-1"><span class="text-emerald-600 font-bold">+${fStat.additions}</span><span class="text-rose-600 font-bold">-${fStat.deletions}</span></span>`
+              : '';
+
             return `
               <div data-path="${escapeHtml(filePath)}" onclick="filterDiffForFile('${escapeHtml(filePath)}')" class="mod-file-item flex items-center justify-between bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer transition">
-                <span class="text-indigo-600 dark:text-indigo-300 font-semibold truncate"> ${escapeHtml(filePath)}</span>
-                <span class="text-slate-500 dark:text-slate-400 text-[10px] truncate max-w-xs">${escapeHtml(desc || '點擊查看 Diff')}</span>
+                <div class="flex items-center gap-2 truncate">
+                  ${statusBadge}
+                  <span class="text-indigo-600 dark:text-indigo-300 font-semibold truncate text-xs font-mono">${escapeHtml(filePath)}</span>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                  ${linesStat}
+                  <span class="text-slate-500 dark:text-slate-400 text-[10px] truncate max-w-xs">${escapeHtml(desc || '查看 Diff')}</span>
+                </div>
               </div>
             `;
           }).join('');
@@ -3285,6 +3389,7 @@ node "${gateScriptPath}"
         if (task.executionLog) {
           logBox.classList.remove('hidden');
           logVisual.innerText = task.executionLog;
+          renderExecutionReport(task);
         } else {
           logBox.classList.add('hidden');
         }
@@ -3562,6 +3667,50 @@ node "${gateScriptPath}"
       return '';
     }
 
+    function parseFileStatusFromLines(lines) {
+      if (!Array.isArray(lines)) return 'M';
+      for (const l of lines) {
+        if (l.startsWith('new file mode') || l.startsWith('--- /dev/null')) return 'A';
+        if (l.startsWith('deleted file mode') || l.startsWith('+++ /dev/null')) return 'D';
+      }
+      return 'M';
+    }
+
+    function parseDiffStats(rawDiff) {
+      if (!rawDiff || typeof rawDiff !== 'string') {
+        return { filesCount: 0, additions: 0, deletions: 0, net: 0, filesMap: {} };
+      }
+      const sections = splitDiffByFiles(rawDiff);
+      let totalAdd = 0;
+      let totalDel = 0;
+      const filesMap = {};
+
+      sections.forEach(sec => {
+        let add = 0;
+        let del = 0;
+        sec.lines.forEach(l => {
+          if (l.startsWith('+') && !l.startsWith('+++')) add++;
+          else if (l.startsWith('-') && !l.startsWith('---')) del++;
+        });
+        totalAdd += add;
+        totalDel += del;
+        const status = parseFileStatusFromLines(sec.lines);
+        if (sec.filePath) {
+          filesMap[sec.filePath] = { additions: add, deletions: del, status };
+          const base = sec.filePath.split('/').pop();
+          if (base) filesMap[base] = { additions: add, deletions: del, status };
+        }
+      });
+
+      return {
+        filesCount: sections.length,
+        additions: totalAdd,
+        deletions: totalDel,
+        net: totalAdd - totalDel,
+        filesMap
+      };
+    }
+
     function splitDiffByFiles(rawDiff) {
       if (!rawDiff || typeof rawDiff !== 'string') return [];
       const lines = rawDiff.split('\n');
@@ -3581,6 +3730,7 @@ node "${gateScriptPath}"
             currentSection.fullText = currentSection.lines.join('\n');
             currentSection.body = currentSection.lines.slice(1).join('\n');
             currentSection.filePath = extractFilePathFromDiffSection(currentSection.lines);
+            currentSection.status = parseFileStatusFromLines(currentSection.lines);
             sections.push(currentSection);
           }
           currentSection = {
@@ -3588,7 +3738,8 @@ node "${gateScriptPath}"
             lines: [line],
             fullText: '',
             body: '',
-            filePath: ''
+            filePath: '',
+            status: 'M'
           };
         } else {
           if (!currentSection) {
@@ -3597,7 +3748,8 @@ node "${gateScriptPath}"
               lines: [line],
               fullText: '',
               body: '',
-              filePath: ''
+              filePath: '',
+              status: 'M'
             };
           } else {
             currentSection.lines.push(line);
@@ -3609,10 +3761,103 @@ node "${gateScriptPath}"
         currentSection.fullText = currentSection.lines.join('\n');
         currentSection.body = currentSection.lines.slice(1).join('\n');
         currentSection.filePath = extractFilePathFromDiffSection(currentSection.lines);
+        currentSection.status = parseFileStatusFromLines(currentSection.lines);
         sections.push(currentSection);
       }
 
       return sections;
+    }
+
+    function updateDiffSummaryBar(diffText) {
+      const bar = document.getElementById('diffSummaryBar');
+      if (!bar) return;
+      if (!diffText || diffText.trim().length === 0) {
+        bar.classList.add('hidden');
+        return;
+      }
+      bar.classList.remove('hidden');
+      const stats = parseDiffStats(diffText);
+      const filesEl = document.getElementById('diffStatFilesCount');
+      const addEl = document.getElementById('diffStatAdditionsBadge');
+      const delEl = document.getElementById('diffStatDeletionsBadge');
+      if (filesEl) filesEl.innerText = `${stats.filesCount} 個檔案變更`;
+      if (addEl) addEl.innerText = `+${stats.additions}`;
+      if (delEl) delEl.innerText = `-${stats.deletions}`;
+    }
+
+    let isDiffAllCollapsed = false;
+    function toggleCollapseAllDiffs() {
+      isDiffAllCollapsed = !isDiffAllCollapsed;
+      const cards = document.querySelectorAll('.diff-card');
+      cards.forEach(c => {
+        if (isDiffAllCollapsed) {
+          c.classList.add('is-collapsed');
+        } else {
+          c.classList.remove('is-collapsed');
+        }
+      });
+      const btnText = document.getElementById('btnToggleCollapseAllText');
+      if (btnText) btnText.innerText = isDiffAllCollapsed ? '全部展開' : '全部折疊';
+    }
+
+    function toggleSingleDiffCard(cardId) {
+      const card = document.getElementById(cardId);
+      if (card) {
+        card.classList.toggle('is-collapsed');
+      }
+    }
+
+    let isDiffFocusMode = false;
+    function toggleDiffFocusMode() {
+      isDiffFocusMode = !isDiffFocusMode;
+      const leftCol = document.getElementById('modalLeftColumn');
+      const grid = document.getElementById('modalFormGrid');
+      const btnText = document.getElementById('btnToggleFocusModeText');
+      const btnIcon = document.getElementById('btnToggleFocusModeIcon');
+      const container = document.getElementById('modalDialogContainer');
+
+      if (isDiffFocusMode) {
+        if (leftCol) leftCol.classList.add('hidden');
+        if (grid) grid.classList.remove('lg:grid-cols-2');
+        if (container) {
+          container.classList.remove('max-w-6xl');
+          container.classList.add('max-w-[98vw]', 'h-[96vh]');
+        }
+        if (btnText) btnText.innerText = '還原雙欄';
+        if (btnIcon) btnIcon.setAttribute('data-lucide', 'minimize-2');
+      } else {
+        if (leftCol) leftCol.classList.remove('hidden');
+        if (grid) grid.classList.add('lg:grid-cols-2');
+        if (btnText) btnText.innerText = '專注檢閱';
+        if (btnIcon) btnIcon.setAttribute('data-lucide', 'maximize-2');
+      }
+      if (window.lucide) lucide.createIcons();
+    }
+
+    let isModalFullscreen = false;
+    function toggleModalFullscreen() {
+      isModalFullscreen = !isModalFullscreen;
+      const container = document.getElementById('modalDialogContainer');
+      const icon = document.getElementById('modalFullscreenIcon');
+      if (!container) return;
+      if (isModalFullscreen) {
+        container.classList.remove('max-w-6xl', 'h-[90vh]');
+        container.classList.add('max-w-[98vw]', 'h-[96vh]');
+        if (icon) icon.setAttribute('data-lucide', 'minimize');
+      } else {
+        container.classList.remove('max-w-[98vw]', 'h-[96vh]');
+        container.classList.add('max-w-6xl', 'h-[90vh]');
+        if (icon) icon.setAttribute('data-lucide', 'maximize');
+      }
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function copyCurrentDiff() {
+      if (!currentActiveTaskDiff || !currentActiveTaskDiff.trim()) {
+        showToast('目前尚無代碼變更或 Diff 可複製', 'info');
+        return;
+      }
+      copyToClipboard(currentActiveTaskDiff, '已複製全量 Git Diff！');
     }
 
     async function filterDiffForFile(filePath) {
@@ -3689,9 +3934,88 @@ node "${gateScriptPath}"
       renderDiffViewer(currentActiveTaskDiff);
     }
 
+    function renderLineNumberedDiff(lines) {
+      if (!Array.isArray(lines)) return '';
+      let oldLineNum = null;
+      let newLineNum = null;
+
+      return lines.map(line => {
+        const escaped = escapeHtml(line);
+
+        // 解析 Hunk 標頭 @@ -X,Y +A,B @@
+        if (line.startsWith('@@')) {
+          const match = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+          if (match) {
+            oldLineNum = parseInt(match[1], 10);
+            newLineNum = parseInt(match[2], 10);
+          }
+          return `
+            <div class="diff-row bg-indigo-50/80 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-bold px-1.5 py-0.5">
+              <div class="diff-num text-indigo-400 dark:text-indigo-500 text-[9px]">...</div>
+              <div class="diff-num text-indigo-400 dark:text-indigo-500 text-[9px]">...</div>
+              <div class="diff-sign text-indigo-500">@</div>
+              <div class="diff-content">${escaped}</div>
+            </div>
+          `;
+        }
+
+        // 新增行
+        if (line.startsWith('+') && !line.startsWith('+++')) {
+          const curNew = newLineNum !== null ? newLineNum++ : '';
+          return `
+            <div class="diff-row diff-line-add hover:bg-emerald-500/20">
+              <div class="diff-num"></div>
+              <div class="diff-num">${curNew}</div>
+              <div class="diff-sign text-emerald-600 dark:text-emerald-400">+</div>
+              <div class="diff-content">${escapeHtml(line.slice(1))}</div>
+            </div>
+          `;
+        }
+
+        // 刪除行
+        if (line.startsWith('-') && !line.startsWith('---')) {
+          const curOld = oldLineNum !== null ? oldLineNum++ : '';
+          return `
+            <div class="diff-row diff-line-del hover:bg-rose-500/20">
+              <div class="diff-num">${curOld}</div>
+              <div class="diff-num"></div>
+              <div class="diff-sign text-rose-600 dark:text-rose-400">-</div>
+              <div class="diff-content">${escapeHtml(line.slice(1))}</div>
+            </div>
+          `;
+        }
+
+        // 一般 context 行
+        if (!line.startsWith('diff --git') && !line.startsWith('index ') && !line.startsWith('---') && !line.startsWith('+++')) {
+          const curOld = oldLineNum !== null ? oldLineNum++ : '';
+          const curNew = newLineNum !== null ? newLineNum++ : '';
+          const content = line.startsWith(' ') ? line.slice(1) : line;
+          return `
+            <div class="diff-row hover:bg-slate-100/70 dark:hover:bg-slate-800/40 text-slate-700 dark:text-slate-300">
+              <div class="diff-num">${curOld}</div>
+              <div class="diff-num">${curNew}</div>
+              <div class="diff-sign text-slate-300 dark:text-slate-700"> </div>
+              <div class="diff-content">${escapeHtml(content)}</div>
+            </div>
+          `;
+        }
+
+        // Diff 標頭與元資料
+        return `
+          <div class="diff-row text-slate-400 dark:text-slate-500 italic py-0.5">
+            <div class="diff-num"></div>
+            <div class="diff-num"></div>
+            <div class="diff-sign font-mono">#</div>
+            <div class="diff-content">${escaped}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
     function renderDiffViewer(diffText, singleFilePath) {
       const diffVisual = document.getElementById('formDiffVisual');
       if (!diffText || diffText.trim().length === 0) {
+        updateDiffSummaryBar('');
         diffVisual.innerHTML = `
           <div class="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
             <i data-lucide="git-pull-request" class="w-8 h-8 text-slate-500 mb-2 opacity-50"></i>
@@ -3702,35 +4026,42 @@ node "${gateScriptPath}"
         return;
       }
 
+      updateDiffSummaryBar(diffText);
       const sections = splitDiffByFiles(diffText);
 
       if (sections.length > 1) {
-        // 多檔案結構化卡片式呈現
-        diffVisual.innerHTML = sections.map(sec => {
+        // 多檔案高級結構化卡片呈現
+        diffVisual.innerHTML = sections.map((sec, idx) => {
           const fileName = sec.filePath || '未命名檔案';
-          const linesHtml = sec.lines.map(line => {
-            const escaped = escapeHtml(line);
-            if (line.startsWith('+') && !line.startsWith('+++')) {
-              return `<div class="diff-line-add px-2 py-0.5">${escaped}</div>`;
-            } else if (line.startsWith('-') && !line.startsWith('---')) {
-              return `<div class="diff-line-del px-2 py-0.5">${escaped}</div>`;
-            } else if (line.startsWith('@@') || line.startsWith('//') || line.startsWith('diff --git')) {
-              return `<div class="diff-line-chunk px-2 py-0.5 font-bold">${escaped}</div>`;
-            } else {
-              return `<div class="px-2 py-0.5 text-slate-600 dark:text-slate-400">${escaped}</div>`;
-            }
-          }).join('');
+          let addCount = 0;
+          let delCount = 0;
+          sec.lines.forEach(l => {
+            if (l.startsWith('+') && !l.startsWith('+++')) addCount++;
+            else if (l.startsWith('-') && !l.startsWith('---')) delCount++;
+          });
+          const status = sec.status || 'M';
+          const statusBadge = status === 'A'
+            ? '<span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">A</span>'
+            : (status === 'D'
+              ? '<span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">D</span>'
+              : '<span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">M</span>');
 
           return `
-            <div class="mb-3 last:mb-0 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden bg-white dark:bg-slate-900 shadow-sm">
-              <div class="bg-slate-100 dark:bg-slate-800/80 px-3 py-1.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                <span class="text-[11px] font-bold font-mono text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5 truncate">
-                   ${escapeHtml(fileName)}
-                </span>
-                <span class="text-[10px] text-slate-400 font-sans flex-shrink-0">${sec.lines.length} 行</span>
+            <div id="diffCard_${idx}" class="diff-card mb-3 last:mb-0 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 shadow-xs">
+              <div onclick="toggleSingleDiffCard('diffCard_${idx}')" class="bg-slate-100/90 dark:bg-slate-800/80 px-3 py-2 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between cursor-pointer select-none hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition">
+                <div class="flex items-center gap-2 truncate">
+                  ${statusBadge}
+                  <span class="text-xs font-bold font-mono text-indigo-600 dark:text-indigo-400 truncate">${escapeHtml(fileName)}</span>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                  <span class="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400">+${addCount}</span>
+                  <span class="text-[10px] font-mono font-bold text-rose-600 dark:text-rose-400">-${delCount}</span>
+                  <span class="text-[10px] text-slate-400 font-sans">${sec.lines.length} 行</span>
+                  <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400"></i>
+                </div>
               </div>
-              <div class="p-2 overflow-x-auto custom-scrollbar font-mono text-xs leading-relaxed">
-                ${linesHtml}
+              <div class="diff-card-body p-2 overflow-x-auto custom-scrollbar font-mono text-xs leading-relaxed">
+                ${renderLineNumberedDiff(sec.lines)}
               </div>
             </div>
           `;
@@ -3739,37 +4070,191 @@ node "${gateScriptPath}"
         // 單一檔案呈現
         const lines = diffText.split('\n');
         const headerTitle = singleFilePath || (sections[0] && sections[0].filePath) || '';
-        const linesHtml = lines.map(line => {
-          const escaped = escapeHtml(line);
-          if (line.startsWith('+') && !line.startsWith('+++')) {
-            return `<div class="diff-line-add px-2 py-0.5">${escaped}</div>`;
-          } else if (line.startsWith('-') && !line.startsWith('---')) {
-            return `<div class="diff-line-del px-2 py-0.5">${escaped}</div>`;
-          } else if (line.startsWith('@@') || line.startsWith('//') || line.startsWith('diff --git')) {
-            return `<div class="diff-line-chunk px-2 py-0.5 font-bold">${escaped}</div>`;
-          } else {
-            return `<div class="px-2 py-0.5 text-slate-600 dark:text-slate-400">${escaped}</div>`;
-          }
-        }).join('');
+        let addCount = 0;
+        let delCount = 0;
+        lines.forEach(l => {
+          if (l.startsWith('+') && !l.startsWith('+++')) addCount++;
+          else if (l.startsWith('-') && !l.startsWith('---')) delCount++;
+        });
 
         if (headerTitle) {
+          const status = sections[0] ? (sections[0].status || 'M') : 'M';
+          const statusBadge = status === 'A'
+            ? '<span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">A</span>'
+            : (status === 'D'
+              ? '<span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">D</span>'
+              : '<span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">M</span>');
+
           diffVisual.innerHTML = `
-            <div class="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden bg-white dark:bg-slate-900 shadow-sm">
-              <div class="bg-slate-100 dark:bg-slate-800/80 px-3 py-1.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                <span class="text-[11px] font-bold font-mono text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5 truncate">
-                   ${escapeHtml(headerTitle)}
-                </span>
-                <span class="text-[10px] text-slate-400 font-sans flex-shrink-0">${lines.length} 行</span>
+            <div id="diffCard_single" class="diff-card border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 shadow-xs">
+              <div onclick="toggleSingleDiffCard('diffCard_single')" class="bg-slate-100/90 dark:bg-slate-800/80 px-3 py-2 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between cursor-pointer select-none hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition">
+                <div class="flex items-center gap-2 truncate">
+                  ${statusBadge}
+                  <span class="text-xs font-bold font-mono text-indigo-600 dark:text-indigo-400 truncate">${escapeHtml(headerTitle)}</span>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                  <span class="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400">+${addCount}</span>
+                  <span class="text-[10px] font-mono font-bold text-rose-600 dark:text-rose-400">-${delCount}</span>
+                  <span class="text-[10px] text-slate-400 font-sans">${lines.length} 行</span>
+                  <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400"></i>
+                </div>
               </div>
-              <div class="p-2 overflow-x-auto custom-scrollbar font-mono text-xs leading-relaxed">
-                ${linesHtml}
+              <div class="diff-card-body p-2 overflow-x-auto custom-scrollbar font-mono text-xs leading-relaxed">
+                ${renderLineNumberedDiff(lines)}
               </div>
             </div>
           `;
         } else {
-          diffVisual.innerHTML = linesHtml;
+          diffVisual.innerHTML = renderLineNumberedDiff(lines);
         }
       }
+      if (window.lucide) lucide.createIcons();
+    }
+
+    // 任務執行報告 (Task Execution Report) 與原生日誌切換與渲染
+    function switchLogViewTab(tab) {
+      const visualBtn = document.getElementById('btnLogTabVisual');
+      const rawBtn = document.getElementById('btnLogTabRaw');
+      const reportVisual = document.getElementById('formReportVisual');
+      const logVisual = document.getElementById('formLogVisual');
+      if (!reportVisual || !logVisual) return;
+      if (tab === 'visual') {
+        reportVisual.classList.remove('hidden');
+        logVisual.classList.add('hidden');
+        if (visualBtn) visualBtn.className = 'px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 shadow-xs text-indigo-600 dark:text-indigo-400 font-bold transition';
+        if (rawBtn) rawBtn.className = 'px-2 py-0.5 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition';
+      } else {
+        reportVisual.classList.add('hidden');
+        logVisual.classList.remove('hidden');
+        if (rawBtn) rawBtn.className = 'px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 shadow-xs text-indigo-600 dark:text-indigo-400 font-bold transition';
+        if (visualBtn) visualBtn.className = 'px-2 py-0.5 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition';
+      }
+    }
+
+    function renderExecutionReport(task) {
+      const reportEl = document.getElementById('formReportVisual');
+      if (!reportEl) return;
+      const raw = (task && task.executionLog) ? task.executionLog.trim() : '';
+      if (!raw) {
+        reportEl.innerHTML = '';
+        return;
+      }
+
+      // 檢查是否為結構化報告 (包含 任務執行報告 或是 Phase 1~3 標籤)
+      const isStructured = raw.includes('任務執行報告') || raw.includes('### Phase 1') || raw.includes('## 1.');
+
+      if (isStructured) {
+        // 分離原始 terminal 區塊 (若含有 <details> 或 --- 執行詳細記錄 ---)
+        let mainReport = raw;
+        let rawTerminalDump = '';
+
+        if (raw.includes('<details>')) {
+          const parts = raw.split('<details>');
+          mainReport = parts[0].trim();
+          rawTerminalDump = parts.slice(1).join('<details>').replace(/<\/details>/g, '').trim();
+        } else if (raw.includes('--- 執行詳細記錄 / 原生驗證輸出 ---')) {
+          const parts = raw.split('--- 執行詳細記錄 / 原生驗證輸出 ---');
+          mainReport = parts[0].trim();
+          rawTerminalDump = parts.slice(1).join('').trim();
+        }
+
+        // 解析主要段落區塊
+        const sectionsHtml = [];
+        const lines = mainReport.split('\n');
+        let curCardTitle = '';
+        let curCardLines = [];
+        let curBadge = '';
+
+        const flushCard = () => {
+          if (!curCardTitle && curCardLines.length === 0) return;
+          const bodyHtml = curCardLines.map(l => {
+            if (l.startsWith('- **') || l.startsWith('- ')) {
+              const formatted = escapeHtml(l.slice(2)).replace(/\*\*(.+?)\*\*/g, '<strong class="text-slate-900 dark:text-slate-100">$1</strong>');
+              return `<li class="ml-4 list-disc text-slate-700 dark:text-slate-300 leading-relaxed">${formatted}</li>`;
+            } else if (l.startsWith('  - ')) {
+              const formatted = escapeHtml(l.slice(4)).replace(/\*\*(.+?)\*\*/g, '<strong class="text-slate-900 dark:text-slate-100">$1</strong>');
+              return `<li class="ml-8 list-circle text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">${formatted}</li>`;
+            } else if (l.trim()) {
+              return `<p class="text-slate-600 dark:text-slate-400 leading-relaxed">${escapeHtml(l)}</p>`;
+            }
+            return '';
+          }).filter(Boolean).join('');
+
+          sectionsHtml.push(`
+            <div class="border border-slate-200 dark:border-slate-800 rounded-xl p-3 bg-white dark:bg-slate-900/90 shadow-xs space-y-1.5">
+              <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5">
+                <span class="font-bold text-xs text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5">
+                  ${escapeHtml(curCardTitle || '執行說明')}
+                </span>
+                ${curBadge}
+              </div>
+              <ul class="space-y-1 text-xs">
+                ${bodyHtml}
+              </ul>
+            </div>
+          `);
+          curCardTitle = '';
+          curCardLines = [];
+          curBadge = '';
+        };
+
+        for (const line of lines) {
+          if (line.startsWith('# 📋') || line.startsWith('# ')) continue;
+          if (line.startsWith('## ') || line.startsWith('### ')) {
+            flushCard();
+            const rawTitle = line.replace(/^[#]+\s*/, '').trim();
+            curCardTitle = rawTitle;
+            if (rawTitle.includes('驗證') || rawTitle.includes('Phase 3')) {
+              curBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">驗證通過 ✅</span>';
+            } else if (rawTitle.includes('解決方案') || rawTitle.includes('Phase 2')) {
+              curBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">實作完成 💡</span>';
+            } else if (rawTitle.includes('根因') || rawTitle.includes('目標') || rawTitle.includes('Phase 1')) {
+              curBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">問題分析 🎯</span>';
+            }
+          } else {
+            curCardLines.push(line);
+          }
+        }
+        flushCard();
+
+        let terminalCollapseHtml = '';
+        if (rawTerminalDump) {
+          const cleanDump = rawTerminalDump.replace(/```text/g, '').replace(/```/g, '').replace(/<summary>.*?<\/summary>/s, '').trim();
+          terminalCollapseHtml = `
+            <details class="group border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-slate-950">
+              <summary class="px-3 py-2 bg-slate-900 text-slate-300 text-xs font-mono font-semibold flex items-center justify-between cursor-pointer select-none hover:bg-slate-800 transition">
+                <span class="flex items-center gap-1.5">
+                  <i data-lucide="terminal" class="w-3.5 h-3.5 text-emerald-400"></i>
+                  <span>原生終端 / Harness 輸出記錄 (Raw Terminal Output)</span>
+                </span>
+                <span class="text-[10px] text-slate-400 group-open:rotate-180 transition-transform">▼</span>
+              </summary>
+              <pre class="p-3 text-[11px] font-mono text-emerald-400/90 whitespace-pre-wrap overflow-x-auto leading-relaxed max-h-72 custom-scrollbar">${escapeHtml(cleanDump)}</pre>
+            </details>
+          `;
+        }
+
+        reportEl.innerHTML = `
+          <div class="space-y-2.5">
+            ${sectionsHtml.join('')}
+            ${terminalCollapseHtml}
+          </div>
+        `;
+      } else {
+        // 純文字 Terminal 輸出模式
+        reportEl.innerHTML = `
+          <div class="border border-slate-200 dark:border-slate-800 rounded-xl p-3 bg-white dark:bg-slate-900 shadow-xs space-y-2">
+            <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5">
+              <span class="font-bold text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
+                <i data-lucide="terminal" class="w-3.5 h-3.5"></i> 執行記錄
+              </span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">終端記錄</span>
+            </div>
+            <pre class="bg-slate-950 text-amber-200/90 p-3 rounded-lg font-mono text-xs whitespace-pre-wrap leading-relaxed max-h-72 overflow-y-auto custom-scrollbar">${escapeHtml(raw)}</pre>
+          </div>
+        `;
+      }
+      if (window.lucide) lucide.createIcons();
     }
 
     function openExternalUrl(url, event) {

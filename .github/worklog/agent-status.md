@@ -5,7 +5,7 @@
 - ID: TASK-105
 - Title: 放棄任務的 disacard change 無效
 - Status: 已完成
-- Last updated: 2026-10-08
+- Last updated: 2026-10-13
 - Goal: 修復 Plan-to-build 或任一專案中點選“放棄任務”未徹底 discard changes 問題
 - Route: debugging-and-error-recovery / dashboard-state-and-sync
 - Scope: 升級 Git Discard 為 git reset --hard HEAD && git clean -fd，確保 intent-to-add / staged / untracked 均徹底清空
@@ -13,10 +13,10 @@
 
 ## Last Completed Task
 
-- ID: TASK-105
-- Title: 放棄任務的 disacard change 無效
+- ID: TASK-110
+- Title: 優化任務執行報告與 Git Diff 檢閱體驗
 - Status: 已完成
-- Last updated: 2026-10-08
+- Last updated: 2026-10-13
 
 ## Execution Tracking
 

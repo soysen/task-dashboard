@@ -57,7 +57,13 @@
    - 記錄實際修改檔案 `modifiedFiles`
    - 記錄產生的 `diff`：**必須包含已追蹤 (`git diff HEAD`) 與未追蹤 (`git diff --no-index /dev/null <untracked>`) 檔案之全量完整無截斷 diff**。嚴禁使用 `...` 或占位符文字替代。
    - **依據任務核心主軸與 Diff 產出標準 Commit 訊息 (`commitMessage`)**：AI 必須根據任務原始主軸（Task Title / 核心目標）推導主旨，並結合收集到的全量 `diff` 與專案 Conventional Commit / .github skills 規範分析實際異動細節，智慧產出包含主旨與條列內文之結構化 Commit 訊息：`task.commitMessage = { "subject": "<type>(<scope>): <clean_subject>", "body": "- <重點 1>\n- <重點 2>" }`。**【重要原則】即使任務歷經多次 Feedback 修訂，Commit 主旨 (subject) 必須嚴格鎖定任務原始核心主軸，內文 (body) 則綜合全量實際異動項目與歷次 Feedback 修訂重點，嚴禁將主旨退化為最後單一一次 Feedback 的局部微調。**
-   - 填寫詳細的 `executionLog`：逐步記錄實際檢閱檔案、診斷證據、修改檔案與原因；每項驗證須包含命令、工作目錄、退出碼與實際 stdout/stderr。區分摘要與原始執行細節，不得只寫「工作完成／測試通過」，不得聲稱未執行的檢查已通過；保留可用輸出且不得截斷，敏感憑證不得寫入日誌。
+   - 填寫詳細的 `executionLog`：**必須以標準結構化『任務執行報告 (Task Execution Report)』撰寫**，以回報問題如何處理、根因分析、修復與架構異動決策、驗證方式為主，嚴禁僅傾倒無解讀的 harness/test dump。標準格式須包含：
+     1. `# 📋 任務執行報告 (Task Execution Report)`
+     2. `## 1. 任務目標與根因分析 (Objective & Root Cause)`
+     3. `## 2. 解決方案與核心異動 (Resolution & Key Changes)`
+     4. `## 3. 歷次審查因應 (Feedback Addressed)`（若有 feedback）
+     5. `## 4. 品質驗證與交付證明 (Verification & Test Evidence)`（包含指令、退出碼、單元測試指標）
+     6. 原生終端輸出與 Harness 檢查記錄一律收納於 `<details><summary>點擊展開原生終端與 Harness 輸出記錄 (Raw Terminal Output)</summary>...` 折疊區塊中，保留可用輸出且不得截斷，敏感憑證不得寫入日誌。
 3. 標準 Tasks 回寫 Node.js 指令範例：
    ```bash
    node -e '
