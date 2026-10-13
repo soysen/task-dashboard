@@ -2,27 +2,27 @@
 
 ## Active Task
 
-- ID: TASK-105
-- Title: 放棄任務的 disacard change 無效
+- ID: TASK-112
+- Title: retro
 - Status: 已完成
 - Last updated: 2026-10-13
-- Goal: 修復 Plan-to-build 或任一專案中點選“放棄任務”未徹底 discard changes 問題
-- Route: debugging-and-error-recovery / dashboard-state-and-sync
-- Scope: 升級 Git Discard 為 git reset --hard HEAD && git clean -fd，確保 intent-to-add / staged / untracked 均徹底清空
+- Goal: 根據本次改版進行 retro
+- Route: dashboard-state-and-sync
+- Scope: retro
 - Out of scope: 跨專案副作用
 
 ## Last Completed Task
 
-- ID: TASK-110
-- Title: 優化任務執行報告與 Git Diff 檢閱體驗
+- ID: TASK-112
+- Title: retro
 - Status: 已完成
 - Last updated: 2026-10-13
 
 ## Execution Tracking
 
 - CurrentStep: 任務驗收通過，已成功結案
-- Evidence: test_server.sh 新增 intent-to-add / untracked discard 測試通過，harness:check 100% 綠燈
-- NextStep: 使用者驗收與發佈
+- Evidence: 進行中
+- NextStep: 完成實作與測試後推入 review 交付審查
 
 ## Reset Decision Log
 

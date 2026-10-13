@@ -322,4 +322,81 @@ graph TD
 ---
 *Retrospective Report updated at 2026-10-02 by Antigravity.*
 
+---
+
+## 8. 🎯 2026-10-13 任務執行報告、Git Diff 檢視器與人機協同品質門禁深化覆盤 (TASK-093 ~ TASK-112)
+
+> **核心主題**：任務執行報告結構化升級（問題根因、異動要點、驗證證據與原生 Log 折疊）、專業級 Git Diff 雙行號檢視器、工作區變更徹底放棄 (Git Discard)、與人機雙向確認門禁 (Confirmation Gate) 深化
+
+---
+
+### 8.1 階段任務全景盤點 (Task Landscape)
+
+| 任務編號 | 類型 | 核心內容與成果 | 關鍵指標 / 產出 |
+|---|---|---|---|
+| **TASK-093 & TASK-094** | Security / Gate | 實作任務放棄與刪除機制，整合 `executionPlan` 同步檢驗門禁與完整度檢查 | Double-Check 彈窗、防止遺漏 Plan |
+| **TASK-097 & TASK-098** | UI / Polish | 任務內容 Markdown 預覽機制的評估、調優與邊界控制 | Markdown 渲染與純文字輸入平衡 |
+| **TASK-101 & TASK-102** | Spec / Gate | Skill 現代化與精簡重構；Grill-Me 專案卡牌待確認徽章與彈窗提示聯動 | 卡牌品質指標透明化 |
+| **TASK-104 & TASK-105** | Fix / Engine | 修復點選「放棄任務」無動作缺陷；重構後端 Git Discard 引擎，徹底清除 untracked 與 intent-to-add 變更 | `git reset --hard HEAD && git clean -fd` 零殘留 |
+| **TASK-106 ~ TASK-108** | Multi-Project | 跨專案 5G SA MSW Mock 調整、API 契約更新、與高保真 Function Flow 規格文件交付 | MSW 契約對齊、100% 綠燈 |
+| **TASK-109** | Feature / Fix | 跨專案網址 query string (`c`, `af_adset`, `af_ad`) 動態帶入 OneLink 下載連結 | 白名單過濾、TDD 驗證通過 |
+| **TASK-110** | Feature / UX | 升級「任務執行報告」（根因/異動/驗證指標/原生 Log 折疊）與專業級 Git Diff 檢視器（變更總覽/雙行號/單檔折疊/全螢幕檢閱） | Code Review 體驗質的飛躍 |
+| **TASK-111** | Refactor / Route | 繳費方式舊路由更新與自動導向新官方網址，清理 600+ 行過時代碼與 API 呼叫 | 乾淨轉址、單元測試 100% |
+| **TASK-112** | Retro | 系統性架構覆盤、評價（Keep / Problem）與長期演進規劃 (Action Items) | 本次技術回顧報告交付 |
+
+---
+
+### 8.2 深度技術評價：Keep（亮點）與 Problem（痛點與根因）
+
+#### 🌟 Keep（做得好 / 關鍵突破）
+
+1. **從「冷冰冰的終端傾倒」躍升為「專業任務執行報告」(TASK-110)**：
+   - 過去 Agent 交付時，`executionLog` 充斥著長達數千行的 raw terminal dump（如 jest/harness 輸出），審查者難以第一時間掌握「這個 Bug 到底是什麼原因？」、「動了哪些核心檔案？」、「是怎麼驗證通過的？」。
+   - 本次改版將報告升級為四大模組：
+     - **問題根因分析 (Root Cause)**：清晰點出問題觸發機理與邏輯缺陷。
+     - **關鍵異動項目 (Key Changes)**：條列前後端關鍵邏輯修正與架構更動。
+     - **合規驗證指標 (Verification & Metrics)**：條列執行之測試命令、退出碼、覆蓋率與關鍵證據。
+     - **原生終端日誌 (Native Terminal Dump)**：預設折疊收納，既保留除錯細節又不干擾高階閱讀。
+2. **專業級 Git Diff 檢閱體驗 (TASK-110)**：
+   - **變更總覽儀表條 (Diff Summary Bar)**：即時統計變更總檔案數、新增行數 (`+`)、刪除行數 (`-`)。
+   - **Git 狀態徽章**：檔案清單標記 `[M]`（修改）、`[A]`（新增）、`[D]`（刪除），直覺區分檔案操作性質。
+   - **雙行號 (Dual Line-Number) 排版**：Old Line 與 New Line 獨立行號欄，大幅提升代碼比對精確度。
+   - **單檔獨立折疊與全螢幕模式 (Focus Review Mode)**：支援單一檔案折疊/展開，並支援全螢幕一鍵放大，打造沉浸式 Code Review 環境。
+3. **工作區 Git Discard 引擎徹底清理防線 (TASK-105)**：
+   - 過去放棄任務時，僅執行 `git checkout .`，導致新增檔案 (untracked) 或已被 `git add -N` 標記的檔案殘留在工作區，引發跨任務污染。
+   - 改版升級為 `git reset --hard HEAD && git clean -fd`，並在彈窗中加入雙重防呆檢核與未提交變更清單預覽，徹底杜絕工作區髒污。
+4. **人機雙向「確認門禁 (Confirmation Gate)」無縫運轉**：
+   - 實現「勾選需確認 ➔ Agent 擬定執行計劃回寫 `executionPlan` 保持 `in_progress` ➔ 哨兵自動待命 ➔ 使用者於面板審閱並點擊確認 ➔ 哨兵自動喚醒進入實作」的零摩擦閉環。
+
+---
+
+### 8.3 ⚠️ Problem（遇到的障礙、邊界盲點與根因分析）
+
+1. **多對話視窗併行時的任務認領衝突**：
+   - **現象**：當使用者在另一個視窗手動開工或由不同 Agent 處理任務時，背景待命的 `watch-task-gate.js` 偵測到 `in_progress` 狀態會同步喚醒，造成雙重開工的潛在衝突。
+   - **根因分析**：哨兵過濾邏輯主要依賴 `--agent` 旗標與 `status === 'in_progress'`，未記錄當前認領之 `conversationId` 或進程鎖 (Process Lock)。
+2. **Query String 注入邊界考慮不足引發二次反饋**：
+   - **現象**：在 TASK-109 實作時，初期將當前頁面的「所有」URL 參數全部傳入 OneLink，導致非追蹤參數（如 `apiMode=mock`、`confirmed=1`）也被寫入，使用者不得不提出反饋限制「只需帶入 `c`, `af_adset`, `af_ad`」。
+   - **根因分析**：前置需求分析時未主動向使用者確認參數白名單範圍，預設採取了貪婪合併策略。
+3. **終端長連線超時被外層 Runtime 中斷**：
+   - **現象**：背景待命進程在無任務時靜默守候，超過 75 分鐘後被系統外層以 Exit Code 0 終止。
+   - **根因分析**：AI Agent 執行環境的 background task 存在最大生存週期限制，需在喚醒後動態檢測是否有真實變更並自動重啟。
+
+---
+
+### 8.4 💡 行動建議與後續演進策略 (Action Items)
+
+1. **引入任務對話鎖定 (Conversation Affinity / Task Lock)**：
+   - 於 `tasks.json` 強化 `conversationId` 欄位生命週期：當某對話視窗開始處理任務時，記錄該 `conversationId`；哨兵若指定特定 Agent 或對話，僅攔截所屬或通用任務，避免多視窗競爭。
+2. **落實參數白名單防禦模式 (Strict Whitelisting by Default)**：
+   - 在任何牽涉跨系統或第三方跳轉（如 AppsFlyer OneLink、支付閘道、外部 SSO）的參數傳遞實作中，預設採用「白名單過濾模式」，明確列出目標允許參數，杜絕非預期參數洩漏或污染。
+3. **Diff 檢視器持續演進：Side-by-Side (並排檢視) 支援**：
+   - 現階段已完成 Unified 雙行號檢閱；未來可在寬螢幕桌面端（> 1440px）加入「並排模式 (Split Diff)」切換按鈕，提供比照 GitHub PR 的極致體驗。
+4. **執行報告自動生成輔助工具 (CLI Auto-Report Generator)**：
+   - 強化 CLI Agent 與本地腳本，在執行完測試後自動從 git diff 萃取變更摘要與測試輸出，自動填入「任務執行報告」模板，大幅減輕 Agent 手工排版負擔。
+
+---
+*Retrospective Report updated at 2026-10-13 by Antigravity.*
+
+
 

@@ -64,6 +64,7 @@
      4. `## 3. 歷次審查因應 (Feedback Addressed)`（若有 feedback）
      5. `## 4. 品質驗證與交付證明 (Verification & Test Evidence)`（包含指令、退出碼、單元測試指標）
      6. 原生終端輸出與 Harness 檢查記錄一律收納於 `<details><summary>點擊展開原生終端與 Harness 輸出記錄 (Raw Terminal Output)</summary>...` 折疊區塊中，保留可用輸出且不得截斷，敏感憑證不得寫入日誌。
+   - **【對齊回報原則 (Chat-Report Symmetry)】**：AI 在 chat 視窗回報給使用者的「實作變更」與「測試驗證」核心內容，**必須 100% 同步寫入 `task.executionLog` 的核心章節**。嚴禁在 chat 中輸出詳盡分析但在 `executionLog` 只寫單行狀態戳記。若日誌未包含具體函式/變數/邏輯更動與測試指令結果，視為品質門禁未通過！
 3. 標準 Tasks 回寫 Node.js 指令範例：
    ```bash
    node -e '
