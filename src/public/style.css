@@ -1,0 +1,283 @@
+    /* ============================================================================
+     * Task Dashboard 色彩計劃 (60-30-10 Monochromatic Base + Single Primary + Localized Status)
+     * 專為外接螢幕低顯色度/Gamma 壓縮環境校準：以「明度色塊階梯 (ΔL ≥ 9%) ＋ 雙層立體陰影」取代傳統框線
+     * - 主色 (Primary Accent): Ocean Sky (#0284C7 / Dark #38BDF8)
+     * - 局部狀態 (Localized Status):
+     *   1. 待處理 (Todo)       : Neutral Slate (#64748B / Dark #94A3B8)
+     *   2. 進行中 (In Progress) : Primary Sky   (#0284C7 / Dark #38BDF8)
+     *   3. 待驗收 (Review)      : Warm Amber    (#D97706 / Dark #F59E0B) — 零螢光紫
+     *   4. 已完成 (Done)        : Sage Emerald  (#059669 / Dark #34D399)
+     * ============================================================================ */
+    :root {
+      --td-canvas: #e4e9f0;
+      --td-well: #d6dfe9;
+      --td-card: #ffffff;
+      --td-panel: #f1f5f9;
+      --td-primary: #0284c7;
+      --td-status-todo: #64748b;
+      --td-status-progress: #0284c7;
+      --td-status-review: #d97706;
+      --td-status-done: #059669;
+      --td-shadow-card: 0 2px 6px -1px rgba(15, 23, 42, 0.10), 0 1px 3px 0 rgba(15, 23, 42, 0.07);
+      --td-shadow-card-hover: 0 6px 14px -2px rgba(15, 23, 42, 0.14), 0 2px 5px -1px rgba(15, 23, 42, 0.08);
+      --td-shadow-well: inset 0 1px 3px 0 rgba(15, 23, 42, 0.08);
+      font-size: 16px;
+    }
+    .dark {
+      --td-canvas: #111317;
+      --td-well: #181b21;
+      --td-card: #232830;
+      --td-panel: #2c323d;
+      --td-primary: #38bdf8;
+      --td-status-todo: #94a3b8;
+      --td-status-progress: #38bdf8;
+      --td-status-review: #f59e0b;
+      --td-status-done: #34d399;
+      --td-shadow-card: 0 4px 12px -2px rgba(0, 0, 0, 0.58), 0 2px 4px -1px rgba(0, 0, 0, 0.42);
+      --td-shadow-card-hover: 0 8px 18px -2px rgba(0, 0, 0, 0.68), 0 3px 6px -1px rgba(0, 0, 0, 0.48);
+      --td-shadow-well: inset 0 1px 3px 0 rgba(0, 0, 0, 0.55);
+    }
+
+    /* 無框線色塊＋陰影階層元件 (Borderless Tonal Surface & Shadow Elevation) */
+    .td-canvas-bg {
+      background-color: var(--td-canvas);
+    }
+    .td-surface-well {
+      background-color: var(--td-well);
+      box-shadow: var(--td-shadow-well);
+    }
+    .td-surface-card {
+      background-color: var(--td-card);
+      box-shadow: var(--td-shadow-card);
+    }
+    .td-surface-card:hover {
+      box-shadow: var(--td-shadow-card-hover);
+    }
+    .td-surface-panel {
+      background-color: var(--td-panel);
+      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+    html, body {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 8px;
+      height: 10px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.04);
+      border-radius: 6px;
+    }
+    .dark .custom-scrollbar::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #8c98a8;
+      border-radius: 6px;
+      border: 2px solid transparent;
+      background-clip: content-box;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #0284c7;
+    }
+    .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #434d5b;
+      border-radius: 6px;
+      border: 2px solid transparent;
+      background-clip: content-box;
+    }
+    .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #38bdf8;
+    }
+
+    /* 專屬加粗加寬橫向主卷軸 */
+    .kanban-board-scrollbar::-webkit-scrollbar {
+      height: 14px;
+      width: 8px;
+    }
+    .kanban-board-scrollbar::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.05);
+      border-radius: 9999px;
+      margin: 0 16px 8px 16px;
+    }
+    .dark .kanban-board-scrollbar::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 9999px;
+      margin: 0 16px 8px 16px;
+    }
+    .kanban-board-scrollbar::-webkit-scrollbar-thumb {
+      background: #8c98a8;
+      border-radius: 9999px;
+      border: 3px solid transparent;
+      background-clip: content-box;
+      min-width: 60px;
+    }
+    .kanban-board-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #0284c7;
+      border: 2px solid transparent;
+      background-clip: content-box;
+    }
+    .kanban-board-scrollbar::-webkit-scrollbar-thumb:active {
+      background: #0369a1;
+    }
+    .dark .kanban-board-scrollbar::-webkit-scrollbar-thumb {
+      background: #434d5b;
+      border-radius: 9999px;
+      border: 3px solid transparent;
+      background-clip: content-box;
+      min-width: 60px;
+    }
+    .dark .kanban-board-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #38bdf8;
+      border: 2px solid transparent;
+      background-clip: content-box;
+    }
+    .dark .kanban-board-scrollbar::-webkit-scrollbar-thumb:active {
+      background: #0ea5e9;
+    }
+    .ghost-card {
+      opacity: 0.55;
+      background: #dce3ec !important;
+      box-shadow: inset 0 0 0 2px #0284c7 !important;
+    }
+    .dark .ghost-card {
+      opacity: 0.45;
+      background: #2c323d !important;
+      box-shadow: inset 0 0 0 2px #38bdf8 !important;
+    }
+    .diff-line-add {
+      background-color: rgba(16, 185, 129, 0.16);
+      color: #059669;
+      border-left: 3px solid #10b981;
+    }
+    .dark .diff-line-add {
+      color: #34d399;
+    }
+    .diff-line-del {
+      background-color: rgba(244, 63, 94, 0.16);
+      color: #e11d48;
+      border-left: 3px solid #f43f5e;
+    }
+    .dark .diff-line-del {
+      color: #fb7185;
+    }
+    .diff-line-chunk {
+      background-color: rgba(2, 132, 199, 0.14);
+      color: #0284c7;
+      border-left: 3px solid #0ea5e9;
+    }
+    .dark .diff-line-chunk {
+      color: #7dd3fc;
+    }
+    .diff-row {
+      display: flex;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .diff-num {
+      width: 36px;
+      min-width: 36px;
+      text-align: right;
+      padding-right: 6px;
+      color: #8c98a8;
+      user-select: none;
+      font-size: 10px;
+    }
+    .dark .diff-num {
+      color: #5f6b7a;
+    }
+    .diff-sign {
+      width: 18px;
+      min-width: 18px;
+      text-align: center;
+      user-select: none;
+      font-weight: 700;
+    }
+    .diff-content {
+      flex: 1;
+      padding-left: 6px;
+      white-space: pre;
+      overflow-x: auto;
+    }
+    .diff-card.is-collapsed .diff-card-body {
+      display: none;
+    }
+
+    .text-xs {
+      font-size: 0.8125rem !important;
+      line-height: 1.125rem !important;
+    }
+    .text-xs\/sm {
+      font-size: 0.875rem !important;
+      line-height: 1.25rem !important;
+    }
+    .text-xs\/lg {
+      font-size: 1rem !important;
+      line-height: 1.375rem !important;
+    }
+
+    /* 鍵盤 Focus Outline 樣式標示 (排除表單輸入欄位，避免 outlined 樣式遮擋或干擾) */
+    :focus-visible:not(input):not(textarea):not(select) {
+      outline: 2px solid #0284c7 !important;
+      outline-offset: 2px !important;
+      box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.35) !important;
+      border-radius: 6px;
+    }
+    .dark :focus-visible:not(input):not(textarea):not(select) {
+      outline: 2px solid #38bdf8 !important;
+      outline-offset: 2px !important;
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.45) !important;
+      border-radius: 6px;
+    }
+    .keyboard-focus-active:not(input):not(textarea):not(select) {
+      outline: 2px solid #0284c7 !important;
+      outline-offset: 2px !important;
+      box-shadow: 0 0 0 4px rgba(2, 132, 199, 0.4) !important;
+    }
+    .dark .keyboard-focus-active:not(input):not(textarea):not(select) {
+      outline: 2px solid #38bdf8 !important;
+      outline-offset: 2px !important;
+      box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.5) !important;
+    }
+
+    /* 表單文字控制項 Focus：內縮 outline (offset 為負)，完整繪製於元素邊界內，
+       不受 overflow 捲動容器裁切 (修正左側被 #modalLeftColumn 蓋住問題) */
+    :root { --td-focus: #0284c7; }
+    .dark { --td-focus: #38bdf8; }
+    #formExecutionPlan, #formFeedback { --td-focus: #d97706; }
+    .dark #formExecutionPlan, .dark #formFeedback { --td-focus: #f59e0b; }
+
+    input:not([type="checkbox"]):not([type="radio"]):focus-visible,
+    textarea:focus-visible,
+    select:focus-visible {
+      outline: 2px solid var(--td-focus) !important;
+      outline-offset: -2px !important;
+      box-shadow: none !important;
+    }
+    /* 複合輸入框 (Select2)：由外框容器顯示 focus，內部輸入框不另外繪製 */
+    #select2ControlBox:focus-within {
+      outline: 2px solid var(--td-focus);
+      outline-offset: -2px;
+    }
+    #select2ControlBox input:focus-visible {
+      outline: none !important;
+    }
+
+    /* 支援減少動態效果 (Prefers Reduced Motion) */
+    @media (prefers-reduced-motion: reduce) {
+      .animate-pulse, .animate-spin, .animate-bounce { animation: none !important; }
+      * { transition-duration: 0.01ms !important; }
+    }

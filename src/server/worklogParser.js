@@ -937,7 +937,7 @@ function syncProjectWorklogForActiveTask(projPath, task) {
 
           let slicesMd = '';
           if (extractedSlices.length > 0) {
-            slicesMd = extractedSlices.map((s, idx) => `- [-] Slice ${idx + 1}: ${s}`).join('\n');
+            slicesMd = extractedSlices.map((s, idx) => `- [${idx === 0 ? '-' : ' '}] Slice ${idx + 1}: ${s}`).join('\n');
           } else {
             slicesMd = `- [-] Slice 1: [${task.id}] ${goalText}`;
           }

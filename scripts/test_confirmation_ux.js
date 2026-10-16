@@ -4,11 +4,20 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const html = fs.readFileSync(path.join(__dirname, '../src/public/index.html'), 'utf8');
-const functions = [...html.matchAll(/^    (?:async )?function (\w+)\(/gm)];
+const moduleFiles = fs.readdirSync(path.join(__dirname, '../src/public/modules')).filter(f => f.endsWith('.js'));
+const allSources = [html, ...moduleFiles.map(m => fs.readFileSync(path.join(__dirname, '../src/public/modules', m), 'utf8'))];
+
 function source(name) {
-  const index = functions.findIndex(match => match[1] === name);
-  assert(index !== -1, `Missing actual function ${name}`);
-  return html.slice(functions[index].index, functions[index + 1].index);
+  for (const f of allSources) {
+    const matches = [...f.matchAll(/^\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)\(/gm)];
+    const idx = matches.findIndex(match => match[1] === name);
+    if (idx !== -1) {
+      const start = matches[idx].index;
+      const end = idx + 1 < matches.length ? matches[idx + 1].index : (f.includes('\nexport {') ? f.indexOf('\nexport {') : f.length);
+      return f.slice(start, end > start ? end : undefined).replace(/^\s*export\s+/, '');
+    }
+  }
+  throw new Error(`Missing actual function ${name}`);
 }
 
 function element(value = '') {

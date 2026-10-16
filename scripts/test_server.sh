@@ -317,19 +317,21 @@ assert.strictEqual(fbTask.feedback, "", "已存在之 feedback 再次傳入應�
 
 // 驗證 requiresConfirmation 與 executionPlan 邏輯
 const indexHtmlContent = fs.readFileSync("./src/public/index.html", "utf8");
-assert(indexHtmlContent.includes("t.status === \"in_progress\" && t.requiresConfirmation && t.executionPlan && t.executionPlan.trim()") || indexHtmlContent.includes("t.requiresConfirmation && t.executionPlan && t.executionPlan.trim()"), "看板卡片待確認徽章必須同時滿足 requiresConfirmation 與 executionPlan 非空");
-assert(indexHtmlContent.includes("const isPendingConfirmation = isReqConfirmChecked && status === ") && indexHtmlContent.includes("hasExecutionPlan"), "彈窗待確認狀態必須同時要求 hasExecutionPlan");
+const uiModulesContent = fs.readdirSync("./src/public/modules").filter(f => f.endsWith(".js")).map(f => fs.readFileSync("./src/public/modules/" + f, "utf8")).join("\n");
+const allFrontendContent = indexHtmlContent + "\n" + uiModulesContent;
+assert(allFrontendContent.includes("t.status === \"in_progress\" && t.requiresConfirmation && t.executionPlan && t.executionPlan.trim()") || allFrontendContent.includes("t.requiresConfirmation && t.executionPlan && t.executionPlan.trim()"), "看板卡片待確認徽章必須同時滿足 requiresConfirmation 與 executionPlan 非空");
+assert(allFrontendContent.includes("const isPendingConfirmation = isReqConfirmChecked && status === ") && allFrontendContent.includes("hasExecutionPlan"), "彈窗待確認狀態必須同時要求 hasExecutionPlan");
 
 // 驗證 harness_check.sh 是否包含 executionPlan 同步門禁檢驗
 const harnessScript = fs.readFileSync("./scripts/harness_check.sh", "utf8");
 assert(harnessScript.includes("requiresConfirmation") && harnessScript.includes("executionPlan"), "harness_check.sh 必須包含 executionPlan 同步檢核門禁");
 
 // 驗證 index.html 移除冗餘 markdown 預覽機制並保留原生流暢編輯體驗
-assert(!indexHtmlContent.includes("function renderMarkdown(str)"), "前端已移除冗餘之 renderMarkdown 函式");
-assert(!indexHtmlContent.includes("function switchFieldViewMode("), "前端已移除冗餘之 switchFieldViewMode 函式");
-assert(!indexHtmlContent.includes("formDescriptionPreview"), "前端彈窗已移除 formDescriptionPreview 預覽容器");
-assert(!indexHtmlContent.includes("formExecutionPlanPreview"), "前端彈窗已移除 formExecutionPlanPreview 預覽容器");
-assert(indexHtmlContent.includes("autoResizeTextarea"), "前端保留原生彈性 autoResizeTextarea 編輯體驗");
+assert(!allFrontendContent.includes("function renderMarkdown(str)"), "前端已移除冗餘之 renderMarkdown 函式");
+assert(!allFrontendContent.includes("function switchFieldViewMode("), "前端已移除冗餘之 switchFieldViewMode 函式");
+assert(!allFrontendContent.includes("formDescriptionPreview"), "前端彈窗已移除 formDescriptionPreview 預覽容器");
+assert(!allFrontendContent.includes("formExecutionPlanPreview"), "前端彈窗已移除 formExecutionPlanPreview 預覽容器");
+assert(allFrontendContent.includes("autoResizeTextarea"), "前端保留原生彈性 autoResizeTextarea 編輯體驗");
 
 console.log("    ✅ agent-status、build-plan 隔離保護、多輪 Feedback Commit 訊息、consumeTaskFeedback、executionPlan 門禁與簡潔編輯器單元測試通過！");
 '

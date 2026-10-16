@@ -2,27 +2,27 @@
 
 ## Active Task
 
-- ID: TASK-120
-- Title: UI UX 優化
+- ID: TASK-001
+- Title: 測試 in_progress 巡檢
 - Status: 已完成
 - Last updated: 2026-10-16
-- Goal: UI UX 優化（表單加回框線與 borderline focus、無任務卡牌去底色、todo 任務分頁簡化、流程說明各步驟獨立底色框線與線條連結、開工引擎整合巡檢標示、徹底移除表單 outlined 樣式）
+- Goal: 測試 in_progress 巡檢
 - Route: dashboard-state-and-sync
-- Scope: UI UX 優化
+- Scope: 測試 in_progress 巡檢
 - Out of scope: 跨專案副作用
 
 ## Last Completed Task
 
-- ID: TASK-120
-- Title: UI UX 優化
+- ID: TASK-006
+- Title: test(slices): 4-Slice 即時進度更新與看板輪詢驗證
 - Status: 已完成
 - Last updated: 2026-10-16
 
 ## Execution Tracking
 
 - CurrentStep: 任務驗收通過，已成功結案
-- Evidence: `node scripts/test_ui_behavior.js && npm test && npm run harness:check` (exit 0)
-- NextStep: 待使用者審核
+- Evidence: 進行中
+- NextStep: 完成實作與測試後推入 review 交付審查
 
 ## Reset Decision Log
 
@@ -32,8 +32,9 @@
 
 - npm run harness:check
 - npm test
+- npm run build:app
 
 ## Resume Entry
 
 - Start here: .github/worklog/agent-status.md
-- Context: TASK-120 流程說明步驟底色框線與線條連結優化完成
+- Context: TASK-006 4-Slice 即時進度更新與看板輪詢驗證交付審查

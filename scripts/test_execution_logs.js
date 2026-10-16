@@ -43,8 +43,10 @@ async function main() {
   assert(formatStructuredExecutionLog('').includes('未提供前置檢閱細節'));
   assert(formatStructuredExecutionLog('raw', { phase1: 'read AGENTS.md', phase2: 'changed file', phase3: 'node test: exit 0' }).includes('node test: exit 0'));
   const html = fs.readFileSync(path.join(root, 'src/public/index.html'), 'utf8');
-  assert(html.includes('logVisual.innerText = task.executionLog;'), 'Output remains text, not HTML');
-  assert(html.includes('驗證命令、工作目錄、退出碼與完整可用 stdout/stderr'), 'Desktop feedback prompt requires evidence');
+  const modules = fs.readdirSync(path.join(root, 'src/public/modules')).filter(f => f.endsWith('.js')).map(f => fs.readFileSync(path.join(root, 'src/public/modules', f), 'utf8')).join('\n');
+  const uiContent = html + '\n' + modules;
+  assert(uiContent.includes('logVisual.innerText = task.executionLog;'), 'Output remains text, not HTML');
+  assert(uiContent.includes('驗證命令、工作目錄、退出碼與完整可用 stdout/stderr'), 'Desktop feedback prompt requires evidence');
 
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'task-dashboard-logs-'));
   const dataDir = path.join(temp, 'data');
