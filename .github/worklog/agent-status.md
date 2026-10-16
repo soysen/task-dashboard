@@ -2,18 +2,18 @@
 
 ## Active Task
 
-- ID: TASK-119
+- ID: TASK-120
 - Title: UI UX 優化
 - Status: 已完成
 - Last updated: 2026-10-16
-- Goal: [退回重做] 審核與執行成果及需求規格與屬性的 tab 在 dark mode 下不明顯
+- Goal: UI UX 優化（表單加回框線與 borderline focus、無任務卡牌去底色、todo 任務分頁簡化、流程說明各步驟獨立底色框線與線條連結、開工引擎整合巡檢標示、徹底移除表單 outlined 樣式）
 - Route: dashboard-state-and-sync
-- Scope: 強化任務彈窗審核與規格 Tab 在 Dark Mode 下的視覺對比度（容器外框 dark:border-slate-700/80、凹槽 dark:bg-slate-950、作用中分頁 dark:bg-slate-800 與外框 dark:border-slate-600）
+- Scope: UI UX 優化
 - Out of scope: 跨專案副作用
 
 ## Last Completed Task
 
-- ID: TASK-119
+- ID: TASK-120
 - Title: UI UX 優化
 - Status: 已完成
 - Last updated: 2026-10-16
@@ -21,8 +21,8 @@
 ## Execution Tracking
 
 - CurrentStep: 任務驗收通過，已成功結案
-- Evidence: `node scripts/test_ui_behavior.js && npm test && npm run harness:check` (100% PASS)
-- NextStep: 提交審查驗收
+- Evidence: `node scripts/test_ui_behavior.js && npm test && npm run harness:check` (exit 0)
+- NextStep: 待使用者審核
 
 ## Reset Decision Log
 
@@ -36,4 +36,4 @@
 ## Resume Entry
 
 - Start here: .github/worklog/agent-status.md
-- Context: TASK-119 完成看板去 AI 味、色彩計劃、圓角淺灰底統一、大項目分隔線簡化與 Dark Mode 分頁高對比外觀優化
+- Context: TASK-120 流程說明步驟底色框線與線條連結優化完成

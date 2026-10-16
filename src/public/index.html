@@ -298,28 +298,46 @@
       line-height: 1.375rem !important;
     }
 
-    /* 鍵盤 Focus Outline 樣式標示 (採用單一主色 Ocean Sky 高對比光暈) */
-    :focus-visible {
+    /* 鍵盤 Focus Outline 樣式標示 (排除表單輸入欄位，避免 outlined 樣式遮擋或干擾) */
+    :focus-visible:not(input):not(textarea):not(select) {
       outline: 2px solid #0284c7 !important;
       outline-offset: 2px !important;
       box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.35) !important;
       border-radius: 6px;
     }
-    .dark :focus-visible {
+    .dark :focus-visible:not(input):not(textarea):not(select) {
       outline: 2px solid #38bdf8 !important;
       outline-offset: 2px !important;
       box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.45) !important;
       border-radius: 6px;
     }
-    .keyboard-focus-active {
+    .keyboard-focus-active:not(input):not(textarea):not(select) {
       outline: 2px solid #0284c7 !important;
       outline-offset: 2px !important;
       box-shadow: 0 0 0 4px rgba(2, 132, 199, 0.4) !important;
     }
-    .dark .keyboard-focus-active {
+    .dark .keyboard-focus-active:not(input):not(textarea):not(select) {
       outline: 2px solid #38bdf8 !important;
       outline-offset: 2px !important;
       box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.5) !important;
+    }
+
+    /* 表單輸入控制項徹底移除 outlined 樣式 (包括 outline、outline-offset 與 focus 光暈)，僅保留純淨 borderline focus */
+    input:not([type="checkbox"]):not([type="radio"]),
+    textarea,
+    select {
+      outline: none !important;
+      outline-offset: 0 !important;
+    }
+    input:not([type="checkbox"]):not([type="radio"]):focus,
+    input:not([type="checkbox"]):not([type="radio"]):focus-visible,
+    textarea:focus,
+    textarea:focus-visible,
+    select:focus,
+    select:focus-visible {
+      outline: none !important;
+      outline-offset: 0 !important;
+      box-shadow: none !important;
     }
   </style>
 </head>
@@ -398,7 +416,7 @@
           <button id="headerSidebarToggle" onclick="toggleSidebar()" title="開啟專案列表抽屜" class="text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white p-1.5 sm:p-2 rounded-xl bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 transition flex-shrink-0">
             <i data-lucide="panel-left" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-600 dark:text-indigo-400"></i>
           </button>
-          <div class="min-w-0">
+          <div class="min-w-0 flex items-center gap-2">
             <h1 class="text-xs sm:text-base font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-1.5 truncate">
               <span id="headerCurrentProjectName" class="truncate">全部專案</span>
               <span id="bannerPath" class="text-[10px] text-slate-400 dark:text-slate-500 font-mono font-normal truncate hidden sm:inline"></span>
@@ -406,17 +424,26 @@
                 <i data-lucide="shield-check" class="w-3 h-3 text-indigo-500"></i>
                 <span class="hidden sm:inline">引入 Harness</span>
               </button>
-              <!-- 動態即時巡檢狀態 (二擇一顯示：AI 輪巡模式) -->
-              <div id="inspectionBadge" onclick="triggerManualInspect()" title="AI 對話輪巡中 · 點擊手動同步" style="display: none;" class="items-center gap-1.5 bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 dark:border-emerald-500/40 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-medium cursor-pointer hover:bg-emerald-500/25 transition flex-shrink-0">
-                <span id="inspectionDot" class="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span id="inspectionText">AI 巡檢連線中</span>
-              </div>
-              <!-- CLI Agent 即時開關徽章 (二擇一顯示：CLI Agent 模式) -->
-              <div id="headerCliAgentBadge" onclick="toggleHeaderCliAgent()" title="點擊快速切換 CLI Agent 自動開工模式" style="display: none;" class="items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-medium cursor-pointer transition flex-shrink-0">
-                <span id="headerCliDot" class="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full"></span>
-                <span id="headerCliText">CLI Agent</span>
-              </div>
             </h1>
+            <!-- 流程指引說明 (不同步驟具備專屬底色與框線，步驟間以線條連結取代箭頭) -->
+            <div id="headerWorkflowHint" class="hidden xl:flex items-center gap-1.5 text-[10px] sm:text-[11px] flex-shrink-0 font-medium">
+              <div class="flex items-center gap-1 text-slate-500 dark:text-slate-400 font-semibold flex-shrink-0 mr-0.5">
+                <i data-lucide="compass" class="w-3.5 h-3.5 text-indigo-500"></i>
+                <span>流程</span>
+              </div>
+              <div class="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
+                <span class="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-semibold whitespace-nowrap shadow-xs">建立任務</span>
+                <span class="w-2 sm:w-2.5 h-px bg-slate-300 dark:bg-slate-600 flex-shrink-0"></span>
+                <span class="px-2 py-0.5 rounded-md bg-sky-50 dark:bg-sky-950/60 border border-sky-300 dark:border-sky-700 text-sky-700 dark:text-sky-300 text-[10px] font-semibold whitespace-nowrap shadow-xs">進行中 · 喚醒 AI</span>
+                <span class="w-2 sm:w-2.5 h-px bg-slate-300 dark:bg-slate-600 flex-shrink-0"></span>
+                <span class="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 text-[10px] font-semibold whitespace-nowrap shadow-xs">待驗收 · 審閱</span>
+                <span class="w-2 sm:w-2.5 h-px bg-slate-300 dark:bg-slate-600 flex-shrink-0"></span>
+                <span class="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 text-[10px] font-semibold whitespace-nowrap shadow-xs">Commit 結案</span>
+              </div>
+            </div>
+            <!-- 相容性隱藏元素 (巡檢標示已遷移至開工引擎) -->
+            <div id="inspectionBadge" style="display: none;"><span id="inspectionDot"></span><span id="inspectionText"></span></div>
+            <div id="headerCliAgentBadge" style="display: none;"><span id="headerCliDot"></span><span id="headerCliText"></span></div>
           </div>
         </div>
 
@@ -439,9 +466,10 @@
 
           <!-- 開工引擎 Popover / 下拉選單按鈕 -->
           <div class="relative inline-block text-left z-50" id="engineDropdownContainer">
-            <button id="headerEngineBtn" onclick="toggleEnginePopover(event)" title="自動化開工引擎設定" class="h-7 sm:h-8 flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] sm:text-xs font-semibold px-2 sm:px-2.5 rounded-lg border border-indigo-500/50 shadow transition flex-shrink-0">
-              <i data-lucide="cpu" class="w-3 h-3 sm:w-3.5 sm:h-3.5 text-indigo-200"></i>
-              <span class="hidden sm:inline">開工引擎</span>
+            <button id="headerEngineBtn" onclick="toggleEnginePopover(event)" title="自動化開工引擎設定 (AI 巡檢中)" class="h-7 sm:h-8 flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] sm:text-xs font-semibold px-2 sm:px-2.5 rounded-lg border border-indigo-500/50 shadow transition flex-shrink-0 cursor-pointer">
+              <span id="headerEngineDot" class="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-400 animate-pulse flex-shrink-0"></span>
+              <span>開工引擎</span>
+              <span id="headerEngineStatusText" class="inline-flex items-center text-[10px] bg-black/25 text-white/95 px-1.5 py-0.5 rounded font-medium">AI 巡檢中</span>
               <i data-lucide="chevron-down" class="w-3 h-3 text-indigo-200 opacity-80"></i>
             </button>
 
@@ -608,12 +636,6 @@
             <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 hidden sm:inline"></span>
           </button>
         </div>
-
-        <!-- 初次使用者快速操作指引 (Self-Evident Workflow Hint — 無框線色塊) -->
-        <div class="hidden xl:flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-300 td-surface-card px-3 py-2 rounded-xl flex-shrink-0">
-          <i data-lucide="compass" class="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 flex-shrink-0"></i>
-          <span>流程：<strong class="text-slate-900 dark:text-white font-semibold">建立任務</strong> → 拖入<strong class="text-sky-600 dark:text-sky-400 font-semibold">進行中</strong>自動喚醒 AI → 於<strong class="text-amber-600 dark:text-amber-400 font-semibold">待驗收</strong>審閱報告與 Diff → <strong class="text-emerald-600 dark:text-emerald-400 font-semibold">Commit 結案</strong></span>
-        </div>
       </div>
     </div>
 
@@ -765,16 +787,16 @@
         <div id="modalFormGrid" class="grid grid-cols-1 lg:grid-cols-2 gap-5 flex-1 min-h-0 p-5 overflow-hidden">
           
           <!-- LEFT COLUMN: 依據資訊架構學 (IA) 分離「審核與執行成果」與「需求規格與屬性」雙視圖 (可滾動) -->
-          <div id="modalLeftColumn" class="flex-1 overflow-y-auto pr-2 space-y-3.5 custom-scrollbar">
+          <div id="modalLeftColumn" class="flex-1 overflow-y-auto pl-1 pr-2 space-y-3.5 custom-scrollbar">
             
             <!-- 進行中任務唯讀提示 -->
-            <div id="modalInProgressNotice" class="hidden items-center gap-2 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-700 dark:text-amber-300 text-xs font-medium">
+            <div id="modalInProgressNotice" hidden class="hidden items-center gap-2 p-2.5 mb-3.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-700 dark:text-amber-300 text-xs font-medium">
               <span class="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0"></span>
               <span>任務進行中：所有欄位已鎖定唯讀，避免執行中途產生衝突異動。</span>
             </div>
 
             <!-- IA 階段感知工作區分頁切換器 (Stage-Aware Workspace Tabs — 凹槽＋高對比浮起色塊，強化 Dark Mode 邊界與分頁識別度) -->
-            <div id="modalLeftWorkspaceTabs" class="hidden items-center justify-between td-surface-well border border-slate-300/70 dark:border-slate-700/80 dark:bg-slate-950 p-1 rounded-xl">
+            <div id="modalLeftWorkspaceTabs" class="hidden items-center justify-between td-surface-well border border-slate-300/70 dark:border-slate-700/80 dark:bg-slate-950 p-1 rounded-xl !mt-0">
               <div class="flex items-center gap-1 flex-1" role="tablist" aria-label="任務審核與規格切換">
                 <button type="button" id="btnModalTabReview" onclick="switchModalWorkspaceTab('review')" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer border bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs border-slate-300/80 dark:border-slate-600">
                   <i data-lucide="clipboard-check" class="w-3.5 h-3.5 text-amber-600 dark:text-amber-400"></i>
@@ -793,7 +815,7 @@
               <!-- 標題 -->
               <div>
                 <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 任務標題</label>
-                <input type="text" id="formTitle" required placeholder="請輸入簡潔明確的任務名稱..." class="w-full h-9 bg-slate-100 dark:bg-slate-800 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-100 shadow-inner focus:outline-none focus:ring-2 focus:ring-sky-500 transition">
+                <input type="text" id="formTitle" required placeholder="請輸入簡潔明確的任務名稱..." class="w-full h-9 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-sky-500 dark:focus:border-sky-400 transition">
               </div>
 
               <!-- 所屬專案與關聯前置任務 -->
@@ -802,7 +824,7 @@
                   <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 所屬專案 (可搜尋)</label>
                   <input type="hidden" id="formProject">
                   <div class="relative">
-                    <input type="text" id="formProjectInput" oninput="onProjectAutocompleteInput(this.value)" onfocus="showProjectAutocomplete()" onclick="showProjectAutocomplete()" placeholder="搜尋專案..." autocomplete="off" class="w-full h-9 bg-slate-100 dark:bg-slate-800 rounded-lg pl-3 pr-8 text-xs text-slate-900 dark:text-slate-200 shadow-inner focus:outline-none focus:ring-2 focus:ring-sky-500 transition">
+                    <input type="text" id="formProjectInput" oninput="onProjectAutocompleteInput(this.value)" onfocus="showProjectAutocomplete()" onclick="showProjectAutocomplete()" placeholder="搜尋專案..." autocomplete="off" class="w-full h-9 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg pl-3 pr-8 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-sky-500 dark:focus:border-sky-400 transition">
                     <button type="button" id="formProjectClearBtn" onclick="clearFormProject(event)" title="清除專案選擇" class="absolute right-8 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 opacity-0 pointer-events-none transition-opacity">
                       <i data-lucide="x" class="w-3.5 h-3.5"></i>
                     </button>
@@ -818,7 +840,7 @@
                 <!-- 關聯前置任務 (Dependencies) -->
                 <div>
                   <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 關聯前置任務 (Dependencies)</label>
-                  <select id="formDependenciesSelect" onchange="addDependencyFromSelect(this.value)" class="w-full h-9 bg-slate-100 dark:bg-slate-800 rounded-lg px-2.5 text-xs text-slate-900 dark:text-slate-200 shadow-inner focus:outline-none focus:ring-2 focus:ring-sky-500">
+                  <select id="formDependenciesSelect" onchange="addDependencyFromSelect(this.value)" class="w-full h-9 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-sky-500 dark:focus:border-sky-400 transition">
                     <option value=""> 選擇關聯/前置任務...</option>
                   </select>
                   <!-- 選擇的依賴清單徽章 -->
@@ -830,7 +852,7 @@
               <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 優先級</label>
-                  <select id="formPriority" class="w-full h-9 bg-slate-100 dark:bg-slate-800 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 shadow-inner focus:outline-none focus:ring-2 focus:ring-sky-500">
+                  <select id="formPriority" class="w-full h-9 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-sky-500 dark:focus:border-sky-400 transition">
                     <option value="P0"> P0 (緊急/阻礙)</option>
                     <option value="P1" selected> P1 (高)</option>
                     <option value="P2"> P2 (中)</option>
@@ -840,7 +862,7 @@
 
                 <div>
                   <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 目前狀態</label>
-                  <select id="formStatus" onchange="updateModalButtonState()" class="w-full h-9 bg-slate-100 dark:bg-slate-800 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 shadow-inner focus:outline-none focus:ring-2 focus:ring-sky-500">
+                  <select id="formStatus" onchange="updateModalButtonState()" class="w-full h-9 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-sky-500 dark:focus:border-sky-400 transition">
                     <option value="todo"> 待處理 (To Do)</option>
                     <option value="in_progress"> 進行中 (In Progress)</option>
                     <option value="review"> 待驗收 (Review / Verify)</option>
@@ -850,7 +872,7 @@
 
                 <div>
                   <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 執行 Agent (模型/助手)</label>
-                  <select id="formAssignee" class="w-full h-9 bg-slate-100 dark:bg-slate-800 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 shadow-inner focus:outline-none focus:ring-2 focus:ring-sky-500 font-medium">
+                  <select id="formAssignee" class="w-full h-9 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-sky-500 dark:focus:border-sky-400 font-medium transition">
                     <option value="Antigravity" selected>Antigravity (預設)</option>
                     <option value="Claude">Claude</option>
                     <option value="Codex">Codex</option>
@@ -868,7 +890,7 @@
 
                 <!-- 整合式 Select2 容器 -->
                 <div class="relative" id="select2Container">
-                  <div id="select2ControlBox" onclick="toggleSelect2Dropdown(event)" class="min-h-[36px] w-full bg-white dark:bg-slate-900 rounded-lg p-1.5 flex flex-wrap items-center gap-1.5 cursor-pointer shadow-inner focus-within:ring-2 focus-within:ring-sky-500 transition">
+                  <div id="select2ControlBox" onclick="toggleSelect2Dropdown(event)" class="min-h-[36px] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-1.5 flex flex-wrap items-center gap-1.5 cursor-pointer focus-within:border-sky-500 dark:focus-within:border-sky-400 transition">
                     <!-- Chips 渲染區 -->
                     <div id="select2Chips" class="flex flex-wrap items-center gap-1"></div>
                     <!-- 輸入框 (支援即時打字篩選與自訂新增) -->
@@ -905,7 +927,7 @@
               <!-- 詳細需求與說明 (Description) -->
               <div>
                 <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 詳細需求與說明 (Description)</label>
-                <textarea id="formDescription" rows="8" placeholder="描述任務背景、具體需求或待辦重點..." class="w-full bg-slate-100 dark:bg-slate-800 rounded-lg p-2.5 text-xs leading-relaxed text-slate-900 dark:text-slate-100 shadow-inner focus:outline-none focus:ring-2 focus:ring-sky-500 custom-scrollbar"></textarea>
+                <textarea id="formDescription" rows="8" placeholder="描述任務背景、具體需求或待辦重點..." class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs leading-relaxed text-slate-900 dark:text-slate-100 focus:outline-none focus:border-sky-500 dark:focus:border-sky-400 custom-scrollbar transition"></textarea>
               </div>
             </div>
 
@@ -931,7 +953,7 @@
                     <span id="modalReviewDescPreviewLine" class="truncate pr-2">點擊展開原始需求描述...</span>
                     <span class="text-[10px] font-mono text-slate-400 group-open:rotate-180 transition-transform flex-shrink-0">▼</span>
                   </summary>
-                  <div id="modalReviewDescFullText" class="mt-2 p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/80 text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto custom-scrollbar shadow-inner"></div>
+                  <div id="modalReviewDescFullText" class="mt-2 p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700/80 text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto custom-scrollbar"></div>
                 </details>
               </div>
 
@@ -968,7 +990,7 @@
                   </div>
                 </div>
 
-                <textarea id="formExecutionPlan" rows="6" placeholder="此任務之預計執行計劃、步驟與驗證指標..." class="w-full bg-white dark:bg-slate-900 rounded-lg p-2.5 text-xs leading-relaxed text-slate-900 dark:text-slate-100 shadow-inner focus:outline-none focus:ring-2 focus:ring-amber-500 custom-scrollbar font-mono"></textarea>
+                <textarea id="formExecutionPlan" rows="6" placeholder="此任務之預計執行計劃、步驟與驗證指標..." class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs leading-relaxed text-slate-900 dark:text-slate-100 focus:outline-none focus:border-amber-500 dark:focus:border-amber-400 custom-scrollbar font-mono transition"></textarea>
               </div>
 
               <!-- 審查意見與修改回饋 (Review Feedback — 統一樣式圓角淺灰底 td-surface-panel，局部琥珀狀態色條) -->
@@ -989,7 +1011,7 @@
                   <button type="button" onclick="insertFeedbackPreset('請調整實作切片邊界，分步驗證')" class="text-[11px] px-2 py-0.5 rounded-md bg-white hover:bg-amber-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 shadow-xs transition-colors whitespace-nowrap flex-shrink-0">調整實作切片</button>
                   <button type="button" onclick="insertFeedbackPreset('請補充 Phase 3 驗收截圖或詳細日誌')" class="text-[11px] px-2 py-0.5 rounded-md bg-white hover:bg-amber-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 shadow-xs transition-colors whitespace-nowrap flex-shrink-0">補充驗收證據</button>
                 </div>
-                <textarea id="formFeedback" rows="2" placeholder="如需修改或退回重做，請點選上方標籤或在此輸入修改意見..." class="w-full bg-white dark:bg-slate-900 rounded-lg p-2.5 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 shadow-inner focus:outline-none focus:ring-2 focus:ring-amber-500 custom-scrollbar"></textarea>
+                <textarea id="formFeedback" rows="2" placeholder="如需修改或退回重做，請點選上方標籤或在此輸入修改意見..." class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-amber-500 dark:focus:border-amber-400 custom-scrollbar transition"></textarea>
               </div>
 
               <!-- 工作切片與 Agent 藍圖追蹤 (Active Slice & Build Plan — 統一樣式圓角淺灰底 td-surface-panel) -->
@@ -1812,31 +1834,40 @@
     }
 
     function renderCliAgentBadge() {
+      const isEnabled = !!settings.enableCliAgent;
+      const cmd = settings.cliCommand || 'hermes';
+
+      // 1. 開工引擎按鈕即時巡檢狀態標示
+      const engineDot = document.getElementById('headerEngineDot');
+      const engineStatus = document.getElementById('headerEngineStatusText');
+      const engineBtn = document.getElementById('headerEngineBtn');
+
+      if (isEnabled) {
+        if (engineDot) engineDot.className = 'w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-cyan-300 animate-pulse flex-shrink-0';
+        if (engineStatus) engineStatus.innerText = 'CLI 巡檢中';
+        if (engineBtn) engineBtn.title = `自動化開工引擎 (CLI 巡檢中: ${cmd}) · 點擊設定`;
+      } else {
+        if (engineDot) engineDot.className = 'w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-400 animate-pulse flex-shrink-0';
+        if (engineStatus) engineStatus.innerText = 'AI 巡檢中';
+        if (engineBtn) engineBtn.title = '自動化開工引擎 (AI 巡檢中) · 點擊設定';
+      }
+
+      // 2. 舊式徽章相容性維護
       const cliBadge = document.getElementById('headerCliAgentBadge');
       const inspectionBadge = document.getElementById('inspectionBadge');
       const dot = document.getElementById('headerCliDot');
       const text = document.getElementById('headerCliText');
-      if (!cliBadge || !inspectionBadge) return;
+      const inspectionText = document.getElementById('inspectionText');
 
-      const isEnabled = !!settings.enableCliAgent;
-      const cmd = settings.cliCommand || 'hermes';
-
-      if (isEnabled) {
-        // CLI Agent 模式：顯示 CLI 徽章，完全隱藏 AI 巡檢徽章
-        inspectionBadge.style.display = 'none';
-        cliBadge.style.display = 'inline-flex';
-        cliBadge.className = 'inline-flex items-center gap-1.5 bg-indigo-500/15 dark:bg-indigo-500/25 text-indigo-700 dark:text-indigo-300 border border-indigo-500/40 px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-medium cursor-pointer hover:bg-indigo-500/30 transition flex-shrink-0';
-        if (dot) dot.className = 'w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-indigo-500 animate-pulse';
-        if (text) text.innerText = `CLI Agent: 啟用 (${cmd})`;
-        cliBadge.title = `CLI Agent 自動開工已啟用 (${cmd}) · 點擊切換為 AI 對話輪巡模式`;
-      } else {
-        // AI 輪巡模式：完全隱藏 CLI 徽章，顯示 AI 巡檢徽章
-        cliBadge.style.display = 'none';
-        inspectionBadge.style.display = 'inline-flex';
-        inspectionBadge.className = 'inline-flex items-center gap-1.5 bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 dark:border-emerald-500/40 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-medium cursor-pointer hover:bg-emerald-500/25 transition flex-shrink-0';
-        const inspectionText = document.getElementById('inspectionText');
-        if (inspectionText) inspectionText.innerText = 'AI 巡檢連線中';
-        inspectionBadge.title = 'AI 對話輪巡模式運作中 · 點擊手動同步';
+      if (cliBadge && inspectionBadge) {
+        if (isEnabled) {
+          inspectionBadge.style.display = 'none';
+          if (dot) dot.className = 'w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-indigo-500 animate-pulse';
+          if (text) text.innerText = `CLI Agent: 啟用 (${cmd})`;
+        } else {
+          cliBadge.style.display = 'none';
+          if (inspectionText) inspectionText.innerText = 'AI 巡檢中';
+        }
       }
     }
 
@@ -2916,7 +2947,7 @@ node "${gateScriptPath}"
         badgeEl.innerText = colTasks.length;
 
         if (colTasks.length === 0) {
-          colEl.innerHTML = `<div class="text-center py-7 px-3 text-xs text-slate-500 dark:text-slate-400 td-surface-panel rounded-lg space-y-1"><div class="font-medium text-slate-600 dark:text-slate-300">無任務卡片</div><div class="text-[11px] text-slate-400 dark:text-slate-400 leading-relaxed">${emptyStateHints[st] || ''}</div></div>`;
+          colEl.innerHTML = `<div class="text-center py-7 px-3 text-xs text-slate-500 dark:text-slate-400 rounded-lg space-y-1"><div class="font-medium text-slate-600 dark:text-slate-300">無任務卡片</div><div class="text-[11px] text-slate-400 dark:text-slate-400 leading-relaxed">${emptyStateHints[st] || ''}</div></div>`;
           return;
         }
 
@@ -3305,6 +3336,7 @@ node "${gateScriptPath}"
       // 1. 進行中唯讀提示橫幅
       const notice = document.getElementById('modalInProgressNotice');
       if (notice) {
+        notice.hidden = !isReadOnly;
         if (isReadOnly) {
           notice.classList.remove('hidden');
           notice.classList.add('flex');
@@ -3631,19 +3663,27 @@ node "${gateScriptPath}"
       const descFullEl = document.getElementById('modalReviewDescFullText');
       if (descFullEl) descFullEl.innerText = rawDesc || '（無詳細需求描述）';
 
+      // 待處理 (todo) 任務比照新增任務，不需「審核與執行成果」tab，直接聚焦需求規格
+      const isTodo = task.status === 'todo';
       const workspaceTabs = document.getElementById('modalLeftWorkspaceTabs');
       if (workspaceTabs) {
-        workspaceTabs.classList.remove('hidden');
-        workspaceTabs.classList.add('flex');
+        workspaceTabs.classList.toggle('hidden', isTodo);
+        workspaceTabs.classList.toggle('flex', !isTodo);
       }
-      const reviewDot = document.getElementById('modalTabReviewStatusDot');
-      if (reviewDot) {
-        const needsReviewAttention = task.status === 'review' || (task.status === 'in_progress' && !!task.requiresConfirmation && !!(task.executionPlan || '').trim());
-        reviewDot.classList.toggle('hidden', !needsReviewAttention);
+      if (isTodo) {
+        document.getElementById('modalReviewContextSummary')?.classList.add('hidden');
+        document.getElementById('modalSpecPane')?.classList.remove('hidden');
+        document.getElementById('modalReviewPane')?.classList.add('hidden');
+        document.getElementById('reviewFeedbackBox')?.classList.add('hidden');
+        document.getElementById('formSliceInfoBox')?.classList.add('hidden');
+      } else {
+        const reviewDot = document.getElementById('modalTabReviewStatusDot');
+        if (reviewDot) {
+          const needsReviewAttention = task.status === 'review' || (task.status === 'in_progress' && !!task.requiresConfirmation && !!(task.executionPlan || '').trim());
+          reviewDot.classList.toggle('hidden', !needsReviewAttention);
+        }
+        switchModalWorkspaceTab('review');
       }
-
-      const defaultTabMode = (task.status === 'todo' && !task.executionLog && !task.executionPlan && !task.feedback) ? 'spec' : 'review';
-      switchModalWorkspaceTab(defaultTabMode);
 
       document.getElementById('taskModal').classList.remove('hidden');
 

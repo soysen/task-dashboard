@@ -290,6 +290,18 @@ assert(reportContainer.innerHTML.includes('pl-2 divide-y divide-slate-300') && r
 assert(!reportContainer.innerHTML.includes('border-b border-slate-'), 'renderExecutionReport 內部標題不得包含多餘底線分隔線，僅保留大項目間分隔');
 assert(reportContainer.innerHTML.includes('whitespace-nowrap flex-shrink-0'), '狀態標籤與徽章必須包含 whitespace-nowrap flex-shrink-0 防止文字排版換行');
 assert(reportContainer.innerHTML.includes('shadow-none') && !reportContainer.innerHTML.includes('td-surface-card'), 'renderExecutionReport 內部段落必須取消區塊陰影與浮起卡片樣式，改以分隔線呈現');
-console.log('  ✅ 結構化執行報告統一圓角淺灰底、主次層級縮排、清晰分隔線與標籤防換行驗證通過');
+// 16. 驗證 TASK-120 UI/UX 優化：表單加回框線、取消內側陰影、focus 改為 borderline、無任務卡牌不需底色、待處理任務隱藏工作區分頁、流程說明移至 Header 巡檢位置、開工引擎整合巡檢標示、移除表單 outlined 樣式
+assert(htmlContent.includes('id="formTitle"') && htmlContent.includes('border border-slate-300 dark:border-slate-700'), '表單欄位必須加回框線 (border border-slate-300 dark:border-slate-700)');
+assert(!htmlContent.includes('id="formTitle" required placeholder="請輸入簡潔明確的任務名稱..." class="w-full h-9 bg-slate-100 dark:bg-slate-800 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-100 shadow-inner'), '表單標題不得再包含 shadow-inner 內側陰影');
+assert(htmlContent.includes('focus:border-sky-500') && htmlContent.includes('focus:border-amber-500'), '表單欄位 focus 必須改為 borderline (focus:border-*) 避免左側 outline/ring 被裁切');
+assert(!htmlContent.includes('td-surface-panel rounded-lg space-y-1"><div class="font-medium text-slate-600 dark:text-slate-300">無任務卡片'), '無任務卡牌不得套用底色 (td-surface-panel)');
+assert(htmlContent.includes('const isTodo = task.status === \'todo\';'), 'openTaskModal 必須判定 task.status === todo');
+assert(htmlContent.includes('id="modalLeftColumn" class="flex-1 overflow-y-auto pl-1 pr-2'), 'modalLeftColumn 必須增加 pl-1 避免左側內容過於貼齊');
+assert(htmlContent.includes('id="modalLeftWorkspaceTabs"') && htmlContent.includes('!mt-0'), 'modalLeftWorkspaceTabs 必須包含 !mt-0 移除上方多餘間距');
+assert(htmlContent.includes('id="headerWorkflowHint"') && htmlContent.includes('border-sky-300') && htmlContent.includes('border-amber-300') && htmlContent.includes('border-emerald-300'), '流程說明各步驟必須具備獨立底色與框線');
+assert(!htmlContent.includes('id="headerWorkflowHint"') || !htmlContent.split('id="headerWorkflowHint"')[1].split('</div>')[0].includes('→'), '流程說明各步驟間必須以線條連結取代箭頭 (→)');
+assert(htmlContent.includes('id="headerEngineDot"') && htmlContent.includes('id="headerEngineStatusText"'), '開工引擎按鈕必須整合即時巡檢指示燈與狀態文字');
+assert(htmlContent.includes('input:not([type="checkbox"]):not([type="radio"]),') && htmlContent.includes('outline: none !important;'), '表單輸入控制項必須在 CSS 徹底排除與移除 outlined 樣式');
+console.log('  ✅ 表單加回框線與 borderline focus、去底色無任務卡牌、流程說明步驟底色框線與線條連結、開工引擎標示遷移、表單徹底移除 outlined 樣式驗證通過');
 
 console.log('🎉 所有前端核心互動邏輯與防禦機制測試通過！\n');
