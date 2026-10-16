@@ -11,10 +11,52 @@
       theme: {
         extend: {
           colors: {
-            brand: { 50: '#f0fdf4', 500: '#22c55e', 600: '#16a34a', 700: '#15803d' },
-            darkbg: '#0f172a',
-            darkcard: '#1e293b',
-            darkborder: '#334155',
+            brand: { 50: '#f0f9ff', 500: '#0ea5e9', 600: '#0284c7', 700: '#0369a1' },
+            // 去 AI 螢光感色彩計劃：將 slate 校準為無藍紫偏色之高對比中性石墨灰 (拉大外接螢幕明度階梯 ΔL)
+            slate: {
+              50: '#f8fafc',
+              100: '#eef2f6',
+              200: '#dce3ec',
+              300: '#c4cdd8',
+              400: '#8c98a8',
+              500: '#5f6b7a',
+              600: '#434d5b',
+              700: '#2e3440',
+              800: '#232830',
+              900: '#181b21',
+              950: '#111317',
+            },
+            // 單一主色系統 (Primary Ocean Sky)：取代通用 AI 螢光藍紫 (indigo)
+            indigo: {
+              50: '#f0f9ff',
+              100: '#e0f2fe',
+              200: '#bae6fd',
+              300: '#7dd3fc',
+              400: '#38bdf8',
+              500: '#0ea5e9',
+              600: '#0284c7',
+              700: '#0369a1',
+              800: '#075985',
+              900: '#0c4a6e',
+              950: '#082f49',
+            },
+            // 局部審核與輔助語意色：移除螢光紫 (purple)，映射為溫潤高辨識度之琥珀與青碧色系
+            purple: {
+              50: '#fffbeb',
+              100: '#fef3c7',
+              200: '#fde68a',
+              300: '#fcd34d',
+              400: '#fbbf24',
+              500: '#f59e0b',
+              600: '#d97706',
+              700: '#b45309',
+              800: '#92400e',
+              900: '#78350f',
+              950: '#451a03',
+            },
+            darkbg: '#111317',
+            darkcard: '#232830',
+            darkborder: '#2e3440',
           }
         }
       }
@@ -25,6 +67,66 @@
   <!-- SortableJS -->
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
   <style>
+    /* ============================================================================
+     * Task Dashboard 色彩計劃 (60-30-10 Monochromatic Base + Single Primary + Localized Status)
+     * 專為外接螢幕低顯色度/Gamma 壓縮環境校準：以「明度色塊階梯 (ΔL ≥ 9%) ＋ 雙層立體陰影」取代傳統框線
+     * - 主色 (Primary Accent): Ocean Sky (#0284C7 / Dark #38BDF8)
+     * - 局部狀態 (Localized Status):
+     *   1. 待處理 (Todo)       : Neutral Slate (#64748B / Dark #94A3B8)
+     *   2. 進行中 (In Progress) : Primary Sky   (#0284C7 / Dark #38BDF8)
+     *   3. 待驗收 (Review)      : Warm Amber    (#D97706 / Dark #F59E0B) — 零螢光紫
+     *   4. 已完成 (Done)        : Sage Emerald  (#059669 / Dark #34D399)
+     * ============================================================================ */
+    :root {
+      --td-canvas: #e4e9f0;
+      --td-well: #d6dfe9;
+      --td-card: #ffffff;
+      --td-panel: #f1f5f9;
+      --td-primary: #0284c7;
+      --td-status-todo: #64748b;
+      --td-status-progress: #0284c7;
+      --td-status-review: #d97706;
+      --td-status-done: #059669;
+      --td-shadow-card: 0 2px 6px -1px rgba(15, 23, 42, 0.10), 0 1px 3px 0 rgba(15, 23, 42, 0.07);
+      --td-shadow-card-hover: 0 6px 14px -2px rgba(15, 23, 42, 0.14), 0 2px 5px -1px rgba(15, 23, 42, 0.08);
+      --td-shadow-well: inset 0 1px 3px 0 rgba(15, 23, 42, 0.08);
+      font-size: 16px;
+    }
+    .dark {
+      --td-canvas: #111317;
+      --td-well: #181b21;
+      --td-card: #232830;
+      --td-panel: #2c323d;
+      --td-primary: #38bdf8;
+      --td-status-todo: #94a3b8;
+      --td-status-progress: #38bdf8;
+      --td-status-review: #f59e0b;
+      --td-status-done: #34d399;
+      --td-shadow-card: 0 4px 12px -2px rgba(0, 0, 0, 0.58), 0 2px 4px -1px rgba(0, 0, 0, 0.42);
+      --td-shadow-card-hover: 0 8px 18px -2px rgba(0, 0, 0, 0.68), 0 3px 6px -1px rgba(0, 0, 0, 0.48);
+      --td-shadow-well: inset 0 1px 3px 0 rgba(0, 0, 0, 0.55);
+    }
+
+    /* 無框線色塊＋陰影階層元件 (Borderless Tonal Surface & Shadow Elevation) */
+    .td-canvas-bg {
+      background-color: var(--td-canvas);
+    }
+    .td-surface-well {
+      background-color: var(--td-well);
+      box-shadow: var(--td-shadow-well);
+    }
+    .td-surface-card {
+      background-color: var(--td-card);
+      box-shadow: var(--td-shadow-card);
+    }
+    .td-surface-card:hover {
+      box-shadow: var(--td-shadow-card-hover);
+    }
+    .td-surface-panel {
+      background-color: var(--td-panel);
+      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.12);
+    }
+
     * {
       box-sizing: border-box;
     }
@@ -51,25 +153,25 @@
       border-radius: 6px;
     }
     .custom-scrollbar::-webkit-scrollbar-thumb {
-      background: #94a3b8;
+      background: #8c98a8;
       border-radius: 6px;
       border: 2px solid transparent;
       background-clip: content-box;
     }
     .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-      background: #6366f1;
+      background: #0284c7;
     }
     .dark .custom-scrollbar::-webkit-scrollbar-thumb {
-      background: #475569;
+      background: #434d5b;
       border-radius: 6px;
       border: 2px solid transparent;
       background-clip: content-box;
     }
     .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-      background: #818cf8;
+      background: #38bdf8;
     }
 
-    /* 專屬加粗加寬橫向主卷軸 (增加左右與加倍底部間距，加粗易於抓取拖曳) */
+    /* 專屬加粗加寬橫向主卷軸 */
     .kanban-board-scrollbar::-webkit-scrollbar {
       height: 14px;
       width: 8px;
@@ -85,55 +187,55 @@
       margin: 0 16px 8px 16px;
     }
     .kanban-board-scrollbar::-webkit-scrollbar-thumb {
-      background: #94a3b8;
+      background: #8c98a8;
       border-radius: 9999px;
       border: 3px solid transparent;
       background-clip: content-box;
       min-width: 60px;
     }
     .kanban-board-scrollbar::-webkit-scrollbar-thumb:hover {
-      background: #6366f1;
+      background: #0284c7;
       border: 2px solid transparent;
       background-clip: content-box;
     }
     .kanban-board-scrollbar::-webkit-scrollbar-thumb:active {
-      background: #4f46e5;
+      background: #0369a1;
     }
     .dark .kanban-board-scrollbar::-webkit-scrollbar-thumb {
-      background: #475569;
+      background: #434d5b;
       border-radius: 9999px;
       border: 3px solid transparent;
       background-clip: content-box;
       min-width: 60px;
     }
     .dark .kanban-board-scrollbar::-webkit-scrollbar-thumb:hover {
-      background: #818cf8;
+      background: #38bdf8;
       border: 2px solid transparent;
       background-clip: content-box;
     }
     .dark .kanban-board-scrollbar::-webkit-scrollbar-thumb:active {
-      background: #6366f1;
+      background: #0ea5e9;
     }
     .ghost-card {
-      opacity: 0.5;
-      background: #f1f5f9 !important;
-      border: 2px dashed #6366f1 !important;
+      opacity: 0.55;
+      background: #dce3ec !important;
+      box-shadow: inset 0 0 0 2px #0284c7 !important;
     }
     .dark .ghost-card {
-      opacity: 0.35;
-      background: #1e293b !important;
-      border: 2px dashed #6366f1 !important;
+      opacity: 0.45;
+      background: #2c323d !important;
+      box-shadow: inset 0 0 0 2px #38bdf8 !important;
     }
     .diff-line-add {
-      background-color: rgba(34, 197, 94, 0.15);
-      color: #16a34a;
-      border-left: 3px solid #22c55e;
+      background-color: rgba(16, 185, 129, 0.16);
+      color: #059669;
+      border-left: 3px solid #10b981;
     }
     .dark .diff-line-add {
-      color: #4ade80;
+      color: #34d399;
     }
     .diff-line-del {
-      background-color: rgba(244, 63, 94, 0.15);
+      background-color: rgba(244, 63, 94, 0.16);
       color: #e11d48;
       border-left: 3px solid #f43f5e;
     }
@@ -141,12 +243,12 @@
       color: #fb7185;
     }
     .diff-line-chunk {
-      background-color: rgba(99, 102, 241, 0.12);
-      color: #4f46e5;
-      border-left: 3px solid #6366f1;
+      background-color: rgba(2, 132, 199, 0.14);
+      color: #0284c7;
+      border-left: 3px solid #0ea5e9;
     }
     .dark .diff-line-chunk {
-      color: #a5b4fc;
+      color: #7dd3fc;
     }
     .diff-row {
       display: flex;
@@ -159,14 +261,12 @@
       min-width: 36px;
       text-align: right;
       padding-right: 6px;
-      color: #94a3b8;
+      color: #8c98a8;
       user-select: none;
-      border-right: 1px solid rgba(226, 232, 240, 0.7);
       font-size: 10px;
     }
     .dark .diff-num {
-      color: #64748b;
-      border-right-color: rgba(51, 65, 85, 0.7);
+      color: #5f6b7a;
     }
     .diff-sign {
       width: 18px;
@@ -185,12 +285,6 @@
       display: none;
     }
 
-    :root {
-      font-size: 16px;
-    }
-
-    /* Make text-xs / text-[11px] / text-[10px] scale with the dynamically-set root font size (applyFontSize) */
-    /* 統一增加 2px 字級，確保在高解析度螢幕與視窗縮放時字體清晰易讀 */
     .text-xs {
       font-size: 0.8125rem !important;
       line-height: 1.125rem !important;
@@ -204,32 +298,32 @@
       line-height: 1.375rem !important;
     }
 
-    /* 鍵盤 Focus Outline 樣式標示 (Tab 切換操作對象時提供高對比度外框) */
+    /* 鍵盤 Focus Outline 樣式標示 (採用單一主色 Ocean Sky 高對比光暈) */
     :focus-visible {
-      outline: 2px solid #6366f1 !important;
+      outline: 2px solid #0284c7 !important;
       outline-offset: 2px !important;
-      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.35) !important;
+      box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.35) !important;
       border-radius: 6px;
     }
     .dark :focus-visible {
-      outline: 2px solid #818cf8 !important;
+      outline: 2px solid #38bdf8 !important;
       outline-offset: 2px !important;
-      box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.45) !important;
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.45) !important;
       border-radius: 6px;
     }
     .keyboard-focus-active {
-      outline: 2px solid #6366f1 !important;
+      outline: 2px solid #0284c7 !important;
       outline-offset: 2px !important;
-      box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.4) !important;
+      box-shadow: 0 0 0 4px rgba(2, 132, 199, 0.4) !important;
     }
     .dark .keyboard-focus-active {
-      outline: 2px solid #818cf8 !important;
+      outline: 2px solid #38bdf8 !important;
       outline-offset: 2px !important;
-      box-shadow: 0 0 0 4px rgba(129, 140, 248, 0.5) !important;
+      box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.5) !important;
     }
   </style>
 </head>
-<body class="h-full w-full flex flex-col overflow-hidden select-none bg-slate-100 dark:bg-[#0f172a] text-slate-800 dark:text-slate-100 transition-colors duration-200">
+<body class="h-full w-full flex flex-col overflow-hidden select-none td-canvas-bg text-slate-900 dark:text-slate-100 transition-colors duration-200">
 
   <!-- macOS Native Window Drag Bar -->
   <div id="macTitlebar" class="h-8 w-full flex-shrink-0 hidden md:flex items-center justify-between px-4 pl-20 bg-slate-200 dark:bg-slate-900 border-b border-slate-300 dark:border-slate-700 select-none cursor-grab active:cursor-grabbing z-50">
@@ -469,133 +563,119 @@
       </div>
     </header>
 
-    <!-- Top Pinned Metrics Section -->
-    <div class="flex-shrink-0 px-2.5 sm:px-4 md:px-6 py-1.5 sm:py-2 space-y-1.5 bg-slate-100 dark:bg-[#0f172a]">
-      
+    <!-- Top Pinned Workflow Stage & Metrics Bar (極簡無框線工作流階段導覽列 — 色塊＋陰影區分) -->
+    <div class="flex-shrink-0 px-3 sm:px-4 md:px-6 py-2.5 td-canvas-bg">
+      <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2.5">
+        <!-- Workflow Stage Pills (移除阻礙欄位，保留核心四階段 + 全部總覽，以立體色塊取代框線) -->
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 flex-1" role="tablist" aria-label="任務階段篩選">
+          <button type="button" id="stage-pill-ALL" onclick="filterByStage('ALL')" class="stage-filter-pill text-left td-surface-card rounded-xl px-3 py-2 flex items-center justify-between transition cursor-pointer" title="顯示所有階段任務">
+            <div>
+              <p class="text-[10px] font-medium text-slate-600 dark:text-slate-300 truncate">全部階段</p>
+              <p id="stat-total" class="text-xs sm:text-sm font-bold font-mono text-slate-900 dark:text-white leading-tight"> 0</p>
+            </div>
+            <i data-lucide="layers" class="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 hidden sm:inline"></i>
+          </button>
 
-      <!-- Quick Metrics Summary Cards (超精簡 Mobile 3x2 / Desktop 6x1 欄指標卡) -->
-      <div class="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-6 gap-1 sm:gap-2.5">
-        <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 sm:px-3 sm:py-2 flex items-center justify-between shadow-sm">
-          <div>
-            <p class="text-[9px] sm:text-[10px] font-medium text-slate-500 dark:text-slate-400 truncate"> 總任務</p>
-            <p id="stat-total" class="text-xs sm:text-base font-bold text-slate-900 dark:text-white leading-tight"> 0</p>
-          </div>
-          <i data-lucide="layers" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-400 hidden sm:inline"></i>
+          <button type="button" id="stage-pill-todo" onclick="filterByStage('todo')" class="stage-filter-pill text-left td-surface-card rounded-xl px-3 py-2 flex items-center justify-between transition cursor-pointer" title="步驟 1：建立需求並指派 Agent">
+            <div>
+              <p class="text-[10px] font-medium text-slate-600 dark:text-slate-300 truncate">1 · 待處理</p>
+              <p id="stat-todo" class="text-xs sm:text-sm font-bold font-mono text-slate-800 dark:text-slate-200 leading-tight"> 0</p>
+            </div>
+            <span class="w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-400 hidden sm:inline"></span>
+          </button>
+
+          <button type="button" id="stage-pill-in_progress" onclick="filterByStage('in_progress')" class="stage-filter-pill text-left td-surface-card rounded-xl px-3 py-2 flex items-center justify-between transition cursor-pointer" title="步驟 2：AI 確認計劃並自動實作">
+            <div>
+              <p class="text-[10px] font-medium text-slate-600 dark:text-slate-300 truncate">2 · 進行中</p>
+              <p id="stat-in_progress" class="text-xs sm:text-sm font-bold font-mono text-sky-600 dark:text-sky-400 leading-tight"> 0</p>
+            </div>
+            <span class="w-2.5 h-2.5 rounded-full bg-sky-500 hidden sm:inline"></span>
+          </button>
+
+          <button type="button" id="stage-pill-review" onclick="filterByStage('review')" class="stage-filter-pill text-left td-surface-card rounded-xl px-3 py-2 flex items-center justify-between transition cursor-pointer" title="步驟 3（審核重點）：檢視報告與 Git Diff 後簽核">
+            <div>
+              <p class="text-[10px] font-semibold text-amber-700 dark:text-amber-300 truncate">3 · 待驗收</p>
+              <p id="stat-review" class="text-xs sm:text-sm font-bold font-mono text-amber-600 dark:text-amber-400 leading-tight"> 0</p>
+            </div>
+            <span class="w-2.5 h-2.5 rounded-full bg-amber-500 hidden sm:inline"></span>
+          </button>
+
+          <button type="button" id="stage-pill-done" onclick="filterByStage('done')" class="stage-filter-pill text-left td-surface-card rounded-xl px-3 py-2 flex items-center justify-between transition cursor-pointer" title="步驟 4：驗收完成並提交 Git Commit">
+            <div>
+              <p class="text-[10px] font-medium text-slate-600 dark:text-slate-300 truncate">4 · 已完成</p>
+              <p id="stat-done" class="text-xs sm:text-sm font-bold font-mono text-emerald-600 dark:text-emerald-400 leading-tight"> 0</p>
+            </div>
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 hidden sm:inline"></span>
+          </button>
         </div>
 
-        <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 sm:px-3 sm:py-2 flex items-center justify-between shadow-sm">
-          <div>
-            <p class="text-[9px] sm:text-[10px] font-medium text-slate-500 dark:text-slate-400 truncate"> 待處理</p>
-            <p id="stat-todo" class="text-xs sm:text-base font-bold text-blue-600 dark:text-blue-400 leading-tight"> 0</p>
-          </div>
-          <i data-lucide="list-todo" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-500 hidden sm:inline"></i>
-        </div>
-
-        <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 sm:px-3 sm:py-2 flex items-center justify-between shadow-sm">
-          <div>
-            <p class="text-[9px] sm:text-[10px] font-medium text-slate-500 dark:text-slate-400 truncate"> 進行中</p>
-            <p id="stat-in_progress" class="text-xs sm:text-base font-bold text-amber-600 dark:text-amber-400 leading-tight"> 0</p>
-          </div>
-          <i data-lucide="activity" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-500 animate-pulse hidden sm:inline"></i>
-        </div>
-
-        <div class="bg-white dark:bg-slate-800 border border-purple-300 dark:border-purple-600/60 rounded-lg p-1.5 sm:px-3 sm:py-2 flex items-center justify-between bg-purple-50/50 dark:bg-purple-950/40 shadow-sm ring-1 ring-purple-500/30">
-          <div>
-            <p class="text-[9px] sm:text-[10px] font-bold text-purple-700 dark:text-purple-300 truncate"> 待驗收</p>
-            <p id="stat-review" class="text-xs sm:text-base font-extrabold text-purple-700 dark:text-purple-300 leading-tight"> 0</p>
-          </div>
-          <i data-lucide="check-circle-2" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-purple-500 hidden sm:inline"></i>
-        </div>
-
-        <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 sm:px-3 sm:py-2 flex items-center justify-between shadow-sm">
-          <div>
-            <p class="text-[9px] sm:text-[10px] font-medium text-slate-500 dark:text-slate-400 truncate"> 已完成</p>
-            <p id="stat-done" class="text-xs sm:text-base font-bold text-emerald-600 dark:text-emerald-400 leading-tight"> 0</p>
-          </div>
-          <i data-lucide="check-check" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-500 hidden sm:inline"></i>
-        </div>
-
-        <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-1.5 sm:px-3 sm:py-2 flex items-center justify-between shadow-sm">
-          <div>
-            <p class="text-[9px] sm:text-[10px] font-medium text-slate-500 dark:text-slate-400 truncate"> 阻礙</p>
-            <p id="stat-blocked" class="text-xs sm:text-base font-bold text-rose-600 dark:text-rose-400 leading-tight"> 0</p>
-          </div>
-          <i data-lucide="alert-triangle" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-rose-500 hidden sm:inline"></i>
+        <!-- 初次使用者快速操作指引 (Self-Evident Workflow Hint — 無框線色塊) -->
+        <div class="hidden xl:flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-300 td-surface-card px-3 py-2 rounded-xl flex-shrink-0">
+          <i data-lucide="compass" class="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 flex-shrink-0"></i>
+          <span>流程：<strong class="text-slate-900 dark:text-white font-semibold">建立任務</strong> → 拖入<strong class="text-sky-600 dark:text-sky-400 font-semibold">進行中</strong>自動喚醒 AI → 於<strong class="text-amber-600 dark:text-amber-400 font-semibold">待驗收</strong>審閱報告與 Diff → <strong class="text-emerald-600 dark:text-emerald-400 font-semibold">Commit 結案</strong></span>
         </div>
       </div>
     </div>
 
-    <!-- Main Kanban Board (自動延展滿版，小螢幕自然水平滾動) -->
+    <!-- Main Kanban Board (四階段無框線色塊凹槽設計，移除未使用之阻礙欄位，提升每欄視覺寬度) -->
     <main class="flex-1 overflow-x-auto overflow-y-hidden kanban-board-scrollbar px-4 md:px-6 pb-3 pt-1 mb-2 flex items-stretch gap-4 min-h-0 w-full">
       
-      <!-- Todo Column (含新增任務按鈕) -->
-      <div id="col-wrapper-todo" class="flex-1 min-w-[260px] w-auto flex flex-col bg-slate-200/60 dark:bg-slate-900/90 border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm flex-shrink-0">
-        <div class="p-2.5 px-3 border-b border-slate-300 dark:border-slate-700 flex items-center justify-between bg-slate-200/90 dark:bg-slate-800/90">
+      <!-- 1. Todo Column (含單一主色新增任務按鈕) -->
+      <div id="col-wrapper-todo" class="flex-1 min-w-[270px] w-auto flex flex-col td-surface-well rounded-2xl overflow-hidden flex-shrink-0">
+        <div class="pt-3 pb-2 px-3.5 flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-            <h3 class="text-xs font-bold text-slate-800 dark:text-slate-200"> 待處理</h3>
-            <span id="badge-todo" class="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-slate-300 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold"> 0</span>
+            <span class="w-2.5 h-2.5 rounded-full bg-slate-500 dark:bg-slate-400"></span>
+            <h3 class="text-xs font-bold text-slate-900 dark:text-slate-100"> 待處理</h3>
+            <span id="badge-todo" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/80 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold shadow-xs"> 0</span>
           </div>
-          <!-- 將新增任務按鈕直接置於待處理欄位 -->
-          <button onclick="openModal({ status: 'todo' })" class="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-semibold px-2.5 py-1 rounded-lg shadow-sm transition">
+          <!-- 單一主色 (Ocean Sky) 新增任務 CTA -->
+          <button onclick="openModal({ status: 'todo' })" class="flex items-center gap-1 bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-semibold px-2.5 py-1 rounded-lg shadow-sm transition cursor-pointer">
             <i data-lucide="plus" class="w-3.5 h-3.5"></i>
             <span> 新增任務</span>
           </button>
         </div>
-        <div id="col-todo" data-status="todo" class="kanban-col p-2.5 space-y-2.5 flex-1 custom-scrollbar overflow-y-auto min-h-0"></div>
+        <div id="col-todo" data-status="todo" class="kanban-col p-2.5 pt-1 space-y-2.5 flex-1 custom-scrollbar overflow-y-auto min-h-0"></div>
       </div>
 
-      <!-- In Progress Column -->
-      <div id="col-wrapper-in_progress" class="flex-1 min-w-[260px] w-auto flex flex-col bg-slate-200/60 dark:bg-slate-900/90 border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm flex-shrink-0">
-        <div class="p-3 border-b border-slate-300 dark:border-slate-700 flex items-center justify-between bg-slate-200/90 dark:bg-slate-800/90">
+      <!-- 2. In Progress Column (局部狀態：Primary Sky) -->
+      <div id="col-wrapper-in_progress" class="flex-1 min-w-[270px] w-auto flex flex-col td-surface-well rounded-2xl overflow-hidden flex-shrink-0">
+        <div class="pt-3 pb-2 px-3.5 flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
-            <h3 class="text-xs font-bold text-slate-800 dark:text-slate-200"> 進行中 (AI 開工)</h3>
+            <span class="w-2.5 h-2.5 rounded-full bg-sky-500"></span>
+            <h3 class="text-xs font-bold text-slate-900 dark:text-slate-100"> 進行中 (AI 開工)</h3>
           </div>
-          <span id="badge-in_progress" class="text-[11px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold border border-amber-500/30"> 0</span>
+          <span id="badge-in_progress" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-700 dark:text-sky-300 font-bold shadow-xs"> 0</span>
         </div>
-        <div id="col-in_progress" data-status="in_progress" class="kanban-col p-2.5 space-y-2.5 flex-1 custom-scrollbar overflow-y-auto min-h-0"></div>
+        <div id="col-in_progress" data-status="in_progress" class="kanban-col p-2.5 pt-1 space-y-2.5 flex-1 custom-scrollbar overflow-y-auto min-h-0"></div>
       </div>
 
-      <!-- Review / Verify Column (Diff View) -->
-      <div id="col-wrapper-review" class="flex-1 min-w-[260px] w-auto flex flex-col bg-purple-50/40 dark:bg-[#16172d] border border-purple-300 dark:border-purple-700/80 rounded-xl overflow-hidden shadow-sm flex-shrink-0 ring-1 ring-purple-500/20">
-        <div class="p-3 border-b border-purple-200 dark:border-purple-700/80 flex items-center justify-between bg-purple-100/80 dark:bg-[#1c1e3a]">
+      <!-- 3. Review / Verify Column (局部狀態：Warm Amber，零螢光紫) -->
+      <div id="col-wrapper-review" class="flex-1 min-w-[270px] w-auto flex flex-col td-surface-well rounded-2xl overflow-hidden flex-shrink-0">
+        <div class="pt-3 pb-2 px-3.5 flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
-            <h3 class="text-xs font-extrabold text-purple-900 dark:text-purple-200"> 待驗收 (看 Diff)</h3>
+            <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+            <h3 class="text-xs font-bold text-slate-900 dark:text-white"> 待驗收 (審閱 Diff)</h3>
           </div>
-          <span id="badge-review" class="text-[11px] font-mono px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-700 dark:text-purple-300 font-bold border border-purple-500/30"> 0</span>
+          <span id="badge-review" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-800 dark:text-amber-300 font-bold shadow-xs"> 0</span>
         </div>
-        <div id="col-review" data-status="review" class="kanban-col p-2.5 space-y-2.5 flex-1 custom-scrollbar overflow-y-auto min-h-0"></div>
+        <div id="col-review" data-status="review" class="kanban-col p-2.5 pt-1 space-y-2.5 flex-1 custom-scrollbar overflow-y-auto min-h-0"></div>
       </div>
 
-      <!-- Done Column -->
-      <div id="col-wrapper-done" class="flex-1 min-w-[260px] w-auto flex flex-col bg-slate-200/60 dark:bg-slate-900/90 border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm flex-shrink-0">
-        <div class="p-3 border-b border-slate-300 dark:border-slate-700 flex items-center justify-between bg-slate-200/90 dark:bg-slate-800/90">
+      <!-- 4. Done Column (局部狀態：Sage Emerald) -->
+      <div id="col-wrapper-done" class="flex-1 min-w-[270px] w-auto flex flex-col td-surface-well rounded-2xl overflow-hidden flex-shrink-0">
+        <div class="pt-3 pb-2 px-3.5 flex items-center justify-between">
           <div class="flex items-center gap-2">
             <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-            <h3 class="text-xs font-bold text-slate-800 dark:text-slate-200"> 已完成</h3>
+            <h3 class="text-xs font-bold text-slate-900 dark:text-slate-100"> 已完成</h3>
           </div>
           <div class="flex items-center gap-1.5">
-            <span id="badge-done" class="text-[11px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/30"> 0</span>
-            <button onclick="openArchiveModal()" title="查看已封存任務庫" class="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1 rounded hover:bg-slate-300 dark:hover:bg-slate-800 transition">
+            <span id="badge-done" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-bold shadow-xs"> 0</span>
+            <button onclick="openArchiveModal()" title="查看已封存任務庫" class="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white p-1 rounded-lg hover:bg-white/60 dark:hover:bg-slate-800 transition">
               <i data-lucide="archive" class="w-3.5 h-3.5"></i>
             </button>
           </div>
         </div>
-        <div id="col-done" data-status="done" class="kanban-col p-2.5 space-y-2.5 flex-1 custom-scrollbar overflow-y-auto min-h-0"></div>
-      </div>
-
-      <!-- Blocked Column -->
-      <div id="col-wrapper-blocked" class="flex-1 min-w-[260px] w-auto flex flex-col bg-slate-200/60 dark:bg-slate-900/90 border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm flex-shrink-0">
-        <div class="p-3 border-b border-slate-300 dark:border-slate-700 flex items-center justify-between bg-slate-200/90 dark:bg-slate-800/90">
-          <div class="flex items-center gap-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
-            <h3 class="text-xs font-bold text-slate-800 dark:text-slate-200"> 阻礙</h3>
-          </div>
-          <span id="badge-blocked" class="text-[11px] font-mono px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-600 dark:text-rose-400 font-bold border border-rose-500/30"> 0</span>
-        </div>
-        <div id="col-blocked" data-status="blocked" class="kanban-col p-2.5 space-y-2.5 flex-1 custom-scrollbar overflow-y-auto min-h-0"></div>
+        <div id="col-done" data-status="done" class="kanban-col p-2.5 pt-1 space-y-2.5 flex-1 custom-scrollbar overflow-y-auto min-h-0"></div>
       </div>
 
     </main>
@@ -651,10 +731,10 @@
 
   <!-- Task Detail & Edit Modal ( 支援 新增模式單欄 與 編輯模式左右雙欄) -->
   <div id="taskModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-4">
-    <div id="modalDialogContainer" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-6xl h-[90vh] flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100 transition-all">
+    <div id="modalDialogContainer" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl w-full max-w-6xl h-[90vh] flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100 transition-all">
       
       <!-- Modal Header -->
-      <div class="p-3.5 px-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
+      <div class="p-3.5 px-5 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
         <div class="flex items-center gap-3">
           <span id="modalPriorityBadge" class="px-2.5 py-0.5 rounded-md text-xs font-bold font-mono"> P1</span>
           <span id="modalConfirmationBadge" class="hidden px-2.5 py-0.5 rounded-md text-xs font-bold font-mono bg-amber-500/10 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-500/40 items-center gap-1">
@@ -684,297 +764,341 @@
 
         <div id="modalFormGrid" class="grid grid-cols-1 lg:grid-cols-2 gap-5 flex-1 min-h-0 p-5 overflow-hidden">
           
-          <!-- LEFT COLUMN: 任務基本資訊、標籤、需求說明與審查 Log (可滾動) -->
-          <div id="modalLeftColumn" class="flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar">
+          <!-- LEFT COLUMN: 依據資訊架構學 (IA) 分離「審核與執行成果」與「需求規格與屬性」雙視圖 (可滾動) -->
+          <div id="modalLeftColumn" class="flex-1 overflow-y-auto pr-2 space-y-3.5 custom-scrollbar">
             
             <!-- 進行中任務唯讀提示 -->
-            <div id="modalInProgressNotice" class="hidden items-center gap-2 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-700 dark:text-amber-300 text-xs font-medium">
-              <span class="w-2 h-2 rounded-full bg-amber-500 animate-ping flex-shrink-0"></span>
+            <div id="modalInProgressNotice" class="hidden items-center gap-2 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-700 dark:text-amber-300 text-xs font-medium">
+              <span class="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0"></span>
               <span>任務進行中：所有欄位已鎖定唯讀，避免執行中途產生衝突異動。</span>
             </div>
 
-            <!-- 標題 -->
-            <div>
-              <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 任務標題</label>
-              <input type="text" id="formTitle" required placeholder="請輸入簡潔明確的任務名稱..." class="w-full h-9 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500 transition">
+            <!-- IA 階段感知工作區分頁切換器 (Stage-Aware Workspace Tabs — 凹槽＋高對比浮起色塊，強化 Dark Mode 邊界與分頁識別度) -->
+            <div id="modalLeftWorkspaceTabs" class="hidden items-center justify-between td-surface-well border border-slate-300/70 dark:border-slate-700/80 dark:bg-slate-950 p-1 rounded-xl">
+              <div class="flex items-center gap-1 flex-1" role="tablist" aria-label="任務審核與規格切換">
+                <button type="button" id="btnModalTabReview" onclick="switchModalWorkspaceTab('review')" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer border bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs border-slate-300/80 dark:border-slate-600">
+                  <i data-lucide="clipboard-check" class="w-3.5 h-3.5 text-amber-600 dark:text-amber-400"></i>
+                  <span>審核與執行成果</span>
+                  <span id="modalTabReviewStatusDot" class="w-1.5 h-1.5 rounded-full bg-amber-500 hidden"></span>
+                </button>
+                <button type="button" id="btnModalTabSpec" onclick="switchModalWorkspaceTab('spec')" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition cursor-pointer border border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/40 dark:hover:bg-slate-800/40">
+                  <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5 text-sky-600 dark:text-sky-400"></i>
+                  <span>需求規格與屬性</span>
+                </button>
+              </div>
             </div>
 
-            <!-- 所屬專案與關聯前置任務 -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div class="relative">
-                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 所屬專案 (可搜尋)</label>
-                <input type="hidden" id="formProject">
+            <!-- ==================== PANE A: 需求規格與屬性 (Spec & Metadata) ==================== -->
+            <div id="modalSpecPane" class="space-y-3.5">
+              <!-- 標題 -->
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 任務標題</label>
+                <input type="text" id="formTitle" required placeholder="請輸入簡潔明確的任務名稱..." class="w-full h-9 bg-slate-100 dark:bg-slate-800 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-100 shadow-inner focus:outline-none focus:ring-2 focus:ring-sky-500 transition">
+              </div>
+
+              <!-- 所屬專案與關聯前置任務 -->
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div class="relative">
-                  <input type="text" id="formProjectInput" oninput="onProjectAutocompleteInput(this.value)" onfocus="showProjectAutocomplete()" onclick="showProjectAutocomplete()" placeholder="搜尋專案..." autocomplete="off" class="w-full h-9 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg pl-3 pr-8 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500 transition">
-                  <button type="button" id="formProjectClearBtn" onclick="clearFormProject(event)" title="清除專案選擇" class="absolute right-8 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 opacity-0 pointer-events-none transition-opacity">
-                    <i data-lucide="x" class="w-3.5 h-3.5"></i>
-                  </button>
-                  <button type="button" id="formProjectDropdownBtn" onclick="toggleProjectAutocomplete(event)" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
-                    <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
-                  </button>
-                </div>
-                <div id="formProjectDropdown" class="absolute left-0 right-0 top-[66%] mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-[60] max-h-56 overflow-y-auto hidden custom-scrollbar">
-                  <div id="formProjectDropdownList" class="p-1 space-y-0.5 text-xs"></div>
-                </div>
-              </div>
-
-              <!-- 關聯前置任務 (Dependencies) -->
-              <div>
-                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 關聯前置任務 (Dependencies)</label>
-                <select id="formDependenciesSelect" onchange="addDependencyFromSelect(this.value)" class="w-full h-9 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500">
-                  <option value=""> 選擇關聯/前置任務...</option>
-                </select>
-                <!-- 選擇的依賴清單徽章 -->
-                <div id="formDependenciesChips" class="flex flex-wrap gap-1.5 mt-1.5"></div>
-              </div>
-            </div>
-
-            <!-- 優先級、狀態、負責人 (統一 h-9 高度) -->
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 優先級</label>
-                <select id="formPriority" class="w-full h-9 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500">
-                  <option value="P0"> P0 (緊急/阻礙)</option>
-                  <option value="P1" selected> P1 (高)</option>
-                  <option value="P2"> P2 (中)</option>
-                  <option value="P3"> P3 (低)</option>
-                </select>
-              </div>
-
-              <div>
-                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 目前狀態</label>
-                <select id="formStatus" onchange="updateModalButtonState()" class="w-full h-9 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500">
-                  <option value="todo"> 待處理 (To Do)</option>
-                  <option value="in_progress"> 進行中 (In Progress)</option>
-                  <option value="review"> 待驗收 (Review / Verify)</option>
-                  <option value="done"> 已完成 (Done)</option>
-                  <option value="blocked"> 阻礙 (Blocked)</option>
-                </select>
-              </div>
-
-              <div>
-                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 執行 Agent (模型/助手)</label>
-                <select id="formAssignee" class="w-full h-9 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-medium">
-                  <option value="Antigravity" selected>Antigravity (預設)</option>
-                  <option value="Claude">Claude</option>
-                  <option value="Codex">Codex</option>
-                  <option value="Copilot">Copilot</option>
-                </select>
-              </div>
-            </div>
-
-            <!-- 標籤體系：Select2 風格整合選擇器模組 -->
-            <div class="space-y-1.5 bg-slate-100/70 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
-              <div class="flex items-center justify-between">
-                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300"> 標籤體系</label>
-                <span class="text-[10px] text-slate-500"> 點擊選單 / 輸入後按 Enter 自訂</span>
-              </div>
-
-              <!-- 整合式 Select2 容器 -->
-              <div class="relative" id="select2Container">
-                <div id="select2ControlBox" onclick="toggleSelect2Dropdown(event)" class="min-h-[36px] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-1.5 flex flex-wrap items-center gap-1.5 cursor-pointer focus-within:border-indigo-500 transition">
-                  <!-- Chips 渲染區 -->
-                  <div id="select2Chips" class="flex flex-wrap items-center gap-1"></div>
-                  <!-- 輸入框 (支援即時打字篩選與自訂新增) -->
-                  <input type="text" id="select2Input" oninput="onSelect2Search(this.value)" onkeydown="onSelect2KeyDown(event)" placeholder="選擇標籤" class="flex-1 min-w-[80px] bg-transparent border-none outline-none text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 p-0.5">
-                  <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400 ml-auto flex-shrink-0"></i>
-                </div>
-
-                <!-- 下拉展開選單 (帶 optgroup 分類) -->
-                <div id="select2Dropdown" class="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-[60] max-h-[48rem] overflow-y-auto hidden custom-scrollbar p-1.5 space-y-2">
-                  <!-- Optgroup 0: 專案專屬 .github 技能 -->
-                  <div id="select2ProjectSkillSection" class="hidden">
-                    <div class="text-[10px] font-bold text-indigo-500 dark:text-indigo-400 px-2 py-0.5 uppercase tracking-wider flex items-center gap-1">
-                      <i data-lucide="sparkles" class="w-3 h-3"></i> 專案專屬 Skill (.github)
-                    </div>
-                    <div id="select2GroupProjectSkill" class="space-y-0.5"></div>
+                  <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 所屬專案 (可搜尋)</label>
+                  <input type="hidden" id="formProject">
+                  <div class="relative">
+                    <input type="text" id="formProjectInput" oninput="onProjectAutocompleteInput(this.value)" onfocus="showProjectAutocomplete()" onclick="showProjectAutocomplete()" placeholder="搜尋專案..." autocomplete="off" class="w-full h-9 bg-slate-100 dark:bg-slate-800 rounded-lg pl-3 pr-8 text-xs text-slate-900 dark:text-slate-200 shadow-inner focus:outline-none focus:ring-2 focus:ring-sky-500 transition">
+                    <button type="button" id="formProjectClearBtn" onclick="clearFormProject(event)" title="清除專案選擇" class="absolute right-8 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 opacity-0 pointer-events-none transition-opacity">
+                      <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                    </button>
+                    <button type="button" id="formProjectDropdownBtn" onclick="toggleProjectAutocomplete(event)" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                      <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
+                    </button>
                   </div>
-                  <!-- Optgroup 1: Git 類型 -->
-                  <div>
-                    <div class="text-[10px] font-bold text-slate-400 dark:text-slate-500 px-2 py-0.5 uppercase tracking-wider"> Git 變更類型</div>
-                    <div id="select2GroupGit" class="space-y-0.5"></div>
-                  </div>
-                  <!-- Optgroup 2: 全域 Antigravity Skill -->
-                  <div>
-                    <div class="text-[10px] font-bold text-slate-400 dark:text-slate-500 px-2 py-0.5 uppercase tracking-wider"> 全域 Skill (Antigravity)</div>
-                    <div id="select2GroupSkill" class="space-y-0.5"></div>
+                  <div id="formProjectDropdown" class="absolute left-0 right-0 top-[66%] mt-1 bg-white dark:bg-slate-800 rounded-xl shadow-2xl z-[60] max-h-56 overflow-y-auto hidden custom-scrollbar">
+                    <div id="formProjectDropdownList" class="p-1 space-y-0.5 text-xs"></div>
                   </div>
                 </div>
+
+                <!-- 關聯前置任務 (Dependencies) -->
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 關聯前置任務 (Dependencies)</label>
+                  <select id="formDependenciesSelect" onchange="addDependencyFromSelect(this.value)" class="w-full h-9 bg-slate-100 dark:bg-slate-800 rounded-lg px-2.5 text-xs text-slate-900 dark:text-slate-200 shadow-inner focus:outline-none focus:ring-2 focus:ring-sky-500">
+                    <option value=""> 選擇關聯/前置任務...</option>
+                  </select>
+                  <!-- 選擇的依賴清單徽章 -->
+                  <div id="formDependenciesChips" class="flex flex-wrap gap-1.5 mt-1.5"></div>
+                </div>
               </div>
 
-              <!-- 隱藏原生儲存欄位 -->
-              <input type="hidden" id="formTags">
-            </div>
+              <!-- 優先級、狀態、負責人 (統一 h-9 高度，移除阻礙狀態選項) -->
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 優先級</label>
+                  <select id="formPriority" class="w-full h-9 bg-slate-100 dark:bg-slate-800 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 shadow-inner focus:outline-none focus:ring-2 focus:ring-sky-500">
+                    <option value="P0"> P0 (緊急/阻礙)</option>
+                    <option value="P1" selected> P1 (高)</option>
+                    <option value="P2"> P2 (中)</option>
+                    <option value="P3"> P3 (低)</option>
+                  </select>
+                </div>
 
-            <!-- 詳細需求與說明 (Description) -->
-            <div>
-              <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 詳細需求與說明 (Description)</label>
-              <textarea id="formDescription" rows="8" placeholder="描述任務背景、具體需求或待辦重點..." class="w-full bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500 custom-scrollbar"></textarea>
-            </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 目前狀態</label>
+                  <select id="formStatus" onchange="updateModalButtonState()" class="w-full h-9 bg-slate-100 dark:bg-slate-800 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 shadow-inner focus:outline-none focus:ring-2 focus:ring-sky-500">
+                    <option value="todo"> 待處理 (To Do)</option>
+                    <option value="in_progress"> 進行中 (In Progress)</option>
+                    <option value="review"> 待驗收 (Review / Verify)</option>
+                    <option value="done"> 已完成 (Done)</option>
+                  </select>
+                </div>
 
-            <!-- 完整執行計劃 (Execution Plan - 需確認機制) -->
-            <div id="formExecutionPlanBox" class="hidden bg-amber-500/5 dark:bg-amber-950/20 border border-amber-500/30 rounded-xl p-3 space-y-2.5">
-              <div class="flex items-center justify-between">
-                <label class="text-xs font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
-                  <i id="formExecutionPlanLabelIcon" data-lucide="clipboard-check" class="w-3.5 h-3.5 text-amber-500"></i>
-                  <span id="formExecutionPlanLabelText">完整執行計劃 (Execution Plan)</span>
-                </label>
-                <span id="formExecutionPlanBadge" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/60">
-                  待確認
-                </span>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 執行 Agent (模型/助手)</label>
+                  <select id="formAssignee" class="w-full h-9 bg-slate-100 dark:bg-slate-800 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 shadow-inner focus:outline-none focus:ring-2 focus:ring-sky-500 font-medium">
+                    <option value="Antigravity" selected>Antigravity (預設)</option>
+                    <option value="Claude">Claude</option>
+                    <option value="Codex">Codex</option>
+                    <option value="Copilot">Copilot</option>
+                  </select>
+                </div>
               </div>
-              <p id="formExecutionPlanNotice" class="text-[11px] text-slate-600 dark:text-slate-400">此任務設定為「需確認後再執行」，請檢視下列執行計劃並點選「確認並執行」。</p>
 
-              <!-- Grill-Me 專屬邊界確認與替代處理面板 (專案支援 grill-me 時動態展示) -->
-              <div id="grillMeBanner" class="hidden p-3 rounded-xl bg-orange-50/90 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800/60 space-y-2">
+              <!-- 標籤體系：Select2 風格整合選擇器模組 (色塊無框線) -->
+              <div class="space-y-1.5 td-surface-panel p-3 rounded-xl">
                 <div class="flex items-center justify-between">
-                  <span class="text-xs font-bold text-orange-800 dark:text-orange-300 flex items-center gap-1.5">
-                    <i data-lucide="flame" class="w-3.5 h-3.5 text-orange-500"></i>
-                    <span>Grill-Me 邊界確認替代介面</span>
-                  </span>
-                  <span class="text-[9px] font-mono px-1.5 py-0.2 rounded bg-orange-200/80 dark:bg-orange-900/70 text-orange-900 dark:text-orange-200 font-bold">免去 AI Chat</span>
+                  <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200"> 標籤體系</label>
+                  <span class="text-[10px] text-slate-500 dark:text-slate-300"> 點擊選單 / 輸入後按 Enter 自訂</span>
                 </div>
-                <p class="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
-                  此專案配備 Grill-Me 主動質詢技能。您可直接於彈窗中審閱邊界、點選快捷決策或補充說明，點選「確認並執行」將直接授權 Agent 實作，無需切換至 AI Chat。
-                </p>
+
+                <!-- 整合式 Select2 容器 -->
+                <div class="relative" id="select2Container">
+                  <div id="select2ControlBox" onclick="toggleSelect2Dropdown(event)" class="min-h-[36px] w-full bg-white dark:bg-slate-900 rounded-lg p-1.5 flex flex-wrap items-center gap-1.5 cursor-pointer shadow-inner focus-within:ring-2 focus-within:ring-sky-500 transition">
+                    <!-- Chips 渲染區 -->
+                    <div id="select2Chips" class="flex flex-wrap items-center gap-1"></div>
+                    <!-- 輸入框 (支援即時打字篩選與自訂新增) -->
+                    <input type="text" id="select2Input" oninput="onSelect2Search(this.value)" onkeydown="onSelect2KeyDown(event)" placeholder="選擇標籤" class="flex-1 min-w-[80px] bg-transparent border-none outline-none text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 p-0.5">
+                    <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400 ml-auto flex-shrink-0"></i>
+                  </div>
+
+                  <!-- 下拉展開選單 (帶 optgroup 分類) -->
+                  <div id="select2Dropdown" class="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-slate-800 rounded-xl shadow-2xl z-[60] max-h-[48rem] overflow-y-auto hidden custom-scrollbar p-1.5 space-y-2">
+                    <!-- Optgroup 0: 專案專屬 .github 技能 -->
+                    <div id="select2ProjectSkillSection" class="hidden">
+                      <div class="text-[10px] font-bold text-sky-600 dark:text-sky-400 px-2 py-0.5 uppercase tracking-wider flex items-center gap-1">
+                        <i data-lucide="sparkles" class="w-3 h-3"></i> 專案專屬 Skill (.github)
+                      </div>
+                      <div id="select2GroupProjectSkill" class="space-y-0.5"></div>
+                    </div>
+                    <!-- Optgroup 1: Git 類型 -->
+                    <div>
+                      <div class="text-[10px] font-bold text-slate-400 dark:text-slate-400 px-2 py-0.5 uppercase tracking-wider"> Git 變更類型</div>
+                      <div id="select2GroupGit" class="space-y-0.5"></div>
+                    </div>
+                    <!-- Optgroup 2: 全域 Antigravity Skill -->
+                    <div>
+                      <div class="text-[10px] font-bold text-slate-400 dark:text-slate-400 px-2 py-0.5 uppercase tracking-wider"> 全域 Skill (Antigravity)</div>
+                      <div id="select2GroupSkill" class="space-y-0.5"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 隱藏原生儲存欄位 -->
+                <input type="hidden" id="formTags">
+              </div>
+
+              <!-- 詳細需求與說明 (Description) -->
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 詳細需求與說明 (Description)</label>
+                <textarea id="formDescription" rows="8" placeholder="描述任務背景、具體需求或待辦重點..." class="w-full bg-slate-100 dark:bg-slate-800 rounded-lg p-2.5 text-xs leading-relaxed text-slate-900 dark:text-slate-100 shadow-inner focus:outline-none focus:ring-2 focus:ring-sky-500 custom-scrollbar"></textarea>
+              </div>
+            </div>
+
+            <!-- ==================== PANE B: 審核與執行成果 (Review & Execution Workspace — 無框線色塊＋陰影) ==================== -->
+            <div id="modalReviewPane" class="space-y-3.5">
+              <!-- 任務背景與需求精簡摘要橫幅 (Compact Context Summary — 統一樣式圓角淺灰底 td-surface-panel) -->
+              <div id="modalReviewContextSummary" class="hidden td-surface-panel rounded-xl p-3.5 space-y-2">
+                <div class="flex items-start justify-between gap-2">
+                  <div class="min-w-0 space-y-1">
+                    <div class="flex items-center gap-1.5 flex-wrap text-[11px] text-slate-600 dark:text-slate-300 font-mono">
+                      <span id="modalReviewMetaProject" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 shadow-xs whitespace-nowrap flex-shrink-0"></span>
+                      <span>·</span>
+                      <span id="modalReviewMetaAssignee" class="text-slate-700 dark:text-slate-200 whitespace-nowrap flex-shrink-0"></span>
+                    </div>
+                    <h4 id="modalReviewMetaTitle" class="text-sm font-bold text-slate-900 dark:text-white leading-snug pt-0.5"></h4>
+                  </div>
+                  <button type="button" onclick="switchModalWorkspaceTab('spec')" class="text-[11px] text-slate-700 hover:text-slate-900 dark:text-slate-200 dark:hover:text-white px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 shadow-xs hover:shadow transition whitespace-nowrap flex-shrink-0 cursor-pointer">
+                    編輯規格
+                  </button>
+                </div>
+                <details class="group pt-1.5 border-t border-slate-300 dark:border-slate-500/70">
+                  <summary class="text-[11px] text-slate-600 dark:text-slate-300 cursor-pointer select-none flex items-center justify-between hover:text-slate-900 dark:hover:text-white">
+                    <span id="modalReviewDescPreviewLine" class="truncate pr-2">點擊展開原始需求描述...</span>
+                    <span class="text-[10px] font-mono text-slate-400 group-open:rotate-180 transition-transform flex-shrink-0">▼</span>
+                  </summary>
+                  <div id="modalReviewDescFullText" class="mt-2 p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/80 text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto custom-scrollbar shadow-inner"></div>
+                </details>
+              </div>
+
+              <!-- 完整執行計劃 (Execution Plan - 需確認機制) -->
+              <div id="formExecutionPlanBox" class="hidden td-surface-panel border-l-[3px] border-l-amber-500 rounded-xl p-3.5 space-y-2.5">
+                <div class="flex items-center justify-between gap-2">
+                  <label class="text-sm font-bold text-amber-900 dark:text-amber-300 flex items-center gap-2 min-w-0">
+                    <i id="formExecutionPlanLabelIcon" data-lucide="clipboard-check" class="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0"></i>
+                    <span id="formExecutionPlanLabelText" class="truncate">完整執行計劃 (Execution Plan)</span>
+                  </label>
+                  <span id="formExecutionPlanBadge" class="text-[10px] font-mono px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-800 dark:text-amber-300 font-semibold whitespace-nowrap flex-shrink-0">
+                    待確認
+                  </span>
+                </div>
+                <p id="formExecutionPlanNotice" class="text-[11px] text-slate-600 dark:text-slate-300">此任務設定為「需確認後再執行」，請檢視下列執行計劃並點選「確認並執行」。</p>
+
+                <!-- Grill-Me 專屬邊界確認與替代處理面板 (專案支援 grill-me 時動態展示) -->
+                <div id="grillMeBanner" class="hidden p-3 rounded-xl bg-amber-500/10 space-y-2 shadow-xs">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-xs font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-1.5 min-w-0">
+                      <i data-lucide="flame" class="w-3.5 h-3.5 text-amber-500 flex-shrink-0"></i>
+                      <span class="truncate">Grill-Me 邊界確認替代介面</span>
+                    </span>
+                    <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-900 dark:text-amber-200 font-semibold whitespace-nowrap flex-shrink-0">免去 AI Chat</span>
+                  </div>
+                  <p class="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                    此專案配備 Grill-Me 主動質詢技能。您可直接於彈窗中審閱邊界、點選快捷決策或補充說明，點選「確認並執行」將直接授權 Agent 實作，無需切換至 AI Chat。
+                  </p>
+                  <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+                    <span class="text-[10px] font-semibold text-amber-700 dark:text-amber-300 mr-0.5 whitespace-nowrap">常用決策標籤:</span>
+                    <button type="button" onclick="insertGrillMeDecision('✅ 已確認邊界假設無誤，依此計劃推進')" class="text-[10px] px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 hover:bg-amber-50 dark:hover:bg-slate-700 text-amber-800 dark:text-amber-200 shadow-xs transition whitespace-nowrap flex-shrink-0">✅ 確認邊界無誤</button>
+                    <button type="button" onclick="insertGrillMeDecision('🚫 明確界定 Non-goals：排除跨模組改動與非必要套件')" class="text-[10px] px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 hover:bg-amber-50 dark:hover:bg-slate-700 text-amber-800 dark:text-amber-200 shadow-xs transition whitespace-nowrap flex-shrink-0">🚫 排除 Non-goals</button>
+                    <button type="button" onclick="insertGrillMeDecision('⚡️ 採用最小解法 Fast-Track，先以測試覆蓋驗收')" class="text-[10px] px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 hover:bg-amber-50 dark:hover:bg-slate-700 text-amber-800 dark:text-amber-200 shadow-xs transition whitespace-nowrap flex-shrink-0">⚡️ 最小 Fast-Track</button>
+                  </div>
+                </div>
+
+                <textarea id="formExecutionPlan" rows="6" placeholder="此任務之預計執行計劃、步驟與驗證指標..." class="w-full bg-white dark:bg-slate-900 rounded-lg p-2.5 text-xs leading-relaxed text-slate-900 dark:text-slate-100 shadow-inner focus:outline-none focus:ring-2 focus:ring-amber-500 custom-scrollbar font-mono"></textarea>
+              </div>
+
+              <!-- 審查意見與修改回饋 (Review Feedback — 統一樣式圓角淺灰底 td-surface-panel，局部琥珀狀態色條) -->
+              <div id="reviewFeedbackBox" class="td-surface-panel border-l-[3px] border-l-amber-500 rounded-xl p-3.5 space-y-2">
+                <div class="flex items-center justify-between gap-2">
+                  <label class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2 min-w-0">
+                    <i data-lucide="message-square-code" class="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0"></i>
+                    <span class="truncate">審查意見與修改回饋 (Review Feedback)</span>
+                  </label>
+                  <span class="text-[10px] text-slate-500 dark:text-slate-300 whitespace-nowrap flex-shrink-0">退回重做時自動附帶</span>
+                </div>
+                <!-- 快捷標籤列 -->
                 <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
-                  <span class="text-[10px] font-semibold text-orange-700/80 dark:text-orange-400/80 mr-0.5">常用決策標籤:</span>
-                  <button type="button" onclick="insertGrillMeDecision('✅ 已確認邊界假設無誤，依此計劃推進')" class="text-[10px] px-2 py-0.5 rounded-full bg-white dark:bg-slate-900 hover:bg-orange-100 dark:hover:bg-orange-900/50 text-orange-800 dark:text-orange-200 border border-orange-300 dark:border-orange-700 transition">✅ 確認邊界無誤</button>
-                  <button type="button" onclick="insertGrillMeDecision('🚫 明確界定 Non-goals：排除跨模組改動與非必要套件')" class="text-[10px] px-2 py-0.5 rounded-full bg-white dark:bg-slate-900 hover:bg-orange-100 dark:hover:bg-orange-900/50 text-orange-800 dark:text-orange-200 border border-orange-300 dark:border-orange-700 transition">🚫 排除 Non-goals</button>
-                  <button type="button" onclick="insertGrillMeDecision('⚡️ 採用最小解法 Fast-Track，先以測試覆蓋驗收')" class="text-[10px] px-2 py-0.5 rounded-full bg-white dark:bg-slate-900 hover:bg-orange-100 dark:hover:bg-orange-900/50 text-orange-800 dark:text-orange-200 border border-orange-300 dark:border-orange-700 transition">⚡️ 最小 Fast-Track</button>
+                  <span class="text-[10px] font-medium text-slate-600 dark:text-slate-300 mr-0.5 whitespace-nowrap">常用理由:</span>
+                  <button type="button" onclick="insertFeedbackPreset('補單元測試與驗證證據')" class="text-[11px] px-2 py-0.5 rounded-md bg-white hover:bg-amber-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 shadow-xs transition-colors whitespace-nowrap flex-shrink-0">補單元測試</button>
+                  <button type="button" onclick="insertFeedbackPreset('修正樣式/RWD與版面間距')" class="text-[11px] px-2 py-0.5 rounded-md bg-white hover:bg-amber-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 shadow-xs transition-colors whitespace-nowrap flex-shrink-0">修正樣式/RWD</button>
+                  <button type="button" onclick="insertFeedbackPreset('請暫存修改 (git stash) 並恢復原狀')" class="text-[11px] px-2 py-0.5 rounded-md bg-white hover:bg-amber-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 shadow-xs transition-colors whitespace-nowrap flex-shrink-0">清除暫存/stash</button>
+                  <button type="button" onclick="insertFeedbackPreset('請調整實作切片邊界，分步驗證')" class="text-[11px] px-2 py-0.5 rounded-md bg-white hover:bg-amber-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 shadow-xs transition-colors whitespace-nowrap flex-shrink-0">調整實作切片</button>
+                  <button type="button" onclick="insertFeedbackPreset('請補充 Phase 3 驗收截圖或詳細日誌')" class="text-[11px] px-2 py-0.5 rounded-md bg-white hover:bg-amber-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 shadow-xs transition-colors whitespace-nowrap flex-shrink-0">補充驗收證據</button>
                 </div>
+                <textarea id="formFeedback" rows="2" placeholder="如需修改或退回重做，請點選上方標籤或在此輸入修改意見..." class="w-full bg-white dark:bg-slate-900 rounded-lg p-2.5 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 shadow-inner focus:outline-none focus:ring-2 focus:ring-amber-500 custom-scrollbar"></textarea>
               </div>
 
-              <textarea id="formExecutionPlan" rows="6" placeholder="此任務之預計執行計劃、步驟與驗證指標..." class="w-full bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800/80 rounded-lg p-2.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-amber-500 custom-scrollbar font-mono"></textarea>
-            </div>
-
-            <!-- 審查意見與修改回饋 (Review Feedback) -->
-            <div id="reviewFeedbackBox" class="bg-purple-50 dark:bg-[#131b2e] border border-purple-200 dark:border-purple-800/60 rounded-xl p-3 space-y-2">
-              <div class="flex items-center justify-between">
-                <label class="text-xs font-bold text-purple-900 dark:text-purple-300 flex items-center gap-1.5">
-                  <i data-lucide="message-square-code" class="w-3.5 h-3.5 text-purple-600 dark:text-purple-400"></i> 審查意見與修改回饋 (Review Feedback)
-                </label>
-                <span class="text-[10px] text-purple-600 dark:text-purple-400/80"> 退回時自動附上此意見</span>
-              </div>
-              <!-- 快捷標籤列 -->
-              <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
-                <span class="text-[10px] font-medium text-purple-500/80 dark:text-purple-400/60 mr-0.5">常用理由:</span>
-                <button type="button" onclick="insertFeedbackPreset('補單元測試與驗證證據')" class="text-[11px] px-2 py-0.5 rounded-full bg-purple-100 hover:bg-purple-200 dark:bg-purple-950/80 dark:hover:bg-purple-900 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 transition-colors">補單元測試</button>
-                <button type="button" onclick="insertFeedbackPreset('修正樣式/RWD與版面間距')" class="text-[11px] px-2 py-0.5 rounded-full bg-purple-100 hover:bg-purple-200 dark:bg-purple-950/80 dark:hover:bg-purple-900 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 transition-colors">修正樣式/RWD</button>
-                <button type="button" onclick="insertFeedbackPreset('請暫存修改 (git stash) 並恢復原狀')" class="text-[11px] px-2 py-0.5 rounded-full bg-purple-100 hover:bg-purple-200 dark:bg-purple-950/80 dark:hover:bg-purple-900 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 transition-colors">清除暫存/stash</button>
-                <button type="button" onclick="insertFeedbackPreset('請調整實作切片邊界，分步驗證')" class="text-[11px] px-2 py-0.5 rounded-full bg-purple-100 hover:bg-purple-200 dark:bg-purple-950/80 dark:hover:bg-purple-900 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 transition-colors">調整實作切片</button>
-                <button type="button" onclick="insertFeedbackPreset('請補充 Phase 3 驗收截圖或詳細日誌')" class="text-[11px] px-2 py-0.5 rounded-full bg-purple-100 hover:bg-purple-200 dark:bg-purple-950/80 dark:hover:bg-purple-900 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 transition-colors">補充驗收證據</button>
-              </div>
-              <textarea id="formFeedback" rows="2" placeholder="如需修改或退回重做，請點選上方標籤或在此輸入修改意見..." class="w-full bg-white dark:bg-slate-950 border border-purple-200 dark:border-purple-900/80 rounded-lg p-2 text-xs text-purple-900 dark:text-purple-100 placeholder-purple-400 focus:outline-none focus:border-purple-500 custom-scrollbar"></textarea>
-            </div>
-
-            <!-- 工作切片與 Agent 藍圖追蹤 (Active Slice & Build Plan) -->
-            <div id="formSliceInfoBox" class="hidden bg-gradient-to-br from-indigo-50/70 via-purple-50/40 to-cyan-50/40 dark:from-indigo-950/30 dark:via-purple-950/20 dark:to-cyan-950/20 border border-indigo-200 dark:border-indigo-800/60 rounded-xl p-3.5 space-y-3 shadow-sm">
-              <div class="flex items-center justify-between border-b border-indigo-100 dark:border-indigo-900/40 pb-2">
-                <div class="flex items-center gap-2 min-w-0">
-                  <div class="p-1 bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-md flex-shrink-0">
-                    <i data-lucide="layers" class="w-3.5 h-3.5"></i>
+              <!-- 工作切片與 Agent 藍圖追蹤 (Active Slice & Build Plan — 統一樣式圓角淺灰底 td-surface-panel) -->
+              <div id="formSliceInfoBox" class="hidden td-surface-panel rounded-xl p-3.5 space-y-3">
+                <div class="flex items-center justify-between gap-2 pb-1">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <i data-lucide="layers" class="w-4 h-4 text-sky-500 flex-shrink-0"></i>
+                    <span class="text-sm font-bold text-slate-900 dark:text-white truncate">
+                      當前工作切片與藍圖追蹤
+                    </span>
+                    <span id="sliceInfoPlanBadge" class="text-[10px] font-mono px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 shadow-xs truncate max-w-[150px] whitespace-nowrap flex-shrink-0 hidden"></span>
                   </div>
-                  <span class="text-xs font-bold text-indigo-950 dark:text-indigo-200 truncate">
-                    當前工作切片與藍圖追蹤
-                  </span>
-                  <span id="sliceInfoPlanBadge" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-800 truncate max-w-[150px] hidden"></span>
-                </div>
-                <div class="flex items-center gap-1.5 flex-shrink-0">
-                  <span id="sliceInfoRouteBadge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-900 text-cyan-300 border border-slate-800 hidden items-center gap-1">
-                    <i data-lucide="route" class="w-2.5 h-2.5 text-cyan-400"></i>
-                    <span id="sliceInfoRouteText"></span>
-                  </span>
-                  <button type="button" id="btnCopyResumePrompt" onclick="copyResumePromptFromModal(event)" class="hidden items-center gap-1 text-[10px] font-medium bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-0.5 rounded shadow-sm transition cursor-pointer" title="複製 Agent 中斷恢復接續指令">
-                    <i data-lucide="copy" class="w-2.5 h-2.5"></i>
-                    <span>恢復指令</span>
-                  </button>
-                </div>
-              </div>
-
-              <!-- 切片目標與範圍卡片 -->
-              <div id="sliceGoalSection" class="space-y-1.5">
-                <div class="flex items-center gap-1.5 text-[11px] font-bold text-indigo-900 dark:text-indigo-300">
-                  <i data-lucide="target" class="w-3 h-3 text-indigo-500 flex-shrink-0"></i>
-                  <span id="sliceGoalLabel">本輪切片目標</span>
-                </div>
-                <p id="sliceGoalContent" class="text-xs text-slate-800 dark:text-slate-200 bg-white/90 dark:bg-slate-900/90 p-2.5 rounded-lg border border-indigo-100 dark:border-indigo-900/50 leading-relaxed font-sans"></p>
-                <div id="sliceInOutScope" class="text-[10px] font-mono text-slate-500 dark:text-slate-400 bg-white/60 dark:bg-slate-950/60 p-2 rounded border border-slate-200 dark:border-slate-800/80 hidden">
-                  <strong class="text-slate-600 dark:text-slate-400">範圍 (In/Out):</strong> <span id="sliceInOutScopeText"></span>
-                </div>
-              </div>
-
-              <!-- 執行追蹤 (CurrentStep / Evidence) -->
-              <div id="sliceTrackingSection" class="space-y-2 pt-0.5 hidden">
-                <div id="sliceCurrentStepBox" class="p-2.5 rounded-lg bg-emerald-500/10 dark:bg-emerald-950/30 border border-emerald-500/30 text-xs hidden">
-                  <div class="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400 font-bold mb-1 text-[11px]">
-                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping flex-shrink-0"></span>
-                    <span>當前步驟 (CurrentStep)</span>
+                  <div class="flex items-center gap-1.5 flex-shrink-0">
+                    <span id="sliceInfoRouteBadge" class="text-[10px] font-mono px-2 py-0.5 rounded-md bg-slate-900 text-slate-200 shadow-xs whitespace-nowrap flex-shrink-0 hidden items-center gap-1">
+                      <i data-lucide="route" class="w-2.5 h-2.5 text-sky-400"></i>
+                      <span id="sliceInfoRouteText"></span>
+                    </span>
+                    <button type="button" id="btnCopyResumePrompt" onclick="copyResumePromptFromModal(event)" class="hidden items-center gap-1 text-[10px] font-medium bg-sky-600 hover:bg-sky-500 text-white px-2.5 py-0.5 rounded-md shadow-xs transition cursor-pointer whitespace-nowrap flex-shrink-0" title="複製 Agent 中斷恢復接續指令">
+                      <i data-lucide="copy" class="w-2.5 h-2.5"></i>
+                      <span>恢復指令</span>
+                    </button>
                   </div>
-                  <p id="sliceCurrentStepText" class="text-emerald-900 dark:text-emerald-200 font-mono text-xs leading-relaxed"></p>
                 </div>
-                <div id="sliceEvidenceBox" class="p-2.5 rounded-lg bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs hidden">
-                  <div class="flex items-center gap-1.5 text-slate-700 dark:text-slate-300 font-bold mb-1 text-[11px]">
-                    <i data-lucide="check-circle" class="w-3 h-3 text-emerald-500 flex-shrink-0"></i>
-                    <span>驗證證據 (Evidence)</span>
+
+                <!-- 切片目標與範圍卡片 -->
+                <div id="sliceGoalSection" class="space-y-1.5">
+                  <div class="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+                    <i data-lucide="target" class="w-3 h-3 text-sky-500 flex-shrink-0"></i>
+                    <span id="sliceGoalLabel">本輪切片目標</span>
                   </div>
-                  <p id="sliceEvidenceText" class="text-slate-700 dark:text-slate-300 font-mono text-[11px] leading-relaxed whitespace-pre-wrap"></p>
+                  <p id="sliceGoalContent" class="text-xs text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-900 p-2.5 rounded-lg shadow-xs leading-relaxed font-sans"></p>
+                  <div id="sliceInOutScope" class="text-[10px] font-mono text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 p-2 rounded-lg shadow-xs hidden">
+                    <strong class="text-slate-700 dark:text-slate-200">範圍 (In/Out):</strong> <span id="sliceInOutScopeText"></span>
+                  </div>
+                </div>
+
+                <!-- 執行追蹤 (CurrentStep / Evidence) -->
+                <div id="sliceTrackingSection" class="space-y-2 pt-0.5 hidden">
+                  <div id="sliceCurrentStepBox" class="p-2.5 rounded-lg bg-emerald-500/15 text-xs hidden">
+                    <div class="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-300 font-semibold mb-1 text-[11px]">
+                      <span class="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0"></span>
+                      <span>當前步驟 (CurrentStep)</span>
+                    </div>
+                    <p id="sliceCurrentStepText" class="text-emerald-900 dark:text-emerald-200 font-mono text-xs leading-relaxed"></p>
+                  </div>
+                  <div id="sliceEvidenceBox" class="p-2.5 rounded-lg bg-white dark:bg-slate-900 shadow-xs text-xs hidden">
+                    <div class="flex items-center gap-1.5 text-slate-700 dark:text-slate-200 font-semibold mb-1 text-[11px]">
+                      <i data-lucide="check-circle" class="w-3 h-3 text-emerald-500 flex-shrink-0"></i>
+                      <span>驗證證據 (Evidence)</span>
+                    </div>
+                    <p id="sliceEvidenceText" class="text-slate-700 dark:text-slate-200 font-mono text-[11px] leading-relaxed whitespace-pre-wrap"></p>
+                  </div>
+                </div>
+
+                <!-- 藍圖切片清單 (Slices List) -->
+                <div id="slicePlanListSection" class="space-y-1.5 pt-0.5 hidden">
+                  <div class="flex items-center justify-between text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+                    <span class="flex items-center gap-1">
+                      <i data-lucide="list-checks" class="w-3 h-3 text-sky-500"></i>
+                      <span>藍圖切片清單</span>
+                    </span>
+                    <span id="sliceCountText" class="text-[10px] font-mono text-slate-500 dark:text-slate-300 whitespace-nowrap flex-shrink-0"></span>
+                  </div>
+                  <div id="sliceListContainer" class="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar"></div>
                 </div>
               </div>
 
-              <!-- 藍圖切片清單 (Slices List) -->
-              <div id="slicePlanListSection" class="space-y-1.5 pt-0.5 hidden">
-                <div class="flex items-center justify-between text-[11px] font-bold text-purple-900 dark:text-purple-300">
-                  <span class="flex items-center gap-1">
-                    <i data-lucide="list-checks" class="w-3 h-3 text-purple-500"></i>
-                    <span>藍圖切片清單</span>
-                  </span>
-                  <span id="sliceCountText" class="text-[10px] font-mono text-purple-600 dark:text-purple-400"></span>
+              <!-- 執行紀錄與測試 Log / 任務執行報告 (與上方審查意見及任務規格統一樣式為圓角淺灰底 td-surface-panel，僅保留大項目之間的清晰分隔線) -->
+              <div id="formLogBox" class="hidden td-surface-panel rounded-xl p-3.5 space-y-2.5">
+                <div class="flex items-center justify-between gap-2">
+                  <label class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2 min-w-0">
+                    <i data-lucide="file-check-2" class="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0"></i>
+                    <span class="truncate">任務執行與驗證報告 (Task Execution Report)</span>
+                  </label>
+                  <div class="flex items-center gap-1 bg-slate-200/80 dark:bg-slate-800 p-0.5 rounded-lg text-[10px] font-medium flex-shrink-0">
+                    <button type="button" id="btnLogTabVisual" onclick="switchLogViewTab('visual')" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 text-sky-700 dark:text-sky-300 font-bold transition whitespace-nowrap flex-shrink-0">
+                      結構化報告
+                    </button>
+                    <button type="button" id="btnLogTabRaw" onclick="switchLogViewTab('raw')" class="px-2 py-0.5 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition whitespace-nowrap flex-shrink-0">
+                      原始 Log
+                    </button>
+                  </div>
                 </div>
-                <div id="sliceListContainer" class="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar"></div>
+
+                <!-- 結構化分隔線式報告視圖 (無區塊陰影，以清晰分隔線與左縮排區隔主次層級) -->
+                <div id="formReportVisual" class="text-xs"></div>
+
+                <!-- 原生文字視圖 (保留原始 ID 以滿足既有文字與測試契約) -->
+                <pre id="formLogVisual" class="hidden bg-white/80 dark:bg-slate-950 rounded-lg p-3 text-xs font-mono text-slate-800 dark:text-slate-200 whitespace-pre-wrap leading-relaxed max-h-96 overflow-y-auto custom-scrollbar"></pre>
+                <input type="hidden" id="formExecutionLog">
               </div>
-            </div>
-
-            <!-- 執行紀錄與測試 Log / 任務執行報告 -->
-            <div id="formLogBox" class="hidden space-y-1.5">
-              <div class="flex items-center justify-between">
-                <label class="text-xs font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
-                  <i data-lucide="clipboard-check" class="w-3.5 h-3.5"></i> 任務執行與驗證報告
-                </label>
-                <div class="flex items-center gap-1 bg-slate-200/80 dark:bg-slate-800 p-0.5 rounded-lg text-[10px] font-medium">
-                  <button type="button" id="btnLogTabVisual" onclick="switchLogViewTab('visual')" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 shadow-xs text-indigo-600 dark:text-indigo-400 font-bold transition">
-                    視覺化報告
-                  </button>
-                  <button type="button" id="btnLogTabRaw" onclick="switchLogViewTab('raw')" class="px-2 py-0.5 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition">
-                    原始 Log
-                  </button>
-                </div>
-              </div>
-
-              <!-- 結構化卡片式報告視圖 -->
-              <div id="formReportVisual" class="space-y-2 text-xs"></div>
-
-              <!-- 原生文字視圖 (保留原始 ID 以滿足既有文字與測試契約) -->
-              <pre id="formLogVisual" class="hidden bg-slate-100 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg p-3 text-xs font-mono text-amber-800 dark:text-amber-200/90 whitespace-pre-wrap leading-relaxed max-h-96 overflow-y-auto custom-scrollbar"></pre>
-              <input type="hidden" id="formExecutionLog">
             </div>
 
           </div>
 
           <!-- RIGHT COLUMN: 異動檔案清單與即時互動 Git Diff 檢視器 (可滾動) -->
-          <div id="modalRightColumn" class="flex-1 overflow-y-auto pl-2 border-t lg:border-t-0 lg:border-l border-slate-200 dark:border-slate-800 flex flex-col space-y-3 custom-scrollbar">
+          <div id="modalRightColumn" class="flex-1 overflow-y-auto pl-2 flex flex-col space-y-3 custom-scrollbar">
             
-            <!-- 變更總覽儀表條 (Diff Summary Header) -->
-            <div id="diffSummaryBar" class="hidden flex-shrink-0 bg-slate-100/80 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 flex items-center justify-between gap-2">
+            <!-- 變更總覽儀表條 (Diff Summary Header — 色塊＋陰影無框線) -->
+            <div id="diffSummaryBar" class="hidden flex-shrink-0 td-surface-panel rounded-xl p-2.5 flex items-center justify-between gap-2">
               <div class="flex items-center gap-2 flex-wrap">
-                <span class="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                  <i data-lucide="layers" class="w-3.5 h-3.5 text-indigo-500"></i>
+                <span class="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                  <i data-lucide="layers" class="w-3.5 h-3.5 text-sky-500"></i>
                   <span id="diffStatFilesCount">0 個檔案</span>
                 </span>
-                <span id="diffStatAdditionsBadge" class="px-2 py-0.5 rounded text-[11px] font-bold font-mono bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                <span id="diffStatAdditionsBadge" class="px-2 py-0.5 rounded-md text-[11px] font-bold font-mono bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
                   +0
                 </span>
-                <span id="diffStatDeletionsBadge" class="px-2 py-0.5 rounded text-[11px] font-bold font-mono bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                <span id="diffStatDeletionsBadge" class="px-2 py-0.5 rounded-md text-[11px] font-bold font-mono bg-rose-500/15 text-rose-700 dark:text-rose-300">
                   -0
                 </span>
               </div>
@@ -1018,7 +1142,7 @@
                 <span id="diffActiveFileBadge" class="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate max-w-[200px]"> 全部變更</span>
               </div>
 
-              <div id="formDiffVisual" class="flex-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-xs font-mono overflow-auto custom-scrollbar leading-relaxed">
+              <div id="formDiffVisual" class="flex-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs font-mono overflow-auto custom-scrollbar leading-relaxed">
                 <div class="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
                   <i data-lucide="git-pull-request" class="w-8 h-8 text-slate-500 mb-2 opacity-50"></i>
                   <span class="text-xs"> 尚未產生代碼變更或 Diff</span>
@@ -1030,7 +1154,7 @@
         </div>
 
         <!-- Modal Footer Actions -->
-        <div class="p-3 px-5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
+        <div class="p-3 px-5 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3 bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
           <div class="flex items-center gap-2">
             <button type="button" id="btnAbandonTask" onclick="promptTaskDeleteOrAbandon(document.getElementById('formTaskId').value, 'abandon')" class="hidden bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 dark:hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30 text-xs font-medium px-3 py-1.5 rounded-lg transition flex items-center gap-1" title="放棄此任務（可選是否還原工作區變更）">
               <i data-lucide="ban" class="w-3.5 h-3.5"></i> 放棄任務
@@ -2700,9 +2824,8 @@ node "${gateScriptPath}"
       if (['in_progress', 'inprogress', 'running', 'active', 'doing'].includes(s)) return 'in_progress';
       if (['review', 'in_review', 'under_review', 'verify', 'testing'].includes(s)) return 'review';
       if (['done', 'completed', 'finished', 'closed', 'resolved'].includes(s)) return 'done';
-      if (['blocked', 'block', 'hold', 'paused'].includes(s)) return 'blocked';
       if (['archived', 'archive', 'archived_done', 'archivedone'].includes(s)) return 'archived';
-      return 'todo'; // 任何 pending, backlog, open 或非預設狀態皆統一歸入 todo
+      return 'todo'; // 任何 pending, backlog, blocked, open 或非預設狀態皆統一歸入 todo
     }
 
     function renderMetrics() {
@@ -2716,7 +2839,29 @@ node "${gateScriptPath}"
       document.getElementById('stat-in_progress').innerText = filtered.filter(t => normalizeStatus(t.status) === 'in_progress').length;
       document.getElementById('stat-review').innerText = filtered.filter(t => normalizeStatus(t.status) === 'review').length;
       document.getElementById('stat-done').innerText = filtered.filter(t => normalizeStatus(t.status) === 'done').length;
-      document.getElementById('stat-blocked').innerText = filtered.filter(t => normalizeStatus(t.status) === 'blocked').length;
+    }
+
+    function filterByStage(stage = 'ALL') {
+      const prevStage = window.currentStageFilter || 'ALL';
+      window.currentStageFilter = (prevStage === stage && stage !== 'ALL') ? 'ALL' : stage;
+      const activeStage = window.currentStageFilter;
+      const stages = ['ALL', 'todo', 'in_progress', 'review', 'done'];
+      stages.forEach(st => {
+        const pill = document.getElementById(`stage-pill-${st}`);
+        if (pill) {
+          const isActive = activeStage === st;
+          pill.classList.toggle('ring-2', isActive);
+          pill.classList.toggle('ring-sky-500', isActive);
+          pill.classList.toggle('dark:ring-sky-400', isActive);
+        }
+        if (st !== 'ALL') {
+          const colWrapper = document.getElementById(`col-wrapper-${st}`);
+          if (colWrapper) {
+            colWrapper.classList.toggle('hidden', activeStage !== 'ALL' && activeStage !== st);
+          }
+        }
+      });
+      renderKanban();
     }
 
     function renderKanban() {
@@ -2750,7 +2895,13 @@ node "${gateScriptPath}"
         }
       });
 
-      const statuses = ['todo', 'in_progress', 'review', 'done', 'blocked'];
+      const statuses = ['todo', 'in_progress', 'review', 'done'];
+      const emptyStateHints = {
+        todo: '點擊右上角「新增任務」建立需求並指派 Agent',
+        in_progress: '將任務拖曳至此欄，自動喚醒哨兵或 CLI 開工',
+        review: 'AI 完成實作與測試後將自動推入此處供審閱 Diff',
+        done: '驗收通過之任務可於此一鍵提交 Git Commit 與封存'
+      };
 
       statuses.forEach(st => {
         const colEl = document.getElementById(`col-${st}`);
@@ -2765,74 +2916,81 @@ node "${gateScriptPath}"
         badgeEl.innerText = colTasks.length;
 
         if (colTasks.length === 0) {
-          colEl.innerHTML = '<div class="text-center py-8 text-xs text-slate-400 dark:text-slate-500 border border-dashed border-slate-200 dark:border-slate-800 rounded-lg"> 無任務卡片</div>';
+          colEl.innerHTML = `<div class="text-center py-7 px-3 text-xs text-slate-500 dark:text-slate-400 td-surface-panel rounded-lg space-y-1"><div class="font-medium text-slate-600 dark:text-slate-300">無任務卡片</div><div class="text-[11px] text-slate-400 dark:text-slate-400 leading-relaxed">${emptyStateHints[st] || ''}</div></div>`;
           return;
         }
 
         colEl.innerHTML = colTasks.map(t => {
           const proj = projects.find(p => p.id === t.project);
           const projName = proj ? proj.name : (t.project || '未指定專案');
-          const priorityColor = t.priority === 'P0' ? 'bg-rose-50 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-500/40' :
-                                t.priority === 'P1' ? 'bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-500/40' :
-                                t.priority === 'P2' ? 'bg-blue-50 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-500/40' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300';
+          const priorityColor = t.priority === 'P0' ? 'bg-rose-100/90 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300' :
+                                t.priority === 'P1' ? 'bg-amber-100/90 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300' :
+                                t.priority === 'P2' ? 'bg-slate-200/80 dark:bg-slate-700/90 text-slate-700 dark:text-slate-200' : 'bg-slate-200/70 dark:bg-slate-700/80 text-slate-600 dark:text-slate-300';
           
           const isInProgress = t.status === 'in_progress';
           const isReviewStatus = t.status === 'review';
-          const cardBorderClass = isInProgress ? 'border-indigo-400 dark:border-indigo-500/80 bg-indigo-50/20 dark:bg-indigo-950/40 ring-1 ring-indigo-500/40' :
-                                  isReviewStatus ? 'border-purple-400 dark:border-purple-500/80 bg-purple-50/20 dark:bg-purple-950/40 ring-1 ring-purple-500/40' : 
-                                  'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/90 hover:border-slate-300 dark:hover:border-slate-500 shadow-sm';
-
+          const isDoneStatus = t.status === 'done';
           const projSkills = (t.projectSkills && Array.isArray(t.projectSkills)) ? t.projectSkills : (proj && Array.isArray(proj.skills) ? proj.skills : []);
           const hasGrillMe = projSkills.some(s => (s.id === 'grill-me' || s.label === 'grill-me'));
           const isPendingConfirm = (t.status === 'in_progress' && t.requiresConfirmation);
 
+          const cardStatusAccent = isPendingConfirm
+            ? 'border-l-[3px] border-l-amber-500'
+            : isInProgress
+              ? 'border-l-[3px] border-l-sky-500'
+              : isReviewStatus
+                ? 'border-l-[3px] border-l-amber-500'
+                : isDoneStatus
+                  ? 'border-l-[3px] border-l-emerald-500 opacity-95'
+                  : 'border-l-[3px] border-l-slate-400 dark:border-l-slate-500';
+
           return `
-            <div data-id="${t.id}" tabindex="0" role="button" aria-label="${escapeHtml(t.title)}" onclick="openModalForEdit('${t.id}')" onkeydown="handleCardKeyDown(event, '${t.id}')" class="kanban-card p-3 rounded-lg border ${cardBorderClass} shadow-sm transition-all cursor-pointer group hover:scale-[1.01] space-y-2 relative focus:outline-none">
+            <div data-id="${t.id}" tabindex="0" role="button" aria-label="${escapeHtml(t.title)}" onclick="openModalForEdit('${t.id}')" onkeydown="handleCardKeyDown(event, '${t.id}')" class="kanban-card p-3 rounded-xl td-surface-card ${cardStatusAccent} transition-all cursor-pointer group space-y-2 relative focus:outline-none">
               <div class="flex items-start justify-between gap-1.5">
-                <div class="flex items-center gap-1.5 flex-wrap">
-                  <span class="text-[10px] font-bold px-1.5 py-0.2 rounded border ${priorityColor} font-mono">${t.priority || 'P1'}</span>
+                <div class="flex items-center gap-1.5 flex-wrap min-w-0">
+                  <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded ${priorityColor} font-mono whitespace-nowrap flex-shrink-0">${t.priority || 'P1'}</span>
                   ${(t.status === "in_progress" && t.requiresConfirmation && t.executionPlan && t.executionPlan.trim()) ? (hasGrillMe ? `
-                    <span class="text-[10px] font-bold px-1.5 py-0.2 rounded border bg-orange-50 dark:bg-orange-950/60 text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-800/60 font-mono flex items-center gap-0.5" title="此專案具備 Grill-Me 邊界確認機制，點擊彈窗審閱與處理">
+                    <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-orange-100/90 dark:bg-orange-950/60 text-orange-800 dark:text-orange-300 font-mono flex items-center gap-0.5 whitespace-nowrap flex-shrink-0" title="此專案具備 Grill-Me 邊界確認機制，點擊彈窗審閱與處理">
                       🔥 Grill-Me 待確認
                     </span>
                   ` : `
-                    <span class="text-[10px] font-bold px-1.5 py-0.2 rounded border bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-500/40 font-mono flex items-center gap-0.5">
+                    <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100/90 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 font-mono flex items-center gap-0.5 whitespace-nowrap flex-shrink-0">
                       待確認
                     </span>
                   `) : ''}
-                  <span class="text-[10px] px-1.5 py-0.2 rounded bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 font-mono truncate max-w-[110px]" title="${escapeHtml(projName)}">
+                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-200 font-mono truncate max-w-[115px] whitespace-nowrap" title="${escapeHtml(projName)}">
                      ${escapeHtml(projName)}
                   </span>
                 </div>
-                <div class="flex items-center gap-1">
+                <div class="flex items-center gap-1 flex-shrink-0">
                   ${t.status !== 'backlog' ? `
-                  <button onclick="promptTaskDeleteOrAbandon('${t.id}', 'abandon', event)" title="放棄任務 (可選還原 Git 變更)" class="opacity-0 group-hover:opacity-80 hover:!opacity-100 text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition">
+                  <button onclick="promptTaskDeleteOrAbandon('${t.id}', 'abandon', event)" title="放棄任務 (可選還原 Git 變更)" class="opacity-0 group-hover:opacity-80 hover:!opacity-100 text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition">
                     <i data-lucide="ban" class="w-3 h-3"></i>
                   </button>
                   ` : ''}
-                  <button onclick="copyPrompt('${t.id}', event)" title="複製 AI 指令" class="opacity-80 group-hover:opacity-100 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition">
+                  <button onclick="copyPrompt('${t.id}', event)" title="複製 AI 指令" class="opacity-70 group-hover:opacity-100 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition">
                     <i data-lucide="copy" class="w-3 h-3"></i>
                   </button>
                 </div>
               </div>
 
-              <h4 class="text-xs font-bold text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition leading-snug">
+              <h4 class="text-xs font-semibold text-slate-900 dark:text-slate-100 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition leading-snug">
                 ${escapeHtml(t.title)}
               </h4>
 
-              ${t.description ? `<p class="text-[11px] text-slate-600 dark:text-slate-400 line-clamp-2 leading-relaxed">${escapeHtml(t.description)}</p>` : ''}
+              ${t.description ? `<p class="text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2 leading-relaxed">${escapeHtml(t.description)}</p>` : ''}
 
               ${isPendingConfirm ? `
                 <!-- 待確認內容與邊界質詢摘要卡片 (支援 Grill-Me 專案) -->
-                <div class="p-2 rounded-lg border ${hasGrillMe ? 'bg-orange-50/70 dark:bg-orange-950/30 border-orange-200 dark:border-orange-800/60 text-orange-950 dark:text-orange-200' : 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/60 text-amber-950 dark:text-amber-200'} space-y-1 text-[11px]">
-                  <div class="flex items-center justify-between font-bold text-[10px]">
-                    <span class="flex items-center gap-1 ${hasGrillMe ? 'text-orange-700 dark:text-orange-400' : 'text-amber-800 dark:text-amber-300'}">
-                      <i data-lucide="${hasGrillMe ? 'flame' : 'clipboard-check'}" class="w-3 h-3 ${hasGrillMe ? 'text-orange-500' : 'text-amber-600'}"></i>
-                      ${hasGrillMe ? 'Grill-Me 邊界質詢內容' : '需確認執行內容'}
+                <div class="p-2 rounded-lg shadow-xs ${hasGrillMe ? 'bg-orange-50/90 dark:bg-orange-950/35 text-orange-950 dark:text-orange-200' : 'bg-amber-50/90 dark:bg-amber-950/35 text-amber-950 dark:text-amber-200'} space-y-1 text-[11px]">
+                  <div class="flex items-center justify-between gap-1.5 font-semibold text-[10px]">
+                    <span class="flex items-center gap-1 min-w-0 truncate ${hasGrillMe ? 'text-orange-700 dark:text-orange-400' : 'text-amber-800 dark:text-amber-300'}">
+                      <i data-lucide="${hasGrillMe ? 'flame' : 'clipboard-check'}" class="w-3 h-3 flex-shrink-0 ${hasGrillMe ? 'text-orange-500' : 'text-amber-600'}"></i>
+                      <span class="truncate">${hasGrillMe ? 'Grill-Me 邊界質詢內容' : '需確認執行內容'}</span>
                     </span>
-                    <span class="text-[9px] px-1 py-0.2 rounded font-mono font-normal ${hasGrillMe ? 'bg-orange-200/60 dark:bg-orange-900/60 text-orange-800 dark:text-orange-300' : 'bg-amber-200/60 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300'}">點擊彈窗處理</span>
+                    <span class="text-[9px] px-1.5 py-0.5 rounded font-mono font-normal whitespace-nowrap flex-shrink-0 ${hasGrillMe ? 'bg-orange-100 dark:bg-orange-900/50 text-orange-800 dark:text-orange-300' : 'bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300'}">點擊審閱計劃</span>
                   </div>
-                  <p class="text-[10px] text-slate-700 dark:text-slate-300 line-clamp-2 leading-relaxed font-mono">
+                  <p class="text-[10px] text-slate-600 dark:text-slate-300 line-clamp-2 leading-relaxed font-mono">
                     ${escapeHtml(t.executionPlan ? t.executionPlan.replace(/^#+\s+/gm, '').trim() : (hasGrillMe ? '此專案具備 Grill-Me 機制，等待邊界確認與執行計劃...' : '等待擬定執行計劃...'))}
                   </p>
                 </div>
@@ -2840,29 +2998,26 @@ node "${gateScriptPath}"
 
               ${isInProgress ? `
                 <div class="space-y-1.5 pt-0.5">
-                  <!-- AI 輪巡中 / CLI 執行中 + 當前工作切片 (一體化精簡區塊) -->
-                  <div class="bg-indigo-50/90 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800/80 rounded-md p-2 space-y-1.5 text-[10px] text-indigo-950 dark:text-indigo-200">
-                    <div class="flex items-center justify-between">
-                      <span class="flex items-center gap-1.5 font-bold text-indigo-900 dark:text-indigo-200">
-                        <span class="relative flex h-2 w-2">
-                          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                          <span class="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
-                        </span>
-                        ${settings.enableCliAgent ? ` CLI (${settings.cliCommand || 'hermes'}) 執行中` : ` AI 輪巡中`}
+                  <!-- AI 輪巡中 / CLI 執行中 + 當前工作切片 (無框線色塊分層) -->
+                  <div class="td-surface-panel rounded-lg p-2 space-y-1.5 text-[10px] text-slate-700 dark:text-slate-200">
+                    <div class="flex items-center justify-between gap-1.5">
+                      <span class="flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap min-w-0 truncate">
+                        <span class="w-2 h-2 rounded-full bg-sky-500 flex-shrink-0"></span>
+                        <span class="truncate">${settings.enableCliAgent ? ` CLI (${settings.cliCommand || 'hermes'}) 執行中` : ` AI 輪巡中`}</span>
                       </span>
-                      <div class="flex items-center gap-1.5">
+                      <div class="flex items-center gap-1 flex-shrink-0">
                         ${t.liveStatus?.isStalled ? `
-                          <span class="text-[9px] font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/80 px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-700 flex items-center gap-0.5 animate-pulse" title="超過 10 分鐘無新 worklog/進度更新，請檢視執行狀況">
+                          <span class="text-[9px] font-mono font-semibold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/60 px-1.5 py-0.5 rounded flex items-center gap-0.5 whitespace-nowrap flex-shrink-0" title="超過 10 分鐘無新 worklog/進度更新，請檢視執行狀況">
                             ⚠️ 切片推進緩慢
                           </span>
                         ` : ''}
                         ${settings.enableCliAgent ? `
-                        <span class="text-[9px] font-mono font-bold text-indigo-600 dark:text-indigo-300 bg-indigo-200/60 dark:bg-indigo-900/60 px-1.5 py-0.5 rounded border border-indigo-400/30">
+                        <span class="text-[9px] font-mono text-slate-600 dark:text-slate-300 bg-slate-200/80 dark:bg-slate-800 px-1.5 py-0.5 rounded whitespace-nowrap flex-shrink-0">
                            ${formatDuration(t.liveStatus?.elapsedSeconds || 0)}
                         </span>
                         ` : ''}
                         ${(t.sliceInfo?.slices && t.sliceInfo.slices.length > 0) ? `
-                          <span class="text-[9px] font-mono font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900/80 px-1.5 py-0.5 rounded border border-indigo-300/60 dark:border-indigo-700/60">
+                          <span class="text-[9px] font-mono text-slate-600 dark:text-slate-300 bg-slate-200/80 dark:bg-slate-800 px-1.5 py-0.5 rounded whitespace-nowrap flex-shrink-0">
                             ${t.sliceInfo.slices.filter(s => s.status && s.status.includes('已完成')).length}/${t.sliceInfo.slices.length} 切片 (${Math.round((t.sliceInfo.slices.filter(s => s.status && s.status.includes('已完成')).length / t.sliceInfo.slices.length) * 100)}%)
                           </span>
                         ` : ''}
@@ -2870,14 +3025,14 @@ node "${gateScriptPath}"
                     </div>
 
                     ${(t.sliceInfo?.currentSliceGoal || t.sliceInfo?.currentStep || (t.status === 'in_progress' && (t.description || t.title))) ? `
-                      <div class="bg-white/80 dark:bg-slate-900/80 rounded p-1.5 border border-indigo-100 dark:border-indigo-900/40 text-[10px] space-y-1">
-                        <div class="flex items-center gap-1 text-indigo-900 dark:text-indigo-200 font-medium truncate" title="${escapeHtml((t.sliceInfo?.currentSliceGoal && t.sliceInfo.currentSliceGoal !== 'N/A') ? t.sliceInfo.currentSliceGoal : (t.sliceInfo?.currentStep || t.description || t.title || ''))}">
-                          <i data-lucide="target" class="w-3 h-3 text-indigo-500 flex-shrink-0"></i>
+                      <div class="text-[10px] space-y-1 pt-0.5">
+                        <div class="flex items-center gap-1 text-slate-600 dark:text-slate-300 truncate" title="${escapeHtml((t.sliceInfo?.currentSliceGoal && t.sliceInfo.currentSliceGoal !== 'N/A') ? t.sliceInfo.currentSliceGoal : (t.sliceInfo?.currentStep || t.description || t.title || ''))}">
+                          <i data-lucide="target" class="w-3 h-3 text-slate-400 flex-shrink-0"></i>
                           <span class="truncate">${escapeHtml((t.sliceInfo?.currentSliceGoal && t.sliceInfo.currentSliceGoal !== 'N/A') ? t.sliceInfo.currentSliceGoal : (t.sliceInfo?.currentStep || t.description || t.title || ''))}</span>
                         </div>
                         ${(t.sliceInfo?.slices && t.sliceInfo.slices.length > 0) ? `
-                          <div class="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1 overflow-hidden">
-                            <div class="bg-indigo-600 h-1 rounded-full transition-all duration-300" style="width: ${Math.round((t.sliceInfo.slices.filter(s => s.status && s.status.includes('已完成')).length / t.sliceInfo.slices.length) * 100)}%"></div>
+                          <div class="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1 overflow-hidden">
+                            <div class="bg-sky-600 dark:bg-sky-400 h-1 rounded-full transition-all duration-300" style="width: ${Math.round((t.sliceInfo.slices.filter(s => s.status && s.status.includes('已完成')).length / t.sliceInfo.slices.length) * 100)}%"></div>
                           </div>
                         ` : ''}
                       </div>
@@ -2885,18 +3040,18 @@ node "${gateScriptPath}"
                   </div>
 
                   ${t.liveStatus?.currentAction ? `
-                    <div class="bg-slate-900/90 dark:bg-slate-950 text-amber-300 dark:text-amber-200 border border-amber-500/30 rounded p-1.5 font-mono text-[10px] flex items-center gap-1.5 overflow-hidden shadow-inner" title="${escapeHtml(t.liveStatus.currentAction)}">
-                      <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping flex-shrink-0"></span>
-                      <span class="truncate font-sans font-medium text-amber-200">
+                    <div class="bg-slate-900 dark:bg-slate-950 text-amber-200 rounded-md px-2 py-1 font-mono text-[10px] flex items-center gap-1.5 overflow-hidden shadow-xs" title="${escapeHtml(t.liveStatus.currentAction)}">
+                      <span class="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0"></span>
+                      <span class="truncate font-sans text-amber-200">
                         ${escapeHtml(t.liveStatus.currentAction)}
                       </span>
                     </div>
                   ` : ''}
 
                   ${t.liveStatus?.liveModifiedFiles && t.liveStatus.liveModifiedFiles.length > 0 ? `
-                    <div class="flex items-center gap-1 text-[10px] text-indigo-700 dark:text-indigo-300 font-mono bg-indigo-50/70 dark:bg-indigo-950/40 px-1.5 py-0.5 rounded border border-indigo-200/60 dark:border-indigo-900/40">
-                      <i data-lucide="file-edit" class="w-3 h-3 text-indigo-500 flex-shrink-0"></i>
-                      <span class="truncate font-medium"> 即時異動 ${t.liveStatus.liveModifiedFiles.length} 個檔案</span>
+                    <div class="flex items-center gap-1 text-[10px] text-slate-600 dark:text-slate-300 font-mono td-surface-panel px-2 py-1 rounded-md">
+                      <i data-lucide="file-edit" class="w-3 h-3 text-slate-500 flex-shrink-0"></i>
+                      <span class="truncate"> 即時異動 ${t.liveStatus.liveModifiedFiles.length} 個檔案</span>
                     </div>
                   ` : ''}
                 </div>
@@ -2906,19 +3061,20 @@ node "${gateScriptPath}"
               ${t.dependencies && t.dependencies.length > 0 ? `
                 <div class="flex flex-wrap gap-1">
                   ${t.dependencies.map(dep => `
-                    <span onclick="event.stopPropagation(); openModalForEdit('${dep}')" class="text-[9px] bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-1.5 py-0.2 rounded border border-indigo-200 dark:border-indigo-800/60 font-mono hover:underline" title="點擊檢視前置任務 ${dep}"> 依賴 ${escapeHtml(dep)}
+                    <span onclick="event.stopPropagation(); openModalForEdit('${dep}')" class="text-[9px] bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-200 px-1.5 py-0.5 rounded font-mono hover:underline whitespace-nowrap flex-shrink-0" title="點擊檢視前置任務 ${dep}"> 依賴 ${escapeHtml(dep)}
                     </span>
                   `).join('')}
                 </div>
               ` : ''}
 
               ${isReviewStatus ? `
-                <div class="bg-purple-100/70 dark:bg-purple-950/40 border border-purple-300 dark:border-purple-800/60 rounded-md p-1.5 flex items-center justify-between text-[10px] text-purple-900 dark:text-purple-200">
-                  <span class="flex items-center gap-1 font-bold">
-                    <i data-lucide="eye" class="w-3 h-3 text-purple-600 dark:text-purple-400"></i> 含 Diff 異動
+                <div class="bg-amber-50/90 dark:bg-amber-950/35 rounded-lg p-1.5 flex items-center justify-between gap-1.5 text-[10px] text-amber-900 dark:text-amber-200 shadow-xs">
+                  <span class="flex items-center gap-1 font-semibold whitespace-nowrap min-w-0 truncate">
+                    <i data-lucide="eye" class="w-3 h-3 text-amber-600 dark:text-amber-400 flex-shrink-0"></i>
+                    <span class="truncate">${(t.modifiedFiles && t.modifiedFiles.length) ? `${t.modifiedFiles.length} 檔案 · ` : ''}含 Diff 異動</span>
                   </span>
-                  <button onclick="quickApproveDone('${t.id}', event)" class="bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-0.5 rounded font-bold flex items-center gap-1 shadow-sm transition">
-                    <i data-lucide="check" class="w-3 h-3"></i> 驗收結案
+                  <button onclick="quickApproveDone('${t.id}', event)" class="bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-0.5 rounded font-semibold flex items-center gap-1 transition shadow-xs whitespace-nowrap flex-shrink-0">
+                    <i data-lucide="check" class="w-3 h-3 flex-shrink-0"></i> 驗收結案
                   </button>
                 </div>
               ` : ''}
@@ -2929,17 +3085,17 @@ node "${gateScriptPath}"
                 const hasDiff = projGit ? projGit.hasDiff : false;
 
                 return `
-                  <div class="bg-emerald-100/60 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-800/50 rounded-md p-1.5 flex items-center justify-between text-[10px] text-emerald-900 dark:text-emerald-200">
-                    <span class="flex items-center gap-1 font-bold">
-                      <i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-600 dark:text-emerald-400"></i> 已完成
+                  <div class="td-surface-panel rounded-lg p-1.5 flex items-center justify-between gap-1.5 text-[10px] text-slate-700 dark:text-slate-200">
+                    <span class="flex items-center gap-1 font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap flex-shrink-0">
+                      <i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-600 dark:text-emerald-400 flex-shrink-0"></i> 已完成
                     </span>
-                    <div class="flex items-center gap-1">
-                      <button onclick="archiveTaskFromCard('${t.id}', event)" class="bg-slate-200/90 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded font-bold flex items-center gap-1 shadow-sm transition" title="手動將此任務移入封存庫">
-                        <i data-lucide="archive" class="w-3 h-3 text-indigo-500"></i> 封存
+                    <div class="flex items-center gap-1 flex-shrink-0">
+                      <button onclick="archiveTaskFromCard('${t.id}', event)" class="bg-slate-200/90 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 px-2 py-0.5 rounded font-medium flex items-center gap-1 transition whitespace-nowrap flex-shrink-0" title="手動將此任務移入封存庫">
+                        <i data-lucide="archive" class="w-3 h-3 text-slate-500 dark:text-slate-300 flex-shrink-0"></i> 封存
                       </button>
                       ${isLatestInProj && hasDiff ? `
-                        <button onclick="commitTaskFromCard('${t.id}', event)" class="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-0.5 rounded font-bold flex items-center gap-1 shadow-sm transition" title="提交 Git Commit 並封存">
-                          <i data-lucide="git-commit" class="w-3 h-3"></i> Commit
+                        <button onclick="commitTaskFromCard('${t.id}', event)" class="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-0.5 rounded font-semibold flex items-center gap-1 transition shadow-xs whitespace-nowrap flex-shrink-0" title="提交 Git Commit 並封存">
+                          <i data-lucide="git-commit" class="w-3 h-3 flex-shrink-0"></i> Commit
                         </button>
                       ` : ''}
                     </div>
@@ -2950,39 +3106,36 @@ node "${gateScriptPath}"
               ${t.tags && t.tags.length > 0 ? `
                 <div class="flex flex-wrap gap-1 pt-0.5">
                   ${t.tags.map(tag => {
-                    const isGit = ['feat', 'fix', 'refactor', 'perf', 'test', 'chore', 'docs', 'style'].includes(tag);
-                    const tagClass = tag === 'feat' ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-400/30 font-bold' :
-                                     tag === 'fix' ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-400/30 font-bold' :
-                                     tag === 'refactor' ? 'bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-400/30' :
-                                     tag === 'perf' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-400/30' :
-                                     'bg-slate-200/60 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700/60';
-                    return `<span class="text-[9px] px-1.5 py-0.2 rounded-full border ${tagClass}">#${escapeHtml(tag)}</span>`;
+                    const tagClass = tag === 'feat' ? 'bg-slate-100 dark:bg-slate-700/80 text-sky-700 dark:text-sky-300 font-medium' :
+                                     tag === 'fix' ? 'bg-slate-100 dark:bg-slate-700/80 text-rose-600 dark:text-rose-400 font-medium' :
+                                     'bg-slate-100/90 dark:bg-slate-700/70 text-slate-600 dark:text-slate-300';
+                    return `<span class="text-[9px] px-1.5 py-0.5 rounded whitespace-nowrap flex-shrink-0 ${tagClass}">#${escapeHtml(tag)}</span>`;
                   }).join('')}
                 </div>
               ` : ''}
 
-              <div class="pt-1.5 border-t border-slate-200 dark:border-slate-800/80 flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
-                <div class="flex items-center gap-1.5">
-                  <span class="flex items-center gap-1">
+              <div class="pt-1.5 border-t border-transparent flex items-center justify-between gap-1.5 text-[10px] text-slate-500 dark:text-slate-400">
+                <div class="flex items-center gap-1.5 min-w-0">
+                  <span class="flex items-center gap-1 whitespace-nowrap">
                     ${(t.assignee === 'CLI' || (t.assignee && t.assignee.includes('CLI'))) ? `
-                      <i data-lucide="terminal" class="w-3 h-3 text-indigo-500"></i>
-                      <span class="font-bold text-indigo-600 dark:text-indigo-400 font-mono"> CLI</span>
+                      <i data-lucide="terminal" class="w-3 h-3 text-slate-500 flex-shrink-0"></i>
+                      <span class="font-semibold text-slate-700 dark:text-slate-300 font-mono"> CLI</span>
                     ` : (t.assignee === 'Antigravity' || !t.assignee) ? `
-                      <i data-lucide="sparkles" class="w-3 h-3 text-indigo-400"></i>
+                      <i data-lucide="sparkles" class="w-3 h-3 text-slate-400 flex-shrink-0"></i>
                       <span>${escapeHtml(t.assignee || 'Antigravity')}</span>
                     ` : `
-                      <i data-lucide="user" class="w-3 h-3 text-slate-400 dark:text-slate-500"></i>
+                      <i data-lucide="user" class="w-3 h-3 text-slate-400 dark:text-slate-500 flex-shrink-0"></i>
                       <span>${escapeHtml(t.assignee)}</span>
                     `}
                   </span>
                   ${t.conversationId ? `
-                    <span onclick="copySessionId('${escapeHtml(t.conversationId)}', event)" class="font-mono text-[9px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/80 hover:bg-indigo-100 hover:text-indigo-600 dark:hover:bg-indigo-950/60 dark:hover:text-indigo-300 px-1.5 py-0.2 rounded border border-slate-200 dark:border-slate-700/60 transition cursor-pointer flex items-center gap-0.5" title="點擊複製 Hermes Session ID: ${escapeHtml(t.conversationId)}">
-                      <i data-lucide="hash" class="w-2.5 h-2.5 text-indigo-500"></i>
+                    <span onclick="copySessionId('${escapeHtml(t.conversationId)}', event)" class="font-mono text-[9px] text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/80 hover:bg-slate-200 dark:hover:bg-slate-600 px-1.5 py-0.5 rounded transition cursor-pointer flex items-center gap-0.5 whitespace-nowrap flex-shrink-0" title="點擊複製 Hermes Session ID: ${escapeHtml(t.conversationId)}">
+                      <i data-lucide="hash" class="w-2.5 h-2.5 text-slate-400 flex-shrink-0"></i>
                       <span>${escapeHtml(t.conversationId.length > 14 ? t.conversationId.slice(-8) : t.conversationId)}</span>
                     </span>
                   ` : ''}
                 </div>
-                <span class="text-indigo-600 dark:text-indigo-400 font-medium group-hover:underline"> 編輯詳情</span>
+                <span class="text-slate-600 dark:text-slate-300 font-medium group-hover:text-sky-600 dark:group-hover:text-sky-400 transition whitespace-nowrap flex-shrink-0">${isReviewStatus ? '審閱驗收 →' : isPendingConfirm ? '審閱計劃 →' : '開啟詳情'}</span>
               </div>
             </div>
           `;
@@ -3031,6 +3184,43 @@ node "${gateScriptPath}"
       el.style.height = '';
     }
 
+    function switchModalWorkspaceTab(mode = 'review') {
+      const reviewPane = document.getElementById('modalReviewPane');
+      const specPane = document.getElementById('modalSpecPane');
+      const contextSummary = document.getElementById('modalReviewContextSummary');
+      const btnReview = document.getElementById('btnModalTabReview');
+      const btnSpec = document.getElementById('btnModalTabSpec');
+      const isSpec = mode === 'spec';
+
+      if (specPane) specPane.classList.toggle('hidden', !isSpec);
+      if (reviewPane) reviewPane.classList.toggle('hidden', isSpec);
+      if (contextSummary) contextSummary.classList.toggle('hidden', isSpec || !currentModalEditingTask);
+
+      if (btnReview && btnSpec) {
+        const activeClasses = ['bg-white', 'dark:bg-slate-800', 'text-slate-900', 'dark:text-white', 'shadow-xs', 'font-semibold', 'border-slate-300/80', 'dark:border-slate-600'];
+        const inactiveClasses = ['border-transparent', 'text-slate-600', 'dark:text-slate-400', 'hover:text-slate-900', 'dark:hover:text-slate-200', 'font-medium', 'hover:bg-white/40', 'dark:hover:bg-slate-800/40'];
+        activeClasses.forEach(cls => {
+          btnReview.classList.toggle(cls, !isSpec);
+          btnSpec.classList.toggle(cls, isSpec);
+        });
+        inactiveClasses.forEach(cls => {
+          btnReview.classList.toggle(cls, isSpec);
+          btnSpec.classList.toggle(cls, !isSpec);
+        });
+      }
+
+      if (currentModalEditingTask && currentModalEditingTask.status !== 'todo') {
+        setTimeout(() => {
+          if (isSpec) {
+            autoResizeTextarea(document.getElementById('formDescription'), 72, 380);
+          } else {
+            autoResizeTextarea(document.getElementById('formExecutionPlan'), 60, 300);
+            autoResizeTextarea(document.getElementById('formFeedback'), 48, 200);
+          }
+        }, 10);
+      }
+    }
+
     // Modal 邏輯 (支援 新增單欄 與 編輯雙欄)
     function openModal(initialData = {}) {
       currentModalEditingTask = null;
@@ -3070,7 +3260,15 @@ node "${gateScriptPath}"
       updateDependencyOptions('');
       setSelect2Tags([]);
 
-      // 新增任務時：隱藏審查回饋區塊
+      // 新增任務時：隱藏分頁切換器與審查回饋區塊，直接聚焦需求規格輸入
+      const workspaceTabs = document.getElementById('modalLeftWorkspaceTabs');
+      if (workspaceTabs) {
+        workspaceTabs.classList.add('hidden');
+        workspaceTabs.classList.remove('flex');
+      }
+      document.getElementById('modalReviewContextSummary')?.classList.add('hidden');
+      document.getElementById('modalSpecPane')?.classList.remove('hidden');
+      document.getElementById('modalReviewPane')?.classList.add('hidden');
       document.getElementById('reviewFeedbackBox').classList.add('hidden');
       document.getElementById('formSliceInfoBox')?.classList.add('hidden');
 
@@ -3416,6 +3614,36 @@ node "${gateScriptPath}"
         }
       }
       updateModalButtonState();
+
+      // 填充 IA 審核上下文摘要 (Compact Context Summary) 並根據任務階段預設切換分頁
+      const projObj = projects.find(p => p.id === task.project);
+      const projLabel = projObj ? projObj.name : (task.project || 'Default');
+      const metaProjEl = document.getElementById('modalReviewMetaProject');
+      if (metaProjEl) metaProjEl.innerText = projLabel;
+      const metaAssigneeEl = document.getElementById('modalReviewMetaAssignee');
+      if (metaAssigneeEl) metaAssigneeEl.innerText = `Agent: ${task.assignedAgent || task.assignee || 'Unassigned'}`;
+      const metaTitleEl = document.getElementById('modalReviewMetaTitle');
+      if (metaTitleEl) metaTitleEl.innerText = task.title || '';
+      const rawDesc = (task.description || '').trim();
+      const firstDescLine = rawDesc ? rawDesc.split('\n').find(l => l.trim().length > 0) || '點擊展開原始需求描述...' : '（無詳細需求描述）';
+      const descPreviewEl = document.getElementById('modalReviewDescPreviewLine');
+      if (descPreviewEl) descPreviewEl.innerText = `原始需求：${firstDescLine}`;
+      const descFullEl = document.getElementById('modalReviewDescFullText');
+      if (descFullEl) descFullEl.innerText = rawDesc || '（無詳細需求描述）';
+
+      const workspaceTabs = document.getElementById('modalLeftWorkspaceTabs');
+      if (workspaceTabs) {
+        workspaceTabs.classList.remove('hidden');
+        workspaceTabs.classList.add('flex');
+      }
+      const reviewDot = document.getElementById('modalTabReviewStatusDot');
+      if (reviewDot) {
+        const needsReviewAttention = task.status === 'review' || (task.status === 'in_progress' && !!task.requiresConfirmation && !!(task.executionPlan || '').trim());
+        reviewDot.classList.toggle('hidden', !needsReviewAttention);
+      }
+
+      const defaultTabMode = (task.status === 'todo' && !task.executionLog && !task.executionPlan && !task.feedback) ? 'spec' : 'review';
+      switchModalWorkspaceTab(defaultTabMode);
 
       document.getElementById('taskModal').classList.remove('hidden');
 
@@ -4111,7 +4339,7 @@ node "${gateScriptPath}"
       if (window.lucide) lucide.createIcons();
     }
 
-    // 任務執行報告 (Task Execution Report) 與原生日誌切換與渲染
+    // 任務執行報告 (Task Execution Report) 與原生日誌切換與渲染 (統一圓角淺灰底 td-surface-panel，內部取消區塊陰影改用清晰分隔線與明確主次層級)
     function switchLogViewTab(tab) {
       const visualBtn = document.getElementById('btnLogTabVisual');
       const rawBtn = document.getElementById('btnLogTabRaw');
@@ -4121,13 +4349,13 @@ node "${gateScriptPath}"
       if (tab === 'visual') {
         reportVisual.classList.remove('hidden');
         logVisual.classList.add('hidden');
-        if (visualBtn) visualBtn.className = 'px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 shadow-xs text-indigo-600 dark:text-indigo-400 font-bold transition';
-        if (rawBtn) rawBtn.className = 'px-2 py-0.5 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition';
+        if (visualBtn) visualBtn.className = 'px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 text-sky-700 dark:text-sky-300 font-bold transition whitespace-nowrap flex-shrink-0';
+        if (rawBtn) rawBtn.className = 'px-2 py-0.5 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition whitespace-nowrap flex-shrink-0';
       } else {
         reportVisual.classList.add('hidden');
         logVisual.classList.remove('hidden');
-        if (rawBtn) rawBtn.className = 'px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 shadow-xs text-indigo-600 dark:text-indigo-400 font-bold transition';
-        if (visualBtn) visualBtn.className = 'px-2 py-0.5 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition';
+        if (rawBtn) rawBtn.className = 'px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 text-sky-700 dark:text-sky-300 font-bold transition whitespace-nowrap flex-shrink-0';
+        if (visualBtn) visualBtn.className = 'px-2 py-0.5 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition whitespace-nowrap flex-shrink-0';
       }
     }
 
@@ -4171,37 +4399,46 @@ node "${gateScriptPath}"
           rawTerminalDump = parts.slice(1).join('').trim();
         }
 
-        // 解析主要段落區塊
+        // 解析主要段落區塊 (取消區塊陰影與細項多餘分隔線，僅保留大項目之間的清晰分隔線 divide-y，並強化 dark mode 分隔線對比度)
         const sectionsHtml = [];
         const lines = mainReport.split('\n');
         let curCardTitle = '';
         let curCardLines = [];
         let curBadge = '';
+        let curAccentColor = 'bg-slate-500 dark:bg-slate-400';
+        let curMarkerBg = 'bg-slate-200/80 dark:bg-slate-800';
+
+        const formatInlineReportText = (str) => escapeHtml(str)
+          .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-slate-900 dark:text-slate-100">$1</strong>')
+          .replace(/`([^`]+)`/g, '<code class="px-1.5 py-0.5 rounded bg-white/90 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-[11px]">$1</code>');
 
         const flushCard = () => {
           if (!curCardTitle && curCardLines.length === 0) return;
           const bodyHtml = curCardLines.map(l => {
             if (l.startsWith('- **') || l.startsWith('- ')) {
-              const formatted = escapeHtml(l.slice(2)).replace(/\*\*(.+?)\*\*/g, '<strong class="text-slate-900 dark:text-slate-100">$1</strong>');
-              return `<li class="ml-4 list-disc text-slate-700 dark:text-slate-300 leading-relaxed">${formatted}</li>`;
+              const formatted = formatInlineReportText(l.slice(2));
+              return `<li class="ml-4 list-disc text-slate-800 dark:text-slate-200 leading-[1.7] py-0.5">${formatted}</li>`;
             } else if (l.startsWith('  - ')) {
-              const formatted = escapeHtml(l.slice(4)).replace(/\*\*(.+?)\*\*/g, '<strong class="text-slate-900 dark:text-slate-100">$1</strong>');
-              return `<li class="ml-8 list-circle text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">${formatted}</li>`;
+              const formatted = formatInlineReportText(l.slice(4));
+              return `<li class="ml-8 list-circle text-slate-700 dark:text-slate-300 text-[11px] leading-[1.7] py-0.5">${formatted}</li>`;
             } else if (l.trim()) {
-              return `<p class="text-slate-600 dark:text-slate-400 leading-relaxed">${escapeHtml(l)}</p>`;
+              return `<p class="text-slate-700 dark:text-slate-300 leading-[1.7] py-0.5">${formatInlineReportText(l)}</p>`;
             }
             return '';
           }).filter(Boolean).join('');
 
           sectionsHtml.push(`
-            <div class="border border-slate-200 dark:border-slate-800 rounded-xl p-3 bg-white dark:bg-slate-900/90 shadow-xs space-y-1.5">
-              <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5">
-                <span class="font-bold text-xs text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5">
-                  ${escapeHtml(curCardTitle || '執行說明')}
+            <div class="report-section-block py-3 first:pt-1 last:pb-1 space-y-1.5 shadow-none">
+              <div class="flex items-center justify-between gap-2">
+                <span class="font-semibold text-xs text-slate-800 dark:text-slate-100 flex items-center gap-2 min-w-0">
+                  <span class="w-4 h-4 rounded-md ${curMarkerBg} flex items-center justify-center flex-shrink-0">
+                    <span class="w-1.5 h-1.5 rounded-full ${curAccentColor}"></span>
+                  </span>
+                  <span class="leading-snug">${escapeHtml(curCardTitle || '執行說明')}</span>
                 </span>
                 ${curBadge}
               </div>
-              <ul class="space-y-1 text-xs">
+              <ul class="space-y-1 text-xs pl-6">
                 ${bodyHtml}
               </ul>
             </div>
@@ -4209,6 +4446,8 @@ node "${gateScriptPath}"
           curCardTitle = '';
           curCardLines = [];
           curBadge = '';
+          curAccentColor = 'bg-slate-500 dark:bg-slate-400';
+          curMarkerBg = 'bg-slate-200/80 dark:bg-slate-800';
         };
 
         for (const line of lines) {
@@ -4218,11 +4457,21 @@ node "${gateScriptPath}"
             const rawTitle = line.replace(/^[#]+\s*/, '').trim();
             curCardTitle = rawTitle;
             if (rawTitle.includes('驗證') || rawTitle.includes('Phase 3')) {
-              curBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">驗證通過 ✅</span>';
-            } else if (rawTitle.includes('解決方案') || rawTitle.includes('Phase 2')) {
-              curBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">實作完成 💡</span>';
+              curBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold font-mono bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 whitespace-nowrap flex-shrink-0">驗證通過</span>';
+              curAccentColor = 'bg-emerald-600 dark:bg-emerald-400';
+              curMarkerBg = 'bg-emerald-100/80 dark:bg-emerald-950/50';
+            } else if (rawTitle.includes('解決方案') || rawTitle.includes('核心異動') || rawTitle.includes('審查') || rawTitle.includes('Phase 2')) {
+              curBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold font-mono bg-sky-100 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 whitespace-nowrap flex-shrink-0">實作完成</span>';
+              curAccentColor = 'bg-sky-600 dark:bg-sky-400';
+              curMarkerBg = 'bg-sky-100/80 dark:bg-sky-950/50';
+            } else if (rawTitle.includes('色彩') || rawTitle.includes('計劃')) {
+              curBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold font-mono bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 whitespace-nowrap flex-shrink-0">色彩規範</span>';
+              curAccentColor = 'bg-amber-500 dark:bg-amber-400';
+              curMarkerBg = 'bg-amber-100/80 dark:bg-amber-950/50';
             } else if (rawTitle.includes('根因') || rawTitle.includes('目標') || rawTitle.includes('Phase 1')) {
-              curBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">問題分析 🎯</span>';
+              curBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold font-mono bg-slate-200/90 dark:bg-slate-800 text-slate-800 dark:text-slate-200 whitespace-nowrap flex-shrink-0">目標與分析</span>';
+              curAccentColor = 'bg-slate-600 dark:bg-slate-400';
+              curMarkerBg = 'bg-slate-200/80 dark:bg-slate-800';
             }
           } else {
             curCardLines.push(line);
@@ -4234,34 +4483,37 @@ node "${gateScriptPath}"
         if (rawTerminalDump) {
           const cleanDump = rawTerminalDump.replace(/```text/g, '').replace(/```/g, '').replace(/<summary>.*?<\/summary>/s, '').trim();
           terminalCollapseHtml = `
-            <details class="group border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-slate-950">
-              <summary class="px-3 py-2 bg-slate-900 text-slate-300 text-xs font-mono font-semibold flex items-center justify-between cursor-pointer select-none hover:bg-slate-800 transition">
-                <span class="flex items-center gap-1.5">
-                  <i data-lucide="terminal" class="w-3.5 h-3.5 text-emerald-400"></i>
-                  <span>原生終端 / Harness 輸出記錄 (Raw Terminal Output)</span>
-                </span>
-                <span class="text-[10px] text-slate-400 group-open:rotate-180 transition-transform">▼</span>
-              </summary>
-              <pre class="p-3 text-[11px] font-mono text-emerald-400/90 whitespace-pre-wrap overflow-x-auto leading-relaxed max-h-72 custom-scrollbar">${escapeHtml(cleanDump)}</pre>
-            </details>
+            <div class="pt-3 border-t border-slate-300 dark:border-slate-500">
+              <details class="group rounded-lg overflow-hidden bg-slate-950">
+                <summary class="px-3 py-2 bg-slate-900 text-slate-300 text-xs font-mono font-semibold flex items-center justify-between gap-2 cursor-pointer select-none hover:bg-slate-800 transition">
+                  <span class="flex items-center gap-1.5 min-w-0">
+                    <i data-lucide="terminal" class="w-3.5 h-3.5 text-emerald-400 flex-shrink-0"></i>
+                    <span class="truncate">原生終端 / Harness 輸出記錄 (Raw Terminal Output)</span>
+                  </span>
+                  <span class="text-[10px] text-slate-400 group-open:rotate-180 transition-transform flex-shrink-0">▼</span>
+                </summary>
+                <pre class="p-3 text-[11px] font-mono text-emerald-400/90 whitespace-pre-wrap overflow-x-auto leading-relaxed max-h-72 custom-scrollbar">${escapeHtml(cleanDump)}</pre>
+              </details>
+            </div>
           `;
         }
 
         reportEl.innerHTML = `
-          <div class="space-y-2.5">
+          <div class="pl-2 divide-y divide-slate-300 dark:divide-slate-500">
             ${sectionsHtml.join('')}
-            ${terminalCollapseHtml}
           </div>
+          ${terminalCollapseHtml}
         `;
       } else {
-        // 純文字 Terminal 輸出模式
+        // 純文字 Terminal 輸出模式 (取消區塊陰影與標題底線，保持簡潔)
         reportEl.innerHTML = `
-          <div class="border border-slate-200 dark:border-slate-800 rounded-xl p-3 bg-white dark:bg-slate-900 shadow-xs space-y-2">
-            <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5">
-              <span class="font-bold text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
-                <i data-lucide="terminal" class="w-3.5 h-3.5"></i> 執行記錄
+          <div class="pl-2 py-2 space-y-2 shadow-none">
+            <div class="flex items-center justify-between gap-2">
+              <span class="font-semibold text-xs text-amber-800 dark:text-amber-300 flex items-center gap-1.5 min-w-0">
+                <i data-lucide="terminal" class="w-3.5 h-3.5 flex-shrink-0"></i>
+                <span class="truncate">執行記錄</span>
               </span>
-              <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">終端記錄</span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 whitespace-nowrap flex-shrink-0">終端記錄</span>
             </div>
             <pre class="bg-slate-950 text-amber-200/90 p-3 rounded-lg font-mono text-xs whitespace-pre-wrap leading-relaxed max-h-72 overflow-y-auto custom-scrollbar">${escapeHtml(raw)}</pre>
           </div>
@@ -5591,9 +5843,8 @@ node "${gateScriptPath}"
       const map = {
         todo: '待處理',
         in_progress: '進行中',
-        review: '待驗證',
-        done: '已完成',
-        blocked: '阻礙'
+        review: '待驗收',
+        done: '已完成'
       };
       return map[s] || s;
     }
@@ -5606,7 +5857,7 @@ node "${gateScriptPath}"
       }
       const task = tasks.find(t => t.id === taskId);
       if (!task) return;
-      const statuses = ['todo', 'in_progress', 'review', 'done', 'blocked'];
+      const statuses = ['todo', 'in_progress', 'review', 'done'];
       const curIdx = statuses.indexOf(normalizeStatus(task.status));
       if (curIdx === -1) return;
 
@@ -5617,7 +5868,7 @@ node "${gateScriptPath}"
       } else if (event.key === 'ArrowLeft' && curIdx > 0) {
         event.preventDefault();
         targetStatus = statuses[curIdx - 1];
-      } else if (['1', '2', '3', '4', '5'].includes(event.key)) {
+      } else if (['1', '2', '3', '4'].includes(event.key)) {
         event.preventDefault();
         targetStatus = statuses[parseInt(event.key, 10) - 1];
       }
@@ -5676,7 +5927,7 @@ node "${gateScriptPath}"
           e.preventDefault();
           const statusSelect = document.getElementById('formStatus');
           if (statusSelect) {
-            const statuses = ['todo', 'in_progress', 'review', 'done', 'blocked'];
+            const statuses = ['todo', 'in_progress', 'review', 'done'];
             const curIdx = statuses.indexOf(statusSelect.value);
             const nextStatus = statuses[(curIdx + 1) % statuses.length];
             statusSelect.value = nextStatus;
@@ -5687,12 +5938,12 @@ node "${gateScriptPath}"
           return;
         }
 
-        // Alt+1~5: 直接切換為指定狀態
-        if (e.altKey && ['1', '2', '3', '4', '5'].includes(e.key)) {
+        // Alt+1~4: 直接切換為指定狀態
+        if (e.altKey && ['1', '2', '3', '4'].includes(e.key)) {
           e.preventDefault();
           const statusSelect = document.getElementById('formStatus');
           if (statusSelect) {
-            const statuses = ['todo', 'in_progress', 'review', 'done', 'blocked'];
+            const statuses = ['todo', 'in_progress', 'review', 'done'];
             const nextStatus = statuses[parseInt(e.key, 10) - 1];
             statusSelect.value = nextStatus;
             updateModalButtonState();
@@ -5756,9 +6007,9 @@ node "${gateScriptPath}"
         return;
       }
 
-      // 快速鍵 1~5 聚焦對應欄位卡片
-      if (['1', '2', '3', '4', '5'].includes(e.key) && !e.altKey && !e.ctrlKey && !e.metaKey) {
-        const statuses = ['todo', 'in_progress', 'review', 'done', 'blocked'];
+      // 快速鍵 1~4 聚焦對應欄位卡片
+      if (['1', '2', '3', '4'].includes(e.key) && !e.altKey && !e.ctrlKey && !e.metaKey) {
+        const statuses = ['todo', 'in_progress', 'review', 'done'];
         const targetCol = document.getElementById(`col-${statuses[parseInt(e.key, 10) - 1]}`);
         if (targetCol) {
           const firstCard = targetCol.querySelector('.kanban-card');
@@ -5771,7 +6022,7 @@ node "${gateScriptPath}"
     });
 
     function initSortable() {
-      const cols = ['todo', 'in_progress', 'review', 'done', 'blocked'];
+      const cols = ['todo', 'in_progress', 'review', 'done'];
       cols.forEach(st => {
         const el = document.getElementById(`col-${st}`);
         if (!el) return;

@@ -176,4 +176,120 @@ assert.strictEqual(projectElements.formProject.value, 'task-dashboard');
 assert.strictEqual(projectElements.formProjectInput.value, 'task-dashboard');
 console.log('  ✅ 專案名稱與 ID 去重、搜尋、選取及 HTML escaping 驗證通過');
 
+// 13. 驗證 頂部工作流階段導覽列 (Workflow Stage Bar)、移除阻礙欄位、單一主色+局部狀態色彩計劃與無框線色塊陰影系統
+assert(htmlContent.includes('id="stage-pill-review"'), '頂部工作流導覽列必須包含 stage-pill-review 階段膠囊');
+assert(!htmlContent.includes('id="stage-pill-blocked"'), '頂部工作流導覽列必須移除實務未使用的 stage-pill-blocked 阻礙膠囊');
+assert(!htmlContent.includes('id="col-wrapper-blocked"'), '看板必須移除實務未使用的 col-wrapper-blocked 阻礙欄位');
+assert(!htmlContent.includes('<option value="blocked">'), '狀態下拉選單必須移除 blocked 阻礙選項');
+assert(htmlContent.includes('--td-primary:'), '必須定義單一主色 CSS 變數 (--td-primary) 實踐 60-30-10 單一主色+局部狀態色彩計劃');
+assert(htmlContent.includes('--td-status-review:'), '必須定義局部狀態語意色 CSS 變數 (--td-status-review) 取代螢光紫');
+assert(htmlContent.includes('td-surface-well') && htmlContent.includes('td-surface-card'), '必須以無框線色塊明度階梯 + 雙層立體陰影 (.td-surface-well / .td-surface-card) 取代結構框線並適配低顯色外接螢幕');
+assert(htmlContent.includes('流程：'), '頂部工作流導覽列必須包含首次使用者操作流程提示');
+assert(htmlContent.includes('emptyStateHints'), 'renderKanban 必須提供各階段情境式空狀態操作引導 (emptyStateHints)');
+assert(htmlContent.includes('t.modifiedFiles.length} 檔案 · '), '待驗收卡片必須顯示異動檔案數量摘要，協助 Reviewer 快速評估審核規模');
+
+const stageMockElements = {};
+['ALL', 'todo', 'in_progress', 'review', 'done'].forEach(st => {
+  const pillClasses = new Set();
+  stageMockElements[`stage-pill-${st}`] = {
+    classList: {
+      toggle: (cls, force) => { if (force) pillClasses.add(cls); else pillClasses.delete(cls); },
+      contains: cls => pillClasses.has(cls)
+    }
+  };
+  if (st !== 'ALL') {
+    const colClasses = new Set();
+    stageMockElements[`col-wrapper-${st}`] = {
+      classList: {
+        toggle: (cls, force) => { if (force) colClasses.add(cls); else colClasses.delete(cls); },
+        contains: cls => colClasses.has(cls)
+      }
+    };
+  }
+});
+let kanbanReRendered = 0;
+const stageFilterContext = vm.createContext({
+  document: { getElementById: id => stageMockElements[id] },
+  window: {},
+  renderKanban: () => { kanbanReRendered++; }
+});
+vm.runInContext(actualFunction('filterByStage'), stageFilterContext);
+stageFilterContext.filterByStage('review');
+assert.strictEqual(stageFilterContext.window.currentStageFilter, 'review', '點擊 review 階段膠囊應切換過濾狀態至 review');
+assert(!stageMockElements['col-wrapper-review'].classList.contains('hidden'), '過濾 review 時 col-wrapper-review 應保持顯示');
+assert(stageMockElements['col-wrapper-todo'].classList.contains('hidden'), '過濾 review 時非目標欄位 col-wrapper-todo 應隱藏');
+stageFilterContext.filterByStage('review');
+assert.strictEqual(stageFilterContext.window.currentStageFilter, 'ALL', '再次點擊相同階段膠囊應重置為 ALL 顯示全部欄位');
+assert(!stageMockElements['col-wrapper-todo'].classList.contains('hidden'), '重置為 ALL 後所有欄位應恢復顯示');
+console.log('  ✅ 頂部工作流階段導覽列、移除阻礙欄位與無框線色塊陰影系統驗證通過');
+
+// 14. 驗證 任務彈窗 IA 階段感知工作區分頁 (Stage-Aware Workspace Tabs)
+assert(htmlContent.includes('id="modalLeftWorkspaceTabs"'), '彈窗左側必須包含 modalLeftWorkspaceTabs 階段感知分頁切換器');
+assert(htmlContent.includes('id="modalReviewPane"'), '彈窗左側必須包含 modalReviewPane 審核與執行成果面板');
+assert(htmlContent.includes('id="modalSpecPane"'), '彈窗左側必須包含 modalSpecPane 需求規格與屬性面板');
+assert(htmlContent.includes('id="modalReviewContextSummary"'), '審核面板必須包含 modalReviewContextSummary 漸進式揭露需求摘要橫幅');
+
+const makeClassMock = () => {
+  const set = new Set();
+  return {
+    classList: {
+      toggle: (cls, force) => { if (force) set.add(cls); else set.delete(cls); },
+      contains: cls => set.has(cls)
+    }
+  };
+};
+const tabElements = {
+  modalReviewPane: makeClassMock(),
+  modalSpecPane: makeClassMock(),
+  modalReviewContextSummary: makeClassMock(),
+  btnModalTabReview: makeClassMock(),
+  btnModalTabSpec: makeClassMock()
+};
+const tabContext = vm.createContext({
+  document: { getElementById: id => tabElements[id] },
+  currentModalEditingTask: { id: 'TASK-119', status: 'review' },
+  setTimeout: fn => fn(),
+  autoResizeTextarea: () => {}
+});
+vm.runInContext(actualFunction('switchModalWorkspaceTab'), tabContext);
+assert(htmlContent.includes('dark:bg-slate-950') && htmlContent.includes('dark:border-slate-700'), 'modalLeftWorkspaceTabs 必須在 Dark Mode 具備高對比深色凹槽背景與外框線');
+tabContext.switchModalWorkspaceTab('review');
+assert(!tabElements.modalReviewPane.classList.contains('hidden'), '切換至 review 分頁時 modalReviewPane 必須顯示');
+assert(tabElements.modalSpecPane.classList.contains('hidden'), '切換至 review 分頁時 modalSpecPane 必須隱藏以消除屬性欄位噪音');
+assert(!tabElements.modalReviewContextSummary.classList.contains('hidden'), '切換至 review 分頁時應顯示需求上下文精簡摘要');
+assert(tabElements.btnModalTabReview.classList.contains('dark:bg-slate-800'), '作用中 review 分頁在 Dark Mode 必須具備高亮浮起背景 (dark:bg-slate-800)');
+assert(tabElements.btnModalTabReview.classList.contains('dark:border-slate-600'), '作用中 review 分頁在 Dark Mode 必須具備清晰外框線 (dark:border-slate-600)');
+assert(!tabElements.btnModalTabSpec.classList.contains('dark:bg-slate-800'), '未作用之 spec 分頁在 Dark Mode 不可包含高亮浮起背景');
+
+tabContext.switchModalWorkspaceTab('spec');
+assert(!tabElements.modalSpecPane.classList.contains('hidden'), '切換至 spec 分頁時 modalSpecPane 必須顯示');
+assert(tabElements.modalReviewPane.classList.contains('hidden'), '切換至 spec 分頁時 modalReviewPane 必須隱藏');
+assert(tabElements.btnModalTabSpec.classList.contains('dark:bg-slate-800'), '作用中 spec 分頁在 Dark Mode 必須具備高亮浮起背景 (dark:bg-slate-800)');
+assert(tabElements.btnModalTabSpec.classList.contains('dark:border-slate-600'), '作用中 spec 分頁在 Dark Mode 必須具備清晰外框線 (dark:border-slate-600)');
+assert(!tabElements.btnModalTabReview.classList.contains('dark:bg-slate-800'), '未作用之 review 分頁在 Dark Mode 不可包含高亮浮起背景');
+console.log('  ✅ 任務彈窗 IA 階段感知工作區分頁切換與 Dark Mode 高對比外觀驗證通過');
+
+// 15. 驗證 結構化執行報告 (renderExecutionReport) 統一圓角淺灰底、明確主次標題層級、清晰分隔線與狀態標籤不換行
+assert(htmlContent.includes('id="formLogBox" class="hidden td-surface-panel rounded-xl p-3.5'), '任務執行與驗證報告 (#formLogBox) 必須與上方審查意見及任務規格統一樣式為圓角淺灰底 (td-surface-panel rounded-xl)');
+const reportContainer = { innerHTML: '' };
+const reportContext = vm.createContext({
+  document: { getElementById: id => (id === 'formReportVisual' ? reportContainer : null) },
+  window: {},
+  escapeHtml: value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+});
+vm.runInContext(['escapeHtml', 'renderExecutionReport'].map(actualFunction).join('\n'), reportContext);
+reportContext.renderExecutionReport({
+  id: 'TASK-119',
+  status: 'review',
+  executionLog: '# 📋 任務執行報告 (Task Execution Report)\n\n## 1. 任務目標\n- 優化 `src/public/index.html` 資訊架構與 **極簡視覺**\n\n## 3. 驗證結果\n- 執行 `npm test` 全部通過'
+});
+assert(reportContainer.innerHTML.includes('<code class="px-1.5 py-0.5 rounded'), 'renderExecutionReport 必須將反引號語法渲染為行內 code 膠囊標籤');
+assert(reportContainer.innerHTML.includes('leading-[1.7]'), 'renderExecutionReport 必須套用舒適閱讀行高 leading-[1.7]');
+assert(reportContainer.innerHTML.includes('驗證通過'), 'renderExecutionReport 必須正確識別並渲染驗證通過狀態徽章');
+assert(reportContainer.innerHTML.includes('pl-2 divide-y divide-slate-300') && reportContainer.innerHTML.includes('dark:divide-slate-500'), 'renderExecutionReport 必須使用左縮排 (pl-2) 與大項目清晰分隔線 (divide-slate-300 / dark:divide-slate-500) 建立主次層級');
+assert(!reportContainer.innerHTML.includes('border-b border-slate-'), 'renderExecutionReport 內部標題不得包含多餘底線分隔線，僅保留大項目間分隔');
+assert(reportContainer.innerHTML.includes('whitespace-nowrap flex-shrink-0'), '狀態標籤與徽章必須包含 whitespace-nowrap flex-shrink-0 防止文字排版換行');
+assert(reportContainer.innerHTML.includes('shadow-none') && !reportContainer.innerHTML.includes('td-surface-card'), 'renderExecutionReport 內部段落必須取消區塊陰影與浮起卡片樣式，改以分隔線呈現');
+console.log('  ✅ 結構化執行報告統一圓角淺灰底、主次層級縮排、清晰分隔線與標籤防換行驗證通過');
+
 console.log('🎉 所有前端核心互動邏輯與防禦機制測試通過！\n');
