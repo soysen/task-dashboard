@@ -188,23 +188,24 @@ assert(htmlContent.includes('流程：'), '頂部工作流導覽列必須包含�
 assert(htmlContent.includes('emptyStateHints'), 'renderKanban 必須提供各階段情境式空狀態操作引導 (emptyStateHints)');
 assert(htmlContent.includes('t.modifiedFiles.length} 檔案 · '), '待驗收卡片必須顯示異動檔案數量摘要，協助 Reviewer 快速評估審核規模');
 
+const makeClassMock = () => {
+  const set = new Set();
+  const attrs = new Map();
+  return {
+    classList: {
+      toggle: (cls, force) => { if (force) set.add(cls); else set.delete(cls); },
+      contains: cls => set.has(cls)
+    },
+    setAttribute: (name, val) => attrs.set(name, String(val)),
+    getAttribute: (name) => attrs.get(name)
+  };
+};
+
 const stageMockElements = {};
 ['ALL', 'todo', 'in_progress', 'review', 'done'].forEach(st => {
-  const pillClasses = new Set();
-  stageMockElements[`stage-pill-${st}`] = {
-    classList: {
-      toggle: (cls, force) => { if (force) pillClasses.add(cls); else pillClasses.delete(cls); },
-      contains: cls => pillClasses.has(cls)
-    }
-  };
+  stageMockElements[`stage-pill-${st}`] = makeClassMock();
   if (st !== 'ALL') {
-    const colClasses = new Set();
-    stageMockElements[`col-wrapper-${st}`] = {
-      classList: {
-        toggle: (cls, force) => { if (force) colClasses.add(cls); else colClasses.delete(cls); },
-        contains: cls => colClasses.has(cls)
-      }
-    };
+    stageMockElements[`col-wrapper-${st}`] = makeClassMock();
   }
 });
 let kanbanReRendered = 0;
@@ -216,10 +217,13 @@ const stageFilterContext = vm.createContext({
 vm.runInContext(actualFunction('filterByStage'), stageFilterContext);
 stageFilterContext.filterByStage('review');
 assert.strictEqual(stageFilterContext.window.currentStageFilter, 'review', '點擊 review 階段膠囊應切換過濾狀態至 review');
+assert.strictEqual(stageMockElements['stage-pill-review'].getAttribute('aria-pressed'), 'true', '過濾 review 時 stage-pill-review 之 aria-pressed 應為 true');
 assert(!stageMockElements['col-wrapper-review'].classList.contains('hidden'), '過濾 review 時 col-wrapper-review 應保持顯示');
 assert(stageMockElements['col-wrapper-todo'].classList.contains('hidden'), '過濾 review 時非目標欄位 col-wrapper-todo 應隱藏');
 stageFilterContext.filterByStage('review');
 assert.strictEqual(stageFilterContext.window.currentStageFilter, 'ALL', '再次點擊相同階段膠囊應重置為 ALL 顯示全部欄位');
+assert.strictEqual(stageMockElements['stage-pill-ALL'].getAttribute('aria-pressed'), 'true', '重置為 ALL 後 stage-pill-ALL 之 aria-pressed 應為 true');
+assert.strictEqual(stageMockElements['stage-pill-review'].getAttribute('aria-pressed'), 'false', '重置為 ALL 後 stage-pill-review 之 aria-pressed 應為 false');
 assert(!stageMockElements['col-wrapper-todo'].classList.contains('hidden'), '重置為 ALL 後所有欄位應恢復顯示');
 console.log('  ✅ 頂部工作流階段導覽列、移除阻礙欄位與無框線色塊陰影系統驗證通過');
 
@@ -229,15 +233,6 @@ assert(htmlContent.includes('id="modalReviewPane"'), '彈窗左側必須包含 m
 assert(htmlContent.includes('id="modalSpecPane"'), '彈窗左側必須包含 modalSpecPane 需求規格與屬性面板');
 assert(htmlContent.includes('id="modalReviewContextSummary"'), '審核面板必須包含 modalReviewContextSummary 漸進式揭露需求摘要橫幅');
 
-const makeClassMock = () => {
-  const set = new Set();
-  return {
-    classList: {
-      toggle: (cls, force) => { if (force) set.add(cls); else set.delete(cls); },
-      contains: cls => set.has(cls)
-    }
-  };
-};
 const tabElements = {
   modalReviewPane: makeClassMock(),
   modalSpecPane: makeClassMock(),
@@ -267,7 +262,9 @@ assert(tabElements.modalReviewPane.classList.contains('hidden'), '切換至 spec
 assert(tabElements.btnModalTabSpec.classList.contains('dark:bg-slate-800'), '作用中 spec 分頁在 Dark Mode 必須具備高亮浮起背景 (dark:bg-slate-800)');
 assert(tabElements.btnModalTabSpec.classList.contains('dark:border-slate-600'), '作用中 spec 分頁在 Dark Mode 必須具備清晰外框線 (dark:border-slate-600)');
 assert(!tabElements.btnModalTabReview.classList.contains('dark:bg-slate-800'), '未作用之 review 分頁在 Dark Mode 不可包含高亮浮起背景');
-console.log('  ✅ 任務彈窗 IA 階段感知工作區分頁切換與 Dark Mode 高對比外觀驗證通過');
+assert.strictEqual(tabElements.btnModalTabSpec.getAttribute('aria-selected'), 'true', '切換至 spec 時 btnModalTabSpec 之 aria-selected 必須為 true');
+assert.strictEqual(tabElements.btnModalTabReview.getAttribute('aria-selected'), 'false', '切換至 spec 時 btnModalTabReview 之 aria-selected 必須為 false');
+console.log('  ✅ 任務彈窗 IA 階段感知工作區分頁切換、Dark Mode 高對比外觀與 ARIA 屬性驗證通過');
 
 // 15. 驗證 結構化執行報告 (renderExecutionReport) 統一圓角淺灰底、明確主次標題層級、清晰分隔線與狀態標籤不換行
 assert(htmlContent.includes('id="formLogBox" class="hidden td-surface-panel rounded-xl p-3.5'), '任務執行與驗證報告 (#formLogBox) 必須與上方審查意見及任務規格統一樣式為圓角淺灰底 (td-surface-panel rounded-xl)');
@@ -290,18 +287,74 @@ assert(reportContainer.innerHTML.includes('pl-2 divide-y divide-slate-300') && r
 assert(!reportContainer.innerHTML.includes('border-b border-slate-'), 'renderExecutionReport 內部標題不得包含多餘底線分隔線，僅保留大項目間分隔');
 assert(reportContainer.innerHTML.includes('whitespace-nowrap flex-shrink-0'), '狀態標籤與徽章必須包含 whitespace-nowrap flex-shrink-0 防止文字排版換行');
 assert(reportContainer.innerHTML.includes('shadow-none') && !reportContainer.innerHTML.includes('td-surface-card'), 'renderExecutionReport 內部段落必須取消區塊陰影與浮起卡片樣式，改以分隔線呈現');
-// 16. 驗證 TASK-120 UI/UX 優化：表單加回框線、取消內側陰影、focus 改為 borderline、無任務卡牌不需底色、待處理任務隱藏工作區分頁、流程說明移至 Header 巡檢位置、開工引擎整合巡檢標示、移除表單 outlined 樣式
+// 16. 驗證 TASK-120 / TASK-121 UI/UX 優化：表單加回框線、取消內側陰影、無任務卡牌不需底色、流程說明步驟底色框線與線條連結、彈窗留白與間距校準
 assert(htmlContent.includes('id="formTitle"') && htmlContent.includes('border border-slate-300 dark:border-slate-700'), '表單欄位必須加回框線 (border border-slate-300 dark:border-slate-700)');
 assert(!htmlContent.includes('id="formTitle" required placeholder="請輸入簡潔明確的任務名稱..." class="w-full h-9 bg-slate-100 dark:bg-slate-800 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-100 shadow-inner'), '表單標題不得再包含 shadow-inner 內側陰影');
-assert(htmlContent.includes('focus:border-sky-500') && htmlContent.includes('focus:border-amber-500'), '表單欄位 focus 必須改為 borderline (focus:border-*) 避免左側 outline/ring 被裁切');
 assert(!htmlContent.includes('td-surface-panel rounded-lg space-y-1"><div class="font-medium text-slate-600 dark:text-slate-300">無任務卡片'), '無任務卡牌不得套用底色 (td-surface-panel)');
-assert(htmlContent.includes('const isTodo = task.status === \'todo\';'), 'openTaskModal 必須判定 task.status === todo');
 assert(htmlContent.includes('id="modalLeftColumn" class="flex-1 overflow-y-auto pl-1 pr-2'), 'modalLeftColumn 必須增加 pl-1 避免左側內容過於貼齊');
 assert(htmlContent.includes('id="modalLeftWorkspaceTabs"') && htmlContent.includes('!mt-0'), 'modalLeftWorkspaceTabs 必須包含 !mt-0 移除上方多餘間距');
 assert(htmlContent.includes('id="headerWorkflowHint"') && htmlContent.includes('border-sky-300') && htmlContent.includes('border-amber-300') && htmlContent.includes('border-emerald-300'), '流程說明各步驟必須具備獨立底色與框線');
 assert(!htmlContent.includes('id="headerWorkflowHint"') || !htmlContent.split('id="headerWorkflowHint"')[1].split('</div>')[0].includes('→'), '流程說明各步驟間必須以線條連結取代箭頭 (→)');
-assert(htmlContent.includes('id="headerEngineDot"') && htmlContent.includes('id="headerEngineStatusText"'), '開工引擎按鈕必須整合即時巡檢指示燈與狀態文字');
-assert(htmlContent.includes('input:not([type="checkbox"]):not([type="radio"]),') && htmlContent.includes('outline: none !important;'), '表單輸入控制項必須在 CSS 徹底排除與移除 outlined 樣式');
-console.log('  ✅ 表單加回框線與 borderline focus、去底色無任務卡牌、流程說明步驟底色框線與線條連結、開工引擎標示遷移、表單徹底移除 outlined 樣式驗證通過');
+
+// 17. 驗證 TASK-121 UI 回歸防禦與無障礙強化 (內縮 outline、開工引擎模式與離線狀態、退回任務審核可見性純函式、狀態常數)
+assert(htmlContent.includes('outline-offset: -2px !important;') && htmlContent.includes('--td-focus'), '表單文字控制項必須套用內縮 outline (outline-offset: -2px) 避免被捲動容器裁切');
+assert(htmlContent.includes('id="headerEngineModeText"') && htmlContent.includes('id="headerEngineOfflineBadge"'), '開工引擎必須包含模式標示 (headerEngineModeText) 與離線警示徽章 (headerEngineOfflineBadge)');
+assert(!htmlContent.includes('巡檢中') && !htmlContent.includes('headerEngineDot'), '開工引擎不得再包含不實巡檢中字樣或脈動燈號');
+assert(htmlContent.includes('function shouldShowReviewWorkspace(task)'), '必須抽離 shouldShowReviewWorkspace 純函式判定審核工作區可見性');
+assert(htmlContent.includes('const showReviewWorkspace = shouldShowReviewWorkspace(task);'), 'openModalForEdit 必須呼叫 shouldShowReviewWorkspace');
+assert(htmlContent.includes('const KANBAN_STATUSES = Object.freeze'), '必須定義不可變之狀態常數 KANBAN_STATUSES');
+assert(htmlContent.includes('prefers-reduced-motion: reduce'), '必須支援 prefers-reduced-motion 減少動態偏好');
+
+// 17-1 行為測試：shouldShowReviewWorkspace 純函式驗證
+const reviewVisibilityContext = vm.createContext({});
+vm.runInContext(actualFunction('shouldShowReviewWorkspace'), reviewVisibilityContext);
+const shouldShow = reviewVisibilityContext.shouldShowReviewWorkspace;
+assert.strictEqual(shouldShow(null), false, '空任務不可顯示審核分頁');
+assert.strictEqual(shouldShow({ status: 'todo' }), false, '全新 todo 任務不得顯示審核分頁');
+assert.strictEqual(shouldShow({ status: 'todo', title: '全新任務' }), false, '無執行紀錄之 todo 任務不得顯示審核分頁');
+assert.strictEqual(shouldShow({ status: 'todo', executionLog: '❌ CLI Agent 執行失敗，無有效變更產出。' }), true, '包含失敗日誌之退回 todo 任務必須顯示審核分頁');
+assert.strictEqual(shouldShow({ status: 'todo', feedback: '請調整實作切片' }), true, '包含審查意見之退回 todo 任務必須顯示審核分頁');
+assert.strictEqual(shouldShow({ status: 'todo', executionPlan: '1. 規劃步驟' }), true, '包含執行計劃之 todo 任務必須顯示審核分頁');
+assert.strictEqual(shouldShow({ status: 'review' }), true, 'review 任務必須顯示審核分頁');
+assert.strictEqual(shouldShow({ status: 'in_progress' }), true, 'in_progress 任務必須顯示審核分頁');
+assert.strictEqual(shouldShow({ status: 'done' }), true, 'done 任務必須顯示審核分頁');
+
+// 17-2 行為測試：renderCliAgentBadge 模式文字與離線偵測驗證
+const engineModeTextEl = { innerText: '' };
+const engineOfflineBadgeEl = makeClassMock();
+const engineBtnEl = { title: '' };
+const badgeContext = vm.createContext({
+  settings: { enableCliAgent: false, cliCommand: 'hermes' },
+  apiFailStreak: 0,
+  document: {
+    getElementById: id => {
+      if (id === 'headerEngineModeText') return engineModeTextEl;
+      if (id === 'headerEngineOfflineBadge') return engineOfflineBadgeEl;
+      if (id === 'headerEngineBtn') return engineBtnEl;
+      return null;
+    }
+  }
+});
+vm.runInContext(actualFunction('renderCliAgentBadge'), badgeContext);
+
+// 模式 1: Desktop AI 正常待命
+badgeContext.renderCliAgentBadge();
+assert.strictEqual(engineModeTextEl.innerText, 'Desktop AI', 'Desktop AI 模式下應顯示 Desktop AI');
+assert(engineOfflineBadgeEl.classList.contains('hidden'), '正常連線下離線徽章應隱藏');
+
+// 模式 2: CLI Agent 正常啟用
+badgeContext.settings.enableCliAgent = true;
+badgeContext.renderCliAgentBadge();
+assert.strictEqual(engineModeTextEl.innerText, 'CLI', 'CLI 模式下應顯示 CLI');
+assert(engineOfflineBadgeEl.classList.contains('hidden'), '正常連線下離線徽章應隱藏');
+
+// 模式 3: 離線警示 (連續失敗 2 次以上)
+badgeContext.apiFailStreak = 2;
+badgeContext.renderCliAgentBadge();
+assert(!engineOfflineBadgeEl.classList.contains('hidden'), '連續失敗 2 次以上離線徽章必須顯示');
+assert(engineBtnEl.title.includes('無回應'), '離線狀態下開工引擎按鈕 title 必須提示無回應警示');
+
+console.log('  ✅ 表單加回框線、去底色無任務卡牌、流程說明步驟底色框線與線條連結驗證通過');
+console.log('  ✅ TASK-121 內縮 outline、開工引擎模式與離線偵測、退回任務審核可見性純函式與 ARIA 行為測試通過');
 
 console.log('🎉 所有前端核心互動邏輯與防禦機制測試通過！\n');
