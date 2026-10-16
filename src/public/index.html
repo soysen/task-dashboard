@@ -2195,7 +2195,7 @@ node "${gateScriptPath}"
             <div class="flex items-center gap-2 truncate">
               <span class="w-2 h-2 rounded-full ${colorClass} flex-shrink-0"></span>
               <span class="font-medium truncate">${escapeHtml(p.name)}</span>
-              <span class="text-[10px] text-slate-400 font-mono">(${escapeHtml(p.id)})</span>
+              ${p.name !== p.id ? `<span class="text-[10px] text-slate-400 font-mono">(${escapeHtml(p.id)})</span>` : ''}
             </div>
             ${isSelected ? '<i data-lucide="check" class="w-3.5 h-3.5 text-indigo-500"></i>' : ''}
           </div>

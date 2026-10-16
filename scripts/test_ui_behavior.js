@@ -7,6 +7,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const vm = require('node:vm');
 
 console.log('🧪 執行前端核心互動邏輯與狀態防線測試...');
 
@@ -110,5 +111,69 @@ assert(htmlContent.includes('id="grillMeBanner"'), '任務彈窗必須具備 gri
 assert(htmlContent.includes('insertGrillMeDecision'), '必須具備 insertGrillMeDecision 快捷決策標籤函式');
 assert(htmlContent.includes('Grill-Me 邊界確認替代介面'), '任務彈窗必須展示 Grill-Me 替代介面標題');
 console.log('  ✅ Grill-Me 專案卡牌邊界待確認與彈窗替代處理機制驗證通過');
+
+const functionMatches = [...htmlContent.matchAll(/^    (?:async )?function (\w+)\(/gm)];
+function actualFunction(name) {
+  const index = functionMatches.findIndex(match => match[1] === name);
+  assert(index !== -1, `Missing actual function ${name}`);
+  return htmlContent.slice(functionMatches[index].index, functionMatches[index + 1].index);
+}
+
+const projectElements = {
+  formProject: { value: 'task-dashboard' },
+  formProjectInput: { value: '' },
+  formProjectDropdownList: { innerHTML: '' }
+};
+const projectContext = vm.createContext({
+  projects: [
+    { id: 'task-dashboard', name: 'task-dashboard', description: 'local dashboard' },
+    { id: 'custom-id', name: 'Custom Project', description: 'distinct description' },
+    { id: 'escaped-id', name: '<Custom & Project>', description: '' }
+  ],
+  document: { getElementById: id => projectElements[id] },
+  window: {},
+  currentModalEditingTask: null,
+  updateProjectClearButtonVisibility() {},
+  hideProjectAutocomplete() {},
+  initSelect2Dropdown() {},
+  renderSelect2Chips() {},
+  updateDependencyOptions() {},
+  updateConfirmationGateForProject() {}
+});
+vm.runInContext(['escapeHtml', 'renderProjectAutocompleteList', 'setFormProject']
+  .map(actualFunction).join('\n'), projectContext);
+
+projectContext.renderProjectAutocompleteList('task-dashboard');
+let projectMarkup = projectElements.formProjectDropdownList.innerHTML;
+assert(projectMarkup.includes('>task-dashboard</span>'), 'Same name/ID must display project name');
+assert(!projectMarkup.includes('(task-dashboard)'), 'Same name/ID must not repeat ID');
+assert(projectMarkup.includes('data-lucide="check"'), 'Selected project must retain checkmark');
+
+for (const query of ['custom project', 'custom-id', 'distinct description']) {
+  projectContext.renderProjectAutocompleteList(query);
+  projectMarkup = projectElements.formProjectDropdownList.innerHTML;
+  assert(projectMarkup.includes('>Custom Project</span>'), `${query}: project must remain searchable`);
+  assert(projectMarkup.includes('(custom-id)'), `${query}: distinct ID must remain visible`);
+  assert(!projectMarkup.includes('>task-dashboard</span>'), `${query}: unrelated projects must be filtered`);
+}
+projectContext.renderProjectAutocompleteList('escaped-id');
+assert(projectElements.formProjectDropdownList.innerHTML.includes('&lt;Custom &amp; Project&gt;'),
+  'Project names must remain HTML-escaped');
+projectContext.renderProjectAutocompleteList('no matching project');
+assert(projectElements.formProjectDropdownList.innerHTML.includes('無符合的專案'),
+  'Empty search results must retain existing message');
+projectContext.renderProjectAutocompleteList();
+assert(projectElements.formProjectDropdownList.innerHTML.includes('>task-dashboard</span>'),
+  'Empty query must show all projects');
+assert(projectElements.formProjectDropdownList.innerHTML.includes('(custom-id)'),
+  'Empty query must preserve distinct IDs');
+
+projectContext.setFormProject('custom-id');
+assert.strictEqual(projectElements.formProject.value, 'custom-id', 'Selection must store ID, not display name');
+assert.strictEqual(projectElements.formProjectInput.value, 'Custom Project', 'Selected input must display name');
+projectContext.setFormProject('task-dashboard');
+assert.strictEqual(projectElements.formProject.value, 'task-dashboard');
+assert.strictEqual(projectElements.formProjectInput.value, 'task-dashboard');
+console.log('  ✅ 專案名稱與 ID 去重、搜尋、選取及 HTML escaping 驗證通過');
 
 console.log('🎉 所有前端核心互動邏輯與防禦機制測試通過！\n');

@@ -2,21 +2,21 @@
 
 ## Active Task
 
-- ID: TASK-112
-- Title: retro
+- ID: TASK-001
+- Title: 測試 in_progress 巡檢
 - Status: 已完成
-- Last updated: 2026-10-13
-- Goal: 根據本次改版進行 retro
+- Last updated: 2026-10-16
+- Goal: 測試 in_progress 巡檢
 - Route: dashboard-state-and-sync
-- Scope: retro
+- Scope: 測試 in_progress 巡檢
 - Out of scope: 跨專案副作用
 
 ## Last Completed Task
 
-- ID: TASK-112
-- Title: retro
+- ID: TASK-117
+- Title: 所屬專案欄位優化
 - Status: 已完成
-- Last updated: 2026-10-13
+- Last updated: 2026-10-16
 
 ## Execution Tracking
 
