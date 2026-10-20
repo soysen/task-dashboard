@@ -427,4 +427,86 @@ console.log('  ✅ 表單加回框線、去底色無任務卡牌、流程說明�
 console.log('  ✅ TASK-121 內縮 outline、開工引擎模式與離線偵測、退回任務審核可見性純函式與 ARIA 行為測試通過');
 console.log('  ✅ TASK-006 切片進度純函式計算與輪詢防抖測試通過');
 
-console.log('🎉 所有前端核心互動邏輯與防禦機制測試通過！\n');
+// 18. 驗證 TASK-126 打開 App 時 UI 字級大小依設定自動套用與持久化同步
+assert(allUiContent.includes("const effectiveFontSize = newSettings.fontSize || localStorage.getItem('fontSize') || 'small';"), 'loadData 必須在取得 settings 後計算 effectiveFontSize');
+assert(allUiContent.includes('applyFontSize(effectiveFontSize);'), 'loadData 必須在讀取設定後立即呼叫 applyFontSize 套用字級');
+
+const fontSizeBtns = {
+  fontSizeBtnSmall: { className: '' },
+  fontSizeBtnMedium: { className: '' },
+  fontSizeBtnLarge: { className: '' }
+};
+const mockStorage = new Map();
+const mockLocalStorage = {
+  getItem: key => (mockStorage.has(key) ? mockStorage.get(key) : null),
+  setItem: (key, val) => mockStorage.set(key, String(val)),
+  clear: () => mockStorage.clear()
+};
+const mockHtmlElement = { style: { fontSize: '' } };
+let persistedSettingsPayload = null;
+const fontSizeContext = vm.createContext({
+  settings: { enableCliAgent: false, cliCommand: 'agy', autoTriggerOnInProgress: true, dataDirectoryPath: '', fontSize: 'small' },
+  projects: [],
+  tasks: [],
+  apiFailStreak: 0,
+  currentModalEditingTask: null,
+  localStorage: mockLocalStorage,
+  document: {
+    documentElement: mockHtmlElement,
+    getElementById: id => fontSizeBtns[id] || null
+  },
+  setProjects: val => { fontSizeContext.projects = val; },
+  setTasks: val => { fontSizeContext.tasks = val; },
+  setSettings: val => { fontSizeContext.settings = val; },
+  setProjectGitStatus: () => {},
+  renderCliAgentBadge: () => {},
+  updateAiPromptDisplay: () => {},
+  openFirstLaunchModal: () => {},
+  renderProjectSelector: () => {},
+  renderSidebarProjects: () => {},
+  renderProjectBanner: () => {},
+  renderKanban: () => {},
+  renderMetrics: () => {},
+  updateDependencyOptions: () => {},
+  showToast: () => {},
+  fetch: async (url, opts) => {
+    if (opts && opts.method === 'POST' && url === '/api/settings') {
+      persistedSettingsPayload = JSON.parse(opts.body);
+      return { ok: true, json: async () => persistedSettingsPayload };
+    }
+    if (String(url).startsWith('/api/settings')) {
+      return { ok: true, json: async () => ({ enableCliAgent: false, fontSize: 'medium', initialized: true }) };
+    }
+    return { ok: true, json: async () => [] };
+  }
+});
+
+vm.runInContext(
+  ['updateFontSizeButtons', 'applyFontSize', 'initFontSize', 'setAppFontSize', 'loadData'].map(actualFunction).join('\n'),
+  fontSizeContext
+);
+
+// 模擬 macOS WKWebView 啟動：nonPersistentDataStore 下 localStorage 為空
+fontSizeContext.initFontSize();
+assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端設定且 localStorage 為空時預設為 16px');
+
+// 執行 loadData 讀取 /api/settings (fontSize: "medium")，應自動套用 18px 並同步按鈕與 localStorage
+(async () => {
+  await fontSizeContext.loadData();
+  assert.strictEqual(mockHtmlElement.style.fontSize, '18px', 'loadData 讀取 settings.fontSize=medium 後必須立即將 html.style.fontSize 設為 18px');
+  assert.strictEqual(mockLocalStorage.getItem('fontSize'), 'medium', 'loadData 必須將 settings.fontSize 同步寫入 localStorage');
+  assert(fontSizeBtns.fontSizeBtnMedium.className.includes('border-indigo-600'), '中字級按鈕必須呈現選取高亮狀態');
+  assert(!fontSizeBtns.fontSizeBtnSmall.className.includes('border-indigo-600'), '小字級按鈕不應殘留選取狀態');
+
+  // 驗證切換字級時立即更新 DOM、settings 與後端持久化
+  fontSizeContext.setAppFontSize('large');
+  assert.strictEqual(mockHtmlElement.style.fontSize, '20px', '切換為大字級時應立即套用 20px');
+  assert.strictEqual(fontSizeContext.settings.fontSize, 'large', 'setAppFontSize 必須同步更新記憶體內 settings.fontSize');
+  assert.deepStrictEqual(persistedSettingsPayload, { fontSize: 'large' }, 'setAppFontSize 必須發送 POST /api/settings 持久化字級設定');
+  assert(fontSizeBtns.fontSizeBtnLarge.className.includes('border-indigo-600'), '大字級按鈕必須呈現選取高亮狀態');
+  console.log('  ✅ TASK-126 啟動時讀取設定自動套用字級大小與持久化同步測試通過');
+  console.log('🎉 所有前端核心互動邏輯與防禦機制測試通過！\n');
+})().catch(err => {
+  console.error(err);
+  process.exit(1);
+});

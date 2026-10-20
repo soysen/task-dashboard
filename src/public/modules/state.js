@@ -1,6 +1,6 @@
 export let projects = [];
 export let tasks = [];
-export let settings = { enableCliAgent: false, cliCommand: "agy", autoTriggerOnInProgress: true, dataDirectoryPath: "" };
+export let settings = { enableCliAgent: false, cliCommand: "agy", autoTriggerOnInProgress: true, dataDirectoryPath: "", fontSize: "small" };
 export let projectGitStatus = {};
 export let currentProject = "ALL";
 export let currentActiveTaskDiff = "";

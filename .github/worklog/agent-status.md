@@ -5,7 +5,7 @@
 - ID: TASK-001
 - Title: 測試 in_progress 巡檢
 - Status: 已完成
-- Last updated: 2026-10-16
+- Last updated: 2026-10-20
 - Goal: 測試 in_progress 巡檢
 - Route: dashboard-state-and-sync
 - Scope: 測試 in_progress 巡檢
@@ -13,10 +13,10 @@
 
 ## Last Completed Task
 
-- ID: TASK-006
-- Title: test(slices): 4-Slice 即時進度更新與看板輪詢驗證
+- ID: TASK-126
+- Title: 打開 app 時 UI 字級大小未照設定顯示
 - Status: 已完成
-- Last updated: 2026-10-16
+- Last updated: 2026-10-20
 
 ## Execution Tracking
 
@@ -37,4 +37,4 @@
 ## Resume Entry
 
 - Start here: .github/worklog/agent-status.md
-- Context: TASK-006 4-Slice 即時進度更新與看板輪詢驗證交付審查
+- Context: TASK-126 打開 app 時 UI 字級大小依設定自動套用與持久化同步交付審查

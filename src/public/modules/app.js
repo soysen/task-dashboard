@@ -170,6 +170,9 @@ import {
         }
         if (newSettings && typeof newSettings === 'object') {
           setSettings(newSettings);
+          const effectiveFontSize = newSettings.fontSize || localStorage.getItem('fontSize') || 'small';
+          localStorage.setItem('fontSize', effectiveFontSize);
+          applyFontSize(effectiveFontSize);
         }
         try {
           setProjectGitStatus(await gitRes.json());
@@ -859,13 +862,23 @@ node "${gateScriptPath}"
     function setAppFontSize(size) {
       const fontSizeToSet = size || 'small';
       localStorage.setItem('fontSize', fontSizeToSet);
+      if (typeof settings !== 'undefined' && settings && typeof settings === 'object') {
+        settings.fontSize = fontSizeToSet;
+      }
       applyFontSize(fontSizeToSet);
       updateFontSizeButtons(fontSizeToSet);
+      if (typeof fetch === 'function') {
+        fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fontSize: fontSizeToSet })
+        }).catch(() => {});
+      }
       showToast(`字級大小已切換為：${fontSizeToSet === 'large' ? '大 (+4px)' : fontSizeToSet === 'medium' ? '中 (+2px)' : '小 (預設)'}`);
     }
 
     function updateFontSizeButtons(size) {
-      const cur = size || localStorage.getItem('fontSize') || (typeof settings !== 'undefined' && settings ? settings.fontSize : 'small') || 'small';
+      const cur = size || localStorage.getItem('fontSize') || (typeof settings !== 'undefined' && settings && settings.fontSize) || 'small';
       ['small', 'medium', 'large'].forEach(s => {
         const btn = document.getElementById(`fontSizeBtn${s.charAt(0).toUpperCase() + s.slice(1)}`);
         if (btn) {
@@ -879,7 +892,7 @@ node "${gateScriptPath}"
     }
 
     function applyFontSize(size) {
-      const fs = size || localStorage.getItem('fontSize') || (typeof settings !== 'undefined' && settings ? settings.fontSize : 'small') || 'small';
+      const fs = size || localStorage.getItem('fontSize') || (typeof settings !== 'undefined' && settings && settings.fontSize) || 'small';
       const html = document.documentElement;
       // 統一增加 2px 字級：小 16px、中 18px、大 20px
       if (fs === 'large') {
@@ -893,7 +906,7 @@ node "${gateScriptPath}"
     }
 
     function initFontSize() {
-      applyFontSize(localStorage.getItem('fontSize') || (typeof settings !== 'undefined' && settings ? settings.fontSize : 'small') || 'small');
+      applyFontSize(localStorage.getItem('fontSize') || (typeof settings !== 'undefined' && settings && settings.fontSize) || 'small');
     }
 
     function openHelpModal() {
