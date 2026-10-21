@@ -2,19 +2,19 @@
 
 ## Active Task
 
-- ID: TASK-133
-- Title: 驗證確認並執行與哨兵喚醒流程
+- ID: TASK-001
+- Title: 測試 in_progress 巡檢
 - Status: 已完成
 - Last updated: 2026-10-21
-- Goal: 測試任務：驗證任務在具有執行計畫且處於待確認狀態下，按下確認並執行後能正常釋放認領鎖定、觸發 SSE 廣播並讓哨兵即時接手開工。
+- Goal: 測試 in_progress 巡檢
 - Route: dashboard-state-and-sync
-- Scope: 驗證確認並執行與哨兵喚醒流程
+- Scope: 測試 in_progress 巡檢
 - Out of scope: 跨專案副作用
 
 ## Last Completed Task
 
-- ID: TASK-133
-- Title: 驗證確認並執行與哨兵喚醒流程
+- ID: TASK-134
+- Title: retro
 - Status: 已完成
 - Last updated: 2026-10-21
 

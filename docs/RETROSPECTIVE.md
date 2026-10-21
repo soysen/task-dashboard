@@ -1,6 +1,6 @@
 # 🚀 Task Dashboard 開發歷程與技術回顧 (Retrospective)
 
-> **版本週期**：TASK-001 ~ TASK-128  
+> **版本週期**：TASK-001 ~ TASK-134  
 > **核心主題**：打造以 Ticket-driven 為核心的 AI 代理人自動化開發與審查樞紐  
 > **參與專案**：`task-dashboard`、`fetnet-eservice-f2e`、`tool-static-portal`、`tool-static-web`、`service-mobilecircle-inline-page`、`service-fami-controller`、`plan-to-build`
 
@@ -16,6 +16,7 @@
 7. [🛡️ 2026-10-02 雙向確認門禁 (Confirmation Gate) 與人機協同執行計劃覆盤 (TASK-070 ~ TASK-077)](#7-2026-10-02-雙向確認門禁-confirmation-gate-與人機協同執行計劃覆盤-task-070--task-077)
 8. [🎯 2026-10-13 任務執行報告、Git Diff 檢視器與人機協同品質門禁深化覆盤 (TASK-093 ~ TASK-112)](#8-2026-10-13-任務執行報告git-diff-檢視器與人機協同品質門禁深化覆盤-task-093--task-112)
 9. [🚀 2026-10-21 系統架構模組化、二元審查門禁 (Slice Judge Gate)、單雙向門風險評級與人機協同防護技術回顧 (TASK-113 ~ TASK-129)](#9-2026-10-21-系統架構模組化二元審查門禁-slice-judge-gate單雙向門風險評級與人機協同防護技術回顧-task-113--task-129)
+10. [⚡️ 2026-10-21 確認並執行 (Confirmation Gate) 徹底解鎖、進程活體死鎖偵測與哨兵即時喚醒閉環技術回顧 (TASK-130 ~ TASK-134)](#10-2026-10-21-確認並執行-confirmation-gate-徹底解鎖進程活體死鎖偵測與哨兵即時喚醒閉環技術回顧-task-130--task-134)
 
 ---
 
@@ -501,6 +502,69 @@ graph TD
    - 依據 TASK-113 藍圖，推進 Task Dashboard 看板對多輪自動切片（Loop Slices）與即時產物驗收的支援，使 Antigravity 等自主 Agent 能在更透明的視覺化監控下完成長程複雜任務。
 5. **深化二元門禁與自動化報告組裝 (Auto-Report Engine)**：
    - 將 `autoAssembleExecutionReport` 深度整合至 CLI 工具鏈，自動採集測試終端日誌、Diff 統計與風險等級，進一步降低手動填寫成本。
+
+---
+
+## 10. ⚡️ 2026-10-21 確認並執行 (Confirmation Gate) 徹底解鎖、進程活體死鎖偵測與哨兵即時喚醒閉環技術回顧 (TASK-130 ~ TASK-134)
+
+### 10.1 任務清單與交付總覽
+
+| 任務編號 | 所屬專案 | 類型 | 核心交付目標與實作內容 | 交付狀態 |
+| :--- | :--- | :--- | :--- | :--- |
+| **TASK-130** | `fetnet-eservice-f2e` | Feature / Sec | 5GSA 各頁面 (`index.js`、`record_venue.js`、`apply/device_check.js`、`apply/venue-selection.js`) 掛載初期全面導入 `checkPageAuthorization` 權限檢驗；驗證通過後提取 `transId` 同步至資料查詢、草稿與導頁憑據；補齊全模組 8 組單元測試 | Review 通過與完成交付 |
+| **TASK-131** | `task-dashboard` | Test / Core | 驗證任務在具備執行計畫且處於待確認狀態下，使用者點擊「確認並執行」後能徹底釋放 Planning 認領鎖定、觸發 SSE 廣播並讓背景哨兵即時接手開工 | 完整端到端測試驗證通過 |
+| **TASK-132 / 133** | `task-dashboard` | Fix / Harness | 補齊自動化測試套件 `test_confirm_and_wakeup_flow.js`，修復測試行程環境變數隔離與 IPv4 本地回環綁定相容性，整合至 `test_server.sh` 核心門禁 | 回歸測試全數 PASS |
+| **TASK-134** | `task-dashboard` | Retro / Arch | 深入檢討雙向確認門禁解鎖機制、PID 活體死鎖判定、SSE 串流即時通知與網路雙棧 (IPv4/IPv6) 邊界相容性之全景技術覆盤 | 本次深度覆盤報告交付 |
+
+---
+
+### 10.2 深度技術評價：Keep（做得好 / 關鍵突破）
+
+1. **Confirmation Gate 徹底解鎖與兩階段認領權責切分**：
+   - **痛點根因**：過去 Agent 在 Phase 1 完成執行計劃擬定後，`tasks.json` 會留下該 Agent 的認領標記 (`claimedBy: agent-xxx`, `claimedAt: timestamp`)。當使用者審閱並點擊「確認並執行」進入實作階段時，背景待命的哨兵會因偵測到 `claimedBy` 非自身且在 15 分鐘 TTL 內，誤判為「仍被其他 Agent 活躍佔用」而拒絕喚醒，造成系統假死等候。
+   - **徹底解鎖設計**：在後端 `PUT /api/tasks/:id` 攔截 `confirmExecution: true` 或切回 `todo` 時，強制將 `claimedBy` 與 `claimedAt` 清空為 `null`。這在架構上實現了清晰的權責切分：**「Planning 階段的規劃鎖定」在使用者授權後被徹底銷毀，實作階段重新開放各背景哨兵搶單認領**，完全解除了假死死鎖。
+
+2. **Sentinel `isPidAlive` 活體進程偵測防死鎖機制**：
+   - **痛點根因**：原先的防搶單機制採用固定的 15 分鐘過期時間 (`CLAIM_TTL_MS = 15 * 60 * 1000`)。若先前認領任務的 Agent 或背景行程異常終止（Crash 或進程結束），其他待命哨兵依然會因未滿 15 分鐘而陷入漫長等待。
+   - **活體偵測落地**：在 `watch-task-gate.js` 引入 `isPidAlive(pid)`，透過 Node.js 原生 `process.kill(Number(pid), 0)` 進行零副作用的進程活體探測。若鎖定擁有者的 PID 已消亡，哨兵立即判定鎖定無效並瞬間接手搶單喚醒，**將異常崩潰後的恢復延遲從 15 分鐘直接降為 0 毫秒**。
+
+3. **Server-Sent Events (SSE) 即時廣播與零輪詢架構開端**：
+   - 在後端 `/api/events` 實作原生 SSE 串流 (`text/event-stream`)，並於任務新增、狀態更迭、執行完成與報錯時統一呼叫 `broadcastSse(event, data)`。
+   - 為後續前端看板與外部監控代理人從高延遲/高 I/O 的定時輪詢（Polling）轉向事件驅動（Event-driven Push）奠定了高效通訊基石。
+
+4. **端到端流程自動化回歸防線 (`test_confirm_and_wakeup_flow.js`)**：
+   - 建立涵蓋「建立待確認任務 ➔ 模擬 dead PID 鎖定 ➔ 待確認門禁靜默 ➔ 前端確認並執行 ➔ 鎖定徹底釋放 ➔ 哨兵 WAKEUP_IMMEDIATE 即時開工 ➔ 新哨兵接手認領」的 6 階段完整自動化驗證鏈路。
+   - 整合至 `scripts/test_server.sh` 核心測試流水線，確保未來任何對狀態機或門禁的重構皆受到嚴格防護。
+
+---
+
+### 10.3 ⚠️ Problem（遇到的障礙、邊界盲點與根因分析）
+
+1. **macOS Node.js 18+ 雙棧解析陷阱 (IPv6 ::1 vs IPv4 0.0.0.0)**：
+   - **現象**：在自動化測試腳本中，向 `http://localhost:PORT` 發起 HTTP 請求時突發 `AggregateError [ECONNREFUSED] ::1:3039` 報錯中斷。
+   - **根因分析**：後端伺服器綁定於 IPv4 通配位址 `0.0.0.0`，而在 macOS 且使用較新版 Node.js (v18+) 時，DNS 解析器預設將 `localhost` 優先解析為 IPv6 回環位址 `::1`。當核心僅監聽 IPv4 時，嘗試連線 `::1` 立即遭到 OS 核心拒絕。
+   - **防守策**：在所有內部回歸腳本、測試 Harness 與微服務間通訊中，**強制使用明確的 IPv4 回環位址 `127.0.0.1` 取代 `localhost`**，徹底消除雙棧解析順序差異帶來的環境脆弱性。
+
+2. **跨進程測試環境變數隔離斷鏈 (Environment Drift in Test Subprocess)**：
+   - **現象**：測試腳本中呼叫 `watch-task-gate.js` 子進程時，哨兵意外讀取並認領了使用者實際本機工作區的任務，而非測試暫存區 (`$TEST_DATA_DIR`) 中的測試任務。
+   - **根因分析**：`test_server.sh` 在執行子測試腳本時，未將 `TASK_DASHBOARD_DATA_DIR` 明確傳遞給子腳本；且 `watch-task-gate.js` 的目錄解析函數優先度中，未將環境變數置於 `settings.json` 之前。
+   - **防守策**：在 `watch-task-gate.js` 的 `resolveDataDir()` 最前線強制插入 `if (process.env.TASK_DASHBOARD_DATA_DIR) return ...` 作為第一優先權，並在 Shell 測試鏈路上嚴格傳遞環境變數。
+
+3. **前端元件重新掛載觸發冗餘查詢 (Dependency Array Over-triggering)**：
+   - **現象**：在 `fetnet-eservice-f2e` 的 5GSA 頁面實作 `checkPageAuthorization` 時，初版將 `useEffect` 依賴設為 `[props, location]`。當取消流程執行 `history.push('/cancel/complete')` 造成 URL 變更時，觸發了非預期的第二輪授權與查詢。
+   - **根因分析**：未將「影響授權狀態的必要鍵值（`transIdFromSearch`）」與「一般導航引發的 location 物件變更」進行細粒度解耦。
+   - **防守策**：以純量字串 `transIdFromSearch` 作為唯一觸發依賴，並在狀態中持久化 `effectiveTransId`，確保導向子路徑時不會觸發重複的 API 呼叫。
+
+---
+
+### 10.4 💡 行動建議與後續演進策略 (Action Items)
+
+1. **全面推動前端 Zero-Polling 演進**：
+   - 目前看板頁面仍依賴每 3 秒一次的 `fetch('/api/tasks')` 輪詢。應運用已上線的 `/api/events` SSE 端點，改由伺服器在 `task-update`、`task-complete` 時主動通知前端局部重繪，進一步降低桌面端 CPU 佔用與電池消耗。
+2. **通訊協定 IPv4 綁定標準化**：
+   - 專案內部所有測試工具、Harness 探針與外部腳本全面統一使用 `127.0.0.1`，避免在跨平台（macOS、Linux CI、Docker）環境下因 IPv6/IPv4 優先權差異產生詭異連線失敗。
+3. **哨兵通知管道深化（FSEvents + SSE 雙保險）**：
+   - 目前 `watch-task-gate.js` 主要依賴 `fs.watch` 檔案系統事件。後續可評估讓哨兵直接掛載 `/api/events` 作為內部推播，形成「檔案變更事件 + SSE 記憶體即時廣播」雙通道守候，達到更極致的 0 毫秒即時喚醒。
 
 ---
 *Retrospective Report updated at 2026-10-21 by Antigravity.*
