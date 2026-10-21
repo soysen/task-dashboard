@@ -20,15 +20,23 @@ const os = require('os');
 const USER_HOME = process.env.HOME || os.homedir();
 const DEFAULT_APP_SUPPORT_DIR = process.env.TASK_DASHBOARD_DATA_DIR || path.join(USER_HOME, 'Library/Application Support/TaskDashboard');
 
-// 解析命令列參數 (例如 node watch-task-gate.js --agent=antigravity 或 --agent=claude)
+// 解析命令列參數 (例如 node watch-task-gate.js --agent=antigravity 或 --conversationId=conv_123)
 let targetAgent = '';
+let claimerId = process.env.CONVERSATION_ID || '';
 process.argv.slice(2).forEach(arg => {
   if (arg.startsWith('--agent=')) {
     targetAgent = arg.slice(8).trim().toLowerCase();
   } else if (arg.startsWith('-a=')) {
     targetAgent = arg.slice(3).trim().toLowerCase();
+  } else if (arg.startsWith('--conversation=') || arg.startsWith('--conversationId=')) {
+    claimerId = arg.split('=')[1].trim();
+  } else if (arg.startsWith('--claimer=')) {
+    claimerId = arg.split('=')[1].trim();
   }
 });
+if (!claimerId) {
+  claimerId = `${targetAgent || 'sentinel'}-${process.pid}`;
+}
 
 // 1. 動態解析真實資料庫目錄 (Single Source of Truth)
 function resolveDataDir() {
@@ -79,6 +87,14 @@ function findActionableTask() {
       }
       if (t.requestCommitGen === true) return true;
       if (t.status === 'in_progress') {
+        // Conversation Lock 判定：若已被其他活躍視窗認領（15 分鐘內有效），則跳過避免雙重喚醒搶單
+        if (t.claimedBy && t.claimedBy !== claimerId && t.claimedAt) {
+          const claimAgeMs = Date.now() - new Date(t.claimedAt).getTime();
+          const CLAIM_TTL_MS = 15 * 60 * 1000;
+          if (!isNaN(claimAgeMs) && claimAgeMs < CLAIM_TTL_MS) {
+            return false;
+          }
+        }
         // 若任務勾選需確認後再執行，且已經產出完整執行計劃，則處於「待確認」等待使用者審閱並點擊「確認並執行」，哨兵暫不喚醒開工
         const isPendingUserConfirmation = t.requiresConfirmation && t.executionPlan && t.executionPlan.trim().length > 0;
         if (isPendingUserConfirmation) return false;
@@ -123,10 +139,37 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
   }
 
   const feedbackText = task.feedback ? `\n• 【最高優先 Feedback】: ${task.feedback}` : '';
+
+  let skillsText = '';
+  try {
+    const projFile = path.join(DATA_DIR, 'projects.json');
+    if (fs.existsSync(projFile)) {
+      const projs = JSON.parse(fs.readFileSync(projFile, 'utf8'));
+      const p = projs.find(item => item.id === task.project);
+      if (p && Array.isArray(p.skills) && p.skills.length > 0) {
+        const fullText = `${task.title} ${task.description || ''} ${(task.tags || []).join(' ')}`.toLowerCase();
+        const matched = p.skills.filter(s => {
+          const l = (s.label || s.id || '').toLowerCase();
+          const d = (s.desc || '').toLowerCase();
+          if (fullText.includes('ui') || fullText.includes('切版') || fullText.includes('css')) return l.includes('web') || l.includes('ui') || d.includes('ui');
+          if (fullText.includes('test') || fullText.includes('測試')) return l.includes('test') || d.includes('test');
+          if (fullText.includes('api') || fullText.includes('後端') || fullText.includes('server')) return l.includes('api') || d.includes('api');
+          return false;
+        }).slice(0, 2);
+        if (matched.length > 0) {
+          skillsText = `\n• 【推薦動態 Skills】: ${matched.map(m => `${m.label} (${m.path || m.id})`).join('、')}`;
+        }
+      }
+    }
+  } catch (e) {}
+
   return `================================================================================\n` +
     `[${triggerType}] 任務開工通知：[${task.id}] ${task.title}\n` +
     `• 專案: ${task.project || '預設'}${projPath ? ` (${projPath})` : ''}\n` +
-    `• 需求: ${task.description || '無'}${feedbackText}\n\n` +
+    `• 需求: ${task.description || '無'}${feedbackText}${skillsText}\n\n` +
+    `【負向守門邊界 (Negative Boundaries / Never Do)】:\n` +
+    `• 嚴禁整檔盲讀與未經 Impact Analysis 任意搜尋取代。\n` +
+    `• 純調查/診斷任務嚴禁變更原始碼；實作僅限任務最小必要範圍，禁止跨專案副作用。\n\n` +
     `【Task Dashboard 3-Phase Gate 平台執行標準】：\n` +
     `1. Phase 1 (Pre-Flight): 優先滿足 Feedback；檢閱專案文檔與執行 Harness 驗證；>500 行大檔一律以 grep-n 切片檢索；若勾選需確認後執行且 executionPlan 為空，須先填妥執行計劃供確認。\n` +
     `2. Phase 2 (Implementation): 遵循目錄規範最小範圍實作並補齊測試，嚴禁跨專案副作用。\n` +
@@ -134,9 +177,33 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
     `================================================================================`;
 }
 
+function claimTaskAndLogEvent(task) {
+  try {
+    if (!fs.existsSync(TASKS_FILE)) return;
+    const tasks = JSON.parse(fs.readFileSync(TASKS_FILE, 'utf8'));
+    const t = tasks.find(item => item && item.id === task.id);
+    if (t) {
+      t.claimedBy = claimerId;
+      t.claimedAt = new Date().toISOString();
+      fs.writeFileSync(TASKS_FILE, JSON.stringify(tasks, null, 2), 'utf8');
+
+      const eventsFile = path.join(DATA_DIR, 'task-events.jsonl');
+      const entry = {
+        timestamp: new Date().toISOString(),
+        taskId: t.id,
+        type: 'task_claimed_by_sentinel',
+        claimedBy: claimerId,
+        claimedAt: t.claimedAt
+      };
+      fs.appendFileSync(eventsFile, JSON.stringify(entry) + '\n', 'utf8');
+    }
+  } catch (e) {}
+}
+
 // 1. 若當前本來就已有進行中或請求 Commit 訊息之任務，立即退出喚醒開工
 const immediateTask = findActionableTask();
 if (immediateTask) {
+  claimTaskAndLogEvent(immediateTask);
   console.log(formatWakeupBrief(immediateTask, 'WAKEUP_IMMEDIATE'));
   cleanupAndExit(0);
 }
@@ -162,6 +229,7 @@ function startWatching() {
       debounceTimer = setTimeout(() => {
         const task = findActionableTask();
         if (task) {
+          claimTaskAndLogEvent(task);
           console.log(formatWakeupBrief(task, 'WAKEUP_TRIGGERED'));
           cleanupAndExit(0);
         }

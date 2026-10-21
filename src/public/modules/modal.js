@@ -598,6 +598,12 @@ import { loadData } from "./app.js";
       updateModalButtonState();
 
       document.getElementById('taskModal').classList.remove('hidden');
+
+      const btnRetro = document.getElementById('btnExtractRetro');
+      if (btnRetro) {
+        btnRetro.classList.add('hidden');
+        btnRetro.classList.remove('inline-flex');
+      }
       if (window.lucide) lucide.createIcons();
     }
 
@@ -963,6 +969,13 @@ import { loadData } from "./app.js";
       }
 
       document.getElementById('taskModal').classList.remove('hidden');
+
+      const btnRetro = document.getElementById('btnExtractRetro');
+      if (btnRetro) {
+        const hasFeedbackHistory = (task.description || '').includes('--- 【歷次審查意見 / Feedback 記錄】 ---');
+        btnRetro.classList.toggle('hidden', !hasFeedbackHistory);
+        btnRetro.classList.toggle('inline-flex', hasFeedbackHistory);
+      }
 
       // 規範：在“進行中”之後的任務 (非 todo / 新增)，textarea 高度根據內容動態調整，避免內容較少時佔據大片無效空白
       const descEl = document.getElementById('formDescription');
@@ -2288,6 +2301,42 @@ import { loadData } from "./app.js";
       resetTextareaHeight(document.getElementById('formFeedback'));
     }
 
+    function extractRetroPrompt(event) {
+      if (event) event.stopPropagation();
+      const taskId = document.getElementById('formTaskId')?.value;
+      const task = tasks.find(t => t.id === taskId);
+      if (!task) return;
+
+      const proj = projects.find(p => p.id === task.project);
+      const projName = proj ? proj.name : (task.project || '未指定專案');
+      const projPath = (proj && proj.path) ? proj.path : (task.projectPath || `~/projects/${task.project}/`);
+
+      const desc = task.description || '';
+      let feedbackHistory = '（無歷次審查意見）';
+      if (desc.includes('--- 【歷次審查意見 / Feedback 記錄】 ---')) {
+        feedbackHistory = desc.split('--- 【歷次審查意見 / Feedback 記錄】 ---')[1].trim();
+      }
+
+      const files = (task.modifiedFiles && task.modifiedFiles.length > 0)
+        ? task.modifiedFiles.map(f => typeof f === 'string' ? f : (f.path || f)).join(', ')
+        : '（無明細）';
+
+      const prompt = `【/retro 經驗沉澱與規範自癒】
+• 目標專案: ${projName} (${projPath})
+• 任務 ID: [${task.id}] ${task.title}
+• 異動檔案: ${files}
+
+【歷次審查退回原因 / 踩坑歷史】：
+${feedbackHistory}
+
+【提煉目標】：
+請檢視上述退回原因與本次任務最終修復內容，將此次踩坑防錯經驗沉澱為專案規範，並分流更新：
+1. 若屬自動化可防護之語法/格式/命名問題：補充至目標專案 scripts/harness_check.sh 或 Linter/Hook。
+2. 若屬架構設計/邊界約束/不可變原則：沉澱至 .github/skills/ 相關 SKILL.md 或 CLAUDE.md。
+請提出具體修改提案並直接套用至目標檔案。`;
+
+      copyToClipboard(prompt, '已複製 /retro 規範提煉提示詞！');
+    }
 
 export {
   setFormProject,
@@ -2353,6 +2402,7 @@ export {
   closeActionConfirmModal,
   executeTaskActionConfirmed,
   deleteCurrentTask,
+  extractRetroPrompt,
   closeModal
 };
 
@@ -2420,5 +2470,6 @@ if (typeof window !== "undefined") {
   window.closeActionConfirmModal = closeActionConfirmModal;
   window.executeTaskActionConfirmed = executeTaskActionConfirmed;
   window.deleteCurrentTask = deleteCurrentTask;
+  window.extractRetroPrompt = extractRetroPrompt;
   window.closeModal = closeModal;
 }

@@ -91,9 +91,35 @@ import { tasks, projects, settings } from "./state.js";
 
       const feedbackText = task.feedback ? `\n• 【最高優先 Feedback】: ${task.feedback}` : '';
 
+      const projSkills = (proj && Array.isArray(proj.skills)) ? proj.skills : [];
+      let recommendedSkillText = '';
+      if (projSkills.length > 0) {
+        const fullText = `${task.title} ${task.description || ''} ${(task.tags || []).join(' ')}`.toLowerCase();
+        const matched = projSkills.filter(s => {
+          const l = (s.label || s.id || '').toLowerCase();
+          const d = (s.desc || '').toLowerCase();
+          if (fullText.includes('ui') || fullText.includes('切版') || fullText.includes('css')) {
+            return l.includes('web') || l.includes('ui') || d.includes('ui');
+          }
+          if (fullText.includes('test') || fullText.includes('測試')) {
+            return l.includes('test') || d.includes('test');
+          }
+          if (fullText.includes('api') || fullText.includes('後端') || fullText.includes('server')) {
+            return l.includes('api') || d.includes('api');
+          }
+          return false;
+        }).slice(0, 2);
+        if (matched.length > 0) {
+          recommendedSkillText = `\n• 【推薦動態 Skills】: ${matched.map(m => `${m.label} (${m.path || m.id})`).join('、')}`;
+        }
+      }
+
+      const negativeGuardrails = `\n【負向守門邊界 (Negative Boundaries / Never Do)】:\n• 嚴禁整檔盲讀與未經 Impact Analysis 任意搜尋取代。\n• 純調查/診斷任務嚴禁變更原始碼；實作僅限任務最小必要範圍，禁止跨專案副作用。`;
+
       const prompt = `【任務開工】[${task.id}] ${task.title}
 • 專案: ${projName} (${projPath}) | 驗證: ${harnessCmd} | 資料庫: ${tasksFilePath}
-• 需求: ${task.description || '無'}${feedbackText}
+• 需求: ${task.description || '無'}${feedbackText}${recommendedSkillText}
+${negativeGuardrails}
 
 【Task Dashboard 3-Phase Gate 平台規範】：
 1. Pre-Flight: 檢閱專案架構文檔並執行 ${harnessCmd}；有 Feedback 優先滿足；若任務勾選需確認後再執行且未具備執行計劃，必須先產出完整執行計劃回寫 executionPlan 供確認；大檔 (>500 行) 禁整檔全覽，一律以 grep-n 定位切片 30-50 行避免 Loop。

@@ -1,8 +1,8 @@
 # 🚀 Task Dashboard 開發歷程與技術回顧 (Retrospective)
 
-> **版本週期**：TASK-001 ~ TASK-069  
+> **版本週期**：TASK-001 ~ TASK-128  
 > **核心主題**：打造以 Ticket-driven 為核心的 AI 代理人自動化開發與審查樞紐  
-> **參與專案**：`task-dashboard`、`fetnet-eservice-f2e`、`tool-static-portal`、`service-mobilecircle-inline-page`
+> **參與專案**：`task-dashboard`、`fetnet-eservice-f2e`、`tool-static-portal`、`tool-static-web`、`service-mobilecircle-inline-page`、`service-fami-controller`、`plan-to-build`
 
 ---
 
@@ -13,6 +13,9 @@
 4. [🔍 Retro 反思 (Good, Pain Points, Lessons Learned)](#4-retro-反思-good-pain-points-lessons-learned)
 5. [🎯 下一步行動建議 (Action Items)](#5-下一步行動建議-action-items)
 6. [⚡️ 最新技術迭代：Feedback 閉環自癒架構與高資訊密度開工 Prompt (TASK-068 ~ TASK-069)](#6-最新技術迭代feedback-閉環自癒架構與高資訊密度開工-prompt-task-068--task-069)
+7. [🛡️ 2026-10-02 雙向確認門禁 (Confirmation Gate) 與人機協同執行計劃覆盤 (TASK-070 ~ TASK-077)](#7-2026-10-02-雙向確認門禁-confirmation-gate-與人機協同執行計劃覆盤-task-070--task-077)
+8. [🎯 2026-10-13 任務執行報告、Git Diff 檢視器與人機協同品質門禁深化覆盤 (TASK-093 ~ TASK-112)](#8-2026-10-13-任務執行報告git-diff-檢視器與人機協同品質門禁深化覆盤-task-093--task-112)
+9. [🚀 2026-10-21 系統架構模組化、二元審查門禁 (Slice Judge Gate)、單雙向門風險評級與人機協同防護技術回顧 (TASK-113 ~ TASK-129)](#9-2026-10-21-系統架構模組化二元審查門禁-slice-judge-gate單雙向門風險評級與人機協同防護技術回顧-task-113--task-129)
 
 ---
 
@@ -397,6 +400,111 @@ graph TD
 
 ---
 *Retrospective Report updated at 2026-10-13 by Antigravity.*
+
+---
+
+## 9. 🚀 2026-10-21 系統架構模組化、二元審查門禁 (Slice Judge Gate)、單雙向門風險評級與人機協同防護技術回顧 (TASK-113 ~ TASK-129)
+
+> **核心主題**：Task Dashboard 後端服務模組化大解耦 (`gitService.js`, `cliRunner.js`)、二元驗收審查門禁 (`validateExecutionLog`)、單向/雙向門 (One-Way/Two-Way Door) 風險智能裁決、Append-Only 事件日誌 (`task-events.jsonl`)、哨兵防搶單對話鎖定 (Conversation Affinity Lock)、人體工學體驗升級與跨專案防禦性架構
+
+---
+
+### 9.1 階段任務全景盤點 (Task Landscape: TASK-113 ~ TASK-129)
+
+| 任務編號 | 專案名稱 | 類型 | 核心內容與成果 | 關鍵指標 / 產出 |
+|---|---|---|---|---|
+| **TASK-113** | `plan-to-build` | Workflow / Plan | 規劃 Loop Engineering 自動化循環工作流，評估 Skill + Harness 產出與即時觀察可視化架構 | 工作流藍圖、執行管道評估 |
+| **TASK-114** | `tool-static-web` | i18n / UX | 依情境細分手機驗證 Error Dialog（驗證碼過期、驗證失敗、註冊失敗），重整 i18n 參數並確保既有語系優先復用 | i18n 參數對齊、0 破壞性變更 |
+| **TASK-115** | `tool-static-web` | Routing / Fix | 999 blocked.html 導頁位置調整：環境感知判斷僅 Prod 環境導向 blocked.html，非 Prod 導向首頁，徹底解決測試環境 404 | 環境感知 URL 路由、單元測試 PASS |
+| **TASK-116** | `service-mobilecircle-inline-page` | Fix / Cache | 修復短網址解析取得過期快取問題，實作短網址時間分桶編碼防快取與備援解析機制 | TDD 覆蓋、時間分桶防快取 |
+| **TASK-117** | `task-dashboard` | UI / Polish | 任務彈窗所屬專案欄位優化：專案名稱與 ID 相同時僅顯示一次，不同時保留完整呈現，維持搜尋與選取行為 | 消除重複資訊、單元測試補齊 |
+| **TASK-118** | `fetnet-eservice-f2e` | Spec / API | 依 5G SA init-check API 規格文件對齊欄位與呼叫參數，確保跨服務資料契約精確一致 | 規格對齊、合規檢驗通過 |
+| **TASK-119** | `task-dashboard` | UI / UX | 看板頂部新增階段篩選膠囊 (Stage Filter Pills: ALL / todo / in_progress / review / done) 與即時數量徽章，支援快速聚焦 | 視覺層級優化、即時卡牌計數 |
+| **TASK-120** | `task-dashboard` | UI / Design | 流程指引改為各步驟獨立底色膠囊 (Slate/Sky/Amber/Emerald) 與邊框，以水平連接線取代文字箭頭，表單輸入框補回邊框與焦點輪廓 | 現代化 UI 設計、視覺動線流暢 |
+| **TASK-121** | `fetnet-eservice-f2e` | Spec / Audit | 根據最新架構文件重新檢視與核對 5G SA API 契約與呼叫邊界，補充防衛性處理與文件註解 | API 契約複審通過 |
+| **TASK-122** | `tool-static-web` | UX / Dialog | validateOTP 驗證碼錯誤 Dialog 調整與例外防護 | 異常情境彈窗一致性 |
+| **TASK-123** | `tool-static-portal` | UI / Content | 場次設定頁文案與介面說明微調，提升後台管理者操作引導清晰度 | 文案對齊、無回歸缺陷 |
+| **TASK-124** | `service-fami-controller` | UI / Feature | 調整頁面展示內容與狀態呈現，優化資料渲染層級 | 狀態展示收斂 |
+| **TASK-125** | `tool-static-web` | Routing / Bug | blocked.html 下按瀏覽器 Back 返回 Step1 時 API 仍回 999 導致 UI 空白之問題，修復為主動攔截並再次導回 blocked.html | SPA 歷史導航防衛、避免卡死 |
+| **TASK-126** | `task-dashboard` | Native / State | 修復 macOS 原生 WKWebView nonPersistentDataStore 導致啟動時未套用字級設定問題，建立後端 settings.json 持久化雙向同步鏈路 | 原生與 Web 雙向持久化、JSDOM 測試 PASS |
+| **TASK-127** | `tool-static-web` | State / Guard | 移除 `register.js` store 殘留之測試假資料，於 `RegisterSteps.vue` 建立前置資料防衛，無資料自動導回首頁，恪遵最小異動原則 | 狀態乾淨初始化、單一組件防衛 |
+| **TASK-128** | `fetnet-eservice-f2e` | Logic / Fix | 修正 5GSA `initFiveGSA` 取得之 `isSUCI` 布林判斷顛倒，`isSUCI === true` 直接 pass 不需換卡，`false` 導向換卡流程 | 業務邏輯導正、回歸測試 PASS |
+| **TASK-129** | `task-dashboard` | Retro / Arch | 系統架構重構（服務模組化抽離、二元審查門禁、單雙向門判定、事件日誌與哨兵防搶單）之全景技術覆盤 | 本次深度覆盤報告交付 |
+
+---
+
+### 9.2 深度技術評價：Keep（做得好 / 關鍵突破）
+
+1. **後端服務模組化大解耦 (Architecture Modularization)**：
+   - 過去 `server.js` 承載了超過 1,400 行的程式碼，包含 REST API 路由、Git 原生指令操作、CLI 外部行程管控、Markdown 工作日誌解析等，維護風險與認知負載極高。
+   - **`services/gitService.js`**：獨立收斂 `collectGitDiff`、`discardGitChanges`、Commit Skill 探索與 AI Prompt 智慧生成，統一處理全量 Diff 與未追蹤檔案採集。
+   - **`services/cliRunner.js`**：獨立封裝 CLI 行程生命週期管理，包含 `killProcessTree` 遞迴銷毀、每日執行限額 (`dailyCliRunCap: 30`) 與超時保護機制 (`cliTimeoutMinutes: 20`)，杜絕殭屍行程佔用系統資源。
+
+2. **二元驗收審查門禁 (Backend Slice Judge Gate) 與客觀證據校驗**：
+   - 在 `feedbackManager.js` 實作 `validateExecutionLog()`，在任務欲推進至 `review` 時進行嚴格守門：
+     - **長度門檻**：日誌長度不得小於 30 字元。
+     - **敷衍詞彙過濾**：自動攔截「已完成」、「測試通過」、「fixed」、「tests passed」等單行無營養字眼。
+     - **客觀驗證證據校驗**：必須包含測試指令、Exit Code、PASS 驗證或 3-Phase 驗證記錄，從架構層面確保每次交付具備不可抵賴性。
+
+3. **單向門 (One-Way Door) vs 雙向門 (Two-Way Door) 風險智慧裁決**：
+   - 實作 `calculateRiskDoor()`，從程式碼異動中主動辨識風險等級：
+     - **One-Way Door (高風險不可逆)**：觸發條件包含檔案刪除 (`deleted file`)、核心設定/架構檔案修改 (`server.js`, `main.m`, `schema`, `package.json`, `.env`)、或變更行數超過 300 行。
+     - **Two-Way Door (低風險可逆)**：局部元件修改與小型文案調優。
+   - 前端 (`executionReport.js`) 與後端同步聯動，在執行報告與審核面板醒目標示風險等級，大幅提升審核者之風險感知。
+
+4. **Append-Only 事件流日誌與哨兵防搶單鎖定 (Task Events & Sentinel Lock)**：
+   - **結構化審計流 (`task-events.jsonl`)**：後端與哨兵在任務認領、狀態流轉、門禁判定時，均以 Append-Only 方式寫入事件流，奠定未來時序回放與審查追蹤基礎。
+   - **對話鎖定 (Conversation Affinity Lock)**：`watch-task-gate.js` 引入 `claimerId`、`claimedBy` 與 `claimedAt`（15 分鐘 TTL）。當任務已被某特定 Agent 或對話視窗認領時，其他背景哨兵自動略過，徹底解決多視窗併行時的搶單喚醒衝突。
+   - **開工動態技能推薦與負向邊界**：哨兵喚醒時，自動比對 `projects.json` 中的 Skills，動態推薦最適合的輔助技能，並明確輸出負向守門邊界（Never Do），防止 Agent 盲讀或全量覆寫。
+
+5. **看板人體工學體驗升級與無障礙 (A11y) 現代化落地**：
+   - **階段篩選膠囊 (Stage Filter Pills - TASK-119)**：頂部提供 `ALL`、`todo`、`in_progress`、`review`、`done` 膠囊按鈕與動態計數，支援一鍵過濾干擾。
+   - **流程指引獨立底色與水平連線 (TASK-120)**：各步驟採用專屬語意底色 (Slate, Sky, Amber, Emerald) 與邊框，改以細線流暢連結，視覺動線大幅清晰化。
+   - **內縮輪廓防裁切 (`outline-offset: -2px`) (0ba14cc)**：解決捲動容器焦點輪廓左側與頂部邊緣裁切問題。
+   - **被退回任務審核可見度延續 (`shouldShowReviewWorkspace`) (0ba14cc)**：被退回 `todo` 依然保留檢視歷史報告與 Diff 分頁之能力。
+   - **完整 WAI-ARIA 與 Reduced-Motion 支援**：支援螢幕閱讀器與鍵盤導航，並在系統開啟減敏偏好時自動停用動態效果。
+
+6. **原生桌面客戶端與 Web 前端持久化無縫同步架構 (TASK-126)**：
+   - 在 macOS 原生外殼 (`main.m`) 使用 `nonPersistentDataStore` 的條件下，建立「前端請求後端 `/api/settings` ➔ 即時計算 effective settings ➔ 同步寫回 localStorage ➔ 即時套用至 DOM ➔ 切換時透過 POST 雙向寫入 `settings.json`」的強健保底鏈路。
+
+---
+
+### 9.3 ⚠️ Problem（遇到的障礙、邊界盲點與根因分析）
+
+1. **布林命名直覺盲點引發邏輯全面顛倒 (TASK-128)**：
+   - **現象**：`initFiveGSA` 取得之 `isSUCI` 為 `true` 時，前端誤判定為「需要進行換卡 (`replace-sim`)」，導致具備新卡能力之使用者被錯誤導向換卡申請。
+   - **根因分析**：命名未指明主被動語意（已具備 vs 需升級）；且初始單元測試僅涵蓋單向路徑，缺乏反向雙向對等測試覆蓋。
+
+2. **跨環境靜態資源部署不對稱 (Environment Drift - TASK-115)**：
+   - **現象**：修改 999 阻擋頁面跳轉時，動態組合 `${origin}/blocked.html`，導致測試環境一律跳轉 404 Not Found。
+   - **根因分析**：架構設計未考量靜態伺服器上特定檔案僅上架正式機之環境差異，未預先採用環境感知判斷與優雅降級機制。
+
+3. **原生 WebKit 沙盒與 Web LocalStorage 生命週期認知偏差 (TASK-126)**：
+   - **現象**：字級設定在瀏覽器重整正常，但在原生 macOS App 每次開啟時皆回退至預設小字級。
+   - **根因分析**：未意識到原生 App 基於安全與隔離採用了 `nonPersistentDataStore`，導致 Web 端的 Storage 於重啟時歸零，未及早將後端 `settings.json` 作為唯一持久化真理來源。
+
+4. **SPA 歷史回溯 (Browser Back) 觸發第二類邊界缺陷 (TASK-125)**：
+   - **現象**：使用者遇到 999 被導向阻擋頁後，點擊瀏覽器回上一頁回到步驟一，頁面出現無販售票種且回到首頁呈現敬請期待。
+   - **根因分析**：思考僅涵蓋「前進流」，忽略了使用者利用瀏覽器原生按鈕進行「回溯流」時組件重新掛載引發的非同步競態。
+
+---
+
+### 9.4 💡 行動建議與後續演進策略 (Action Items)
+
+1. **布林欄位與業務邏輯強制雙向測試 (Bi-directional Boolean Test Mandate)**：
+   - 凡涉及身分資格、開關判定的布林邏輯，單元測試必須強制同時覆蓋 `true` 與 `false` 兩組獨立斷言，並於代碼中清楚註解業務含義。
+2. **多環境靜態資源與跳轉健全性規範 (Environment-Resilient Navigation)**：
+   - 涉及跨系統跳轉統一封裝環境解析 Helper，測試環境預設優雅降級（Fallback），杜絕 404 斷頭。
+3. **原生與 Web 設定 Single Source of Truth 鞏固**：
+   - 使用者偏好（字級、主題、自動開工、視窗記憶）一律以 Server 端 `settings.json` 為真實來源，前端僅作 view cache 與 reactive render。
+4. **推進自動切片與自主循環 (Loop Engineering Roadmap - TASK-113 接續)**：
+   - 依據 TASK-113 藍圖，推進 Task Dashboard 看板對多輪自動切片（Loop Slices）與即時產物驗收的支援，使 Antigravity 等自主 Agent 能在更透明的視覺化監控下完成長程複雜任務。
+5. **深化二元門禁與自動化報告組裝 (Auto-Report Engine)**：
+   - 將 `autoAssembleExecutionReport` 深度整合至 CLI 工具鏈，自動採集測試終端日誌、Diff 統計與風險等級，進一步降低手動填寫成本。
+
+---
+*Retrospective Report updated at 2026-10-21 by Antigravity.*
+
 
 
 

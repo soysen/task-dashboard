@@ -139,6 +139,25 @@ import { escapeHtml } from "./utils.js";
         }
         flushCard();
 
+        let riskBadgeHtml = '';
+        if (task && task.riskDoor === 'one-way') {
+          const reasons = (task.riskReasons || []).map(r => `• ${escapeHtml(r)}`).join('<br>');
+          riskBadgeHtml = `
+            <div class="mb-3 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 flex items-start gap-2.5">
+              <span class="text-base flex-shrink-0">🚨</span>
+              <div class="text-xs">
+                <div class="font-bold text-rose-800 dark:text-rose-300">單向門審查 (One-Way Door / 高風險不可逆變更)</div>
+                <div class="text-rose-700 dark:text-rose-400 mt-0.5 leading-relaxed">${reasons || '本任務修改涉及底層核心或較大變更，需人工重點核對。'}</div>
+              </div>
+            </div>`;
+        } else if (task && task.riskDoor === 'two-way') {
+          riskBadgeHtml = `
+            <div class="mb-3 p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 flex items-center gap-2">
+              <span class="text-sm flex-shrink-0">🚪</span>
+              <div class="text-xs text-emerald-800 dark:text-emerald-300 font-medium">雙向門審查 (Two-Way Door / 可逆低風險變更)</div>
+            </div>`;
+        }
+
         let terminalCollapseHtml = '';
         if (rawTerminalDump) {
           const cleanDump = rawTerminalDump.replace(/```text/g, '').replace(/```/g, '').replace(/<summary>.*?<\/summary>/s, '').trim();
@@ -159,6 +178,7 @@ import { escapeHtml } from "./utils.js";
         }
 
         reportEl.innerHTML = `
+          ${riskBadgeHtml}
           <div class="pl-2 divide-y divide-slate-300 dark:divide-slate-500">
             ${sectionsHtml.join('')}
           </div>

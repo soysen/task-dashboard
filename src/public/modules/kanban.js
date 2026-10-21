@@ -176,6 +176,15 @@ import {
                   <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-200 font-mono truncate max-w-[115px] whitespace-nowrap" title="${escapeHtml(projName)}">
                      ${escapeHtml(projName)}
                   </span>
+                  ${t.riskDoor === 'one-way' ? `
+                    <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 dark:bg-rose-950/70 dark:text-rose-300 font-mono whitespace-nowrap flex-shrink-0" title="${escapeHtml((t.riskReasons || []).join('; ') || '單向門高風險：不可逆或跨模組重大變更')}">
+                      🚨 單向門
+                    </span>
+                  ` : (t.riskDoor === 'two-way' ? `
+                    <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 font-mono whitespace-nowrap flex-shrink-0" title="雙向門可逆變更：局部元件或低風險異動">
+                      🚪 雙向門
+                    </span>
+                  ` : '')}
                 </div>
                 <div class="flex items-center gap-1 flex-shrink-0">
                   ${t.status !== 'backlog' ? `
@@ -411,7 +420,7 @@ import {
           await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(task)
+            body: JSON.stringify({ ...task, forceReview: true })
           });
           renderKanban();
           renderMetrics();
@@ -576,7 +585,7 @@ import {
                 const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
                   method: 'PUT',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(task)
+                  body: JSON.stringify({ ...task, forceReview: true })
                 });
                 if (res.ok) {
                   const updatedTask = await res.json();

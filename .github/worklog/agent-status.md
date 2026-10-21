@@ -5,7 +5,7 @@
 - ID: TASK-001
 - Title: 測試 in_progress 巡檢
 - Status: 已完成
-- Last updated: 2026-10-20
+- Last updated: 2026-10-21
 - Goal: 測試 in_progress 巡檢
 - Route: dashboard-state-and-sync
 - Scope: 測試 in_progress 巡檢
@@ -13,10 +13,10 @@
 
 ## Last Completed Task
 
-- ID: TASK-126
-- Title: 打開 app 時 UI 字級大小未照設定顯示
+- ID: TASK-129
+- Title: 建立 retro
 - Status: 已完成
-- Last updated: 2026-10-20
+- Last updated: 2026-10-21
 
 ## Execution Tracking
 
@@ -32,9 +32,8 @@
 
 - npm run harness:check
 - npm test
-- npm run build:app
 
 ## Resume Entry
 
 - Start here: .github/worklog/agent-status.md
-- Context: TASK-126 打開 app 時 UI 字級大小依設定自動套用與持久化同步交付審查
+- Context: TASK-129 建立 retro (TASK-113 ~ TASK-128) 交付審查

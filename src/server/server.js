@@ -5,7 +5,15 @@ const url = require('url');
 const { exec, execFile, execSync, spawn } = require('child_process');
 
 const os = require('os');
-const { consumeTaskFeedback, healTasksFeedback, formatStructuredExecutionLog, extractCoverageSummary } = require('./feedbackManager');
+const {
+  consumeTaskFeedback,
+  healTasksFeedback,
+  formatStructuredExecutionLog,
+  extractCoverageSummary,
+  validateExecutionLog,
+  calculateRiskDoor,
+  autoAssembleExecutionReport
+} = require('./feedbackManager');
 const {
   parseAgentStatusContent,
   parseBuildPlanContent,
@@ -17,6 +25,22 @@ const {
   markTaskSlicesComplete,
   setReadTasksProvider
 } = require("./worklogParser");
+const {
+  collectGitDiff,
+  discardGitChanges,
+  findProjectCommitSkill,
+  formatCommitMessageFromSkill,
+  formatCommitMessage,
+  buildCommitAgentPrompt,
+  parseAgentCommitOutput
+} = require('./services/gitService');
+const {
+  recordCliRun,
+  getCliRunsToday,
+  killProcessTree,
+  cleanupAllCliProcesses,
+  buildCliCommand
+} = require('./services/cliRunner');
 
 const PORT = process.env.PORT || 3030;
 const USER_HOME = process.env.HOME || os.homedir();
@@ -80,6 +104,8 @@ function readSettings() {
     autoTriggerOnInProgress: true,
     dataDirectoryPath: '',
     fontSize: 'small',
+    cliTimeoutMinutes: 20,
+    dailyCliRunCap: 30,
     initialized: true
   };
 
@@ -216,6 +242,23 @@ function getTasksFilePath() {
 
 function getProjectsFilePath() {
   return path.join(resolveDataDir(), 'projects.json');
+}
+
+function getTaskEventsFilePath() {
+  return path.join(resolveDataDir(), 'task-events.jsonl');
+}
+
+function appendTaskEvent(event = {}) {
+  try {
+    const file = getTaskEventsFilePath();
+    const entry = {
+      timestamp: new Date().toISOString(),
+      ...event
+    };
+    fs.appendFileSync(file, JSON.stringify(entry) + '\n', 'utf8');
+  } catch (err) {
+    console.error('Error appending task event:', err);
+  }
 }
 
 function scanProjectGithubInfo(projPath) {
@@ -760,82 +803,6 @@ function syncToMarkdown(tasks) {
   }
 }
 
-// ============================================
-// 收集完整 Git Diff，包含已追蹤與未追蹤檔案
-// ============================================
-function collectGitDiff(projPath, customEnv, callback) {
-  const statusCmd = 'git -C "' + projPath + '" status --porcelain -uall';
-  exec(statusCmd, { env: customEnv, timeout: 10000, maxBuffer: 20 * 1024 * 1024 }, (statusErr, statusStdout) => {
-    if (statusErr || !statusStdout || !statusStdout.trim()) {
-      return callback([], '');
-    }
-
-    const lines = statusStdout.split('\n').filter(l => l.length >= 4);
-    const modifiedList = lines.map(l => l.slice(3).trim()).filter(Boolean);
-    const untrackedLines = lines.filter(l => l.startsWith('??'));
-
-    // 收集已追蹤檔案的 diff (git diff HEAD)
-    exec('git -C "' + projPath + '" diff HEAD', { env: customEnv, timeout: 15000, maxBuffer: 20 * 1024 * 1024 }, (diffErr, diffContent) => {
-      let diffResult = (!diffErr && diffContent && diffContent.trim()) ? diffContent : '';
-
-      // 收集未追蹤檔案的內容 (git diff --no-index /dev/null <file>)
-      if (untrackedLines.length > 0 && !diffErr) {
-        let pendingCount = untrackedLines.length;
-        const untrackedDiffs = [];
-
-        untrackedLines.forEach(line => {
-          const filePath = line.slice(3).trim();
-          if (!filePath) {
-            pendingCount--;
-            if (pendingCount === 0) finalize();
-            return;
-          }
-
-          // 使用 --no-index 將 /dev/null 與未追蹤檔案比較，產生 diff 格式內容
-          exec('git -C "' + projPath + '" --no-pager diff --no-index /dev/null "' + filePath + '"', { env: customEnv, timeout: 5000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
-            if (!err && stdout && stdout.trim()) {
-              untrackedDiffs.push(stdout);
-            } else if (err && (err.code === 1 || err.code === 128) && stdout && stdout.trim()) {
-              // git diff --no-index 在有差異時會返回 exit code 1，但 stdout 仍有 diff 內容
-              untrackedDiffs.push(stdout);
-            }
-            pendingCount--;
-            if (pendingCount === 0) finalize();
-          });
-        });
-
-        function finalize() {
-          if (untrackedDiffs.length > 0) {
-            diffResult += '\n\n' + untrackedDiffs.join('\n\n');
-          }
-          callback(modifiedList, diffResult);
-        }
-      } else {
-        callback(modifiedList, diffResult);
-      }
-    });
-  });
-}
-
-function buildCliCommand(rawCmd, promptText) {
-  const trimmed = (rawCmd || 'hermes').trim();
-  const escapedPrompt = promptText.replace(/"/g, '\\"');
-
-  if (trimmed.includes('{prompt}') || trimmed.includes('{PROMPT}')) {
-    return trimmed.replace(/{prompt}/gi, '"' + escapedPrompt + '"');
-  }
-
-  // --yolo MUST come before -z (argparse: -z expects one argument; reversed order causes parse error)
-  if (/^hermes(\s|$)/.test(trimmed) && !trimmed.includes('-z') && !trimmed.includes('-q') && !trimmed.includes('chat')) {
-    return trimmed + ' --yolo -z "' + escapedPrompt + '"';
-  }
-  if (/^claude(\s|$)/.test(trimmed) && !trimmed.includes('-p')) {
-    return trimmed + ' -p "' + escapedPrompt + '"';
-  }
-
-  return trimmed + ' "' + escapedPrompt + '"';
-}
-
 // 建立包含 nvm node 路徑的 custom env (避免硬編碼版本號導致路徑不存在)
 function buildCustomEnv() {
   let nvmBinPath = '';
@@ -1070,86 +1037,6 @@ print(json.dumps(results))
   }
 }
 
-// 輔助：建立 Commit 專用 Agent Prompt
-function buildCommitAgentPrompt(projPath, task, diffContent, modifiedFiles, commitSkill) {
-  const skillName = commitSkill ? (commitSkill.label || commitSkill.id) : 'git-workflow-and-versioning';
-  let cleanDiff = (diffContent || '').trim();
-  if (cleanDiff.length > 8000) {
-    cleanDiff = cleanDiff.slice(0, 8000) + '\n\n... (Diff 內容過長已截斷至 8KB)';
-  }
-
-  const prompt = `你是一個專業的 Git Commit Message 產生代理人。請根據專案規範與以下 Git 變更內容（Diff 與異動檔案），產生符合 Conventional Commit 標準的提交訊息。
-
-【專案資訊】
-- 專案目錄: ${projPath}
-- 任務 ID: ${task.id}
-- 任務標題: ${task.title}
-- 任務需求說明: ${task.description || '無詳細說明'}
-- 規範技能: ${skillName}
-
-【變更檔案清單】
-${(modifiedFiles && modifiedFiles.length > 0) ? modifiedFiles.map(f => `- ${f}`).join('\n') : '- (無檔案變更或乾淨狀態)'}
-
-【Git Diff 內容】
-\`\`\`diff
-${cleanDiff || '(無 diff 內容)'}
-\`\`\`
-
-【輸出格式規範】
-請務必嚴格依據 Conventional Commit 規範輸出，請勿加入多餘的客套話或 Markdown 外框，僅輸出以下 JSON 物件格式：
-{
-  "type": "feat|fix|refactor|style|perf|test|docs|chore",
-  "scope": "server|ui|native|harness|skills|build|或適當的模組名稱",
-  "subject": "簡明扼要的 Conventional Commit 標題，例如: feat(server): 增加 commit agent 生成機制",
-  "body": "- 重點條目 1\\n- 重點條目 2"
-}
-`;
-  return prompt;
-}
-
-// 輔助：解析 CLI Agent 輸出的 Commit Message
-function parseAgentCommitOutput(rawOutput, fallbackObj) {
-  if (!rawOutput || !rawOutput.trim()) return fallbackObj;
-
-  const cleaned = cleanAnsi(rawOutput).trim();
-
-  // 1. 嘗試解析 JSON 區塊
-  const jsonMatch = cleaned.match(/\{[\s\S]*"type"[\s\S]*"subject"[\s\S]*\}/);
-  if (jsonMatch) {
-    try {
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (parsed && parsed.subject) {
-        return {
-          type: parsed.type || fallbackObj.type || 'feat',
-          scope: parsed.scope || fallbackObj.scope || '',
-          subject: parsed.subject.trim(),
-          body: parsed.body || fallbackObj.body || ''
-        };
-      }
-    } catch (e) {}
-  }
-
-  // 2. 嘗試解析第一行或 Conventional Commit 格式行
-  const lines = cleaned.split('\n').map(l => l.trim()).filter(Boolean);
-  const convRegex = /^(feat|fix|refactor|perf|test|chore|docs|style|ci|build)(\([^)]+\))?:\s*(.+)$/i;
-  for (const line of lines) {
-    const match = line.match(convRegex);
-    if (match) {
-      const type = match[1].toLowerCase();
-      const scope = match[2] ? match[2].replace(/[()]/g, '').trim() : '';
-      const bodyLines = lines.filter(l => l !== line && (l.startsWith('-') || l.startsWith('*'))).join('\n');
-      return {
-        type: type || fallbackObj.type || 'feat',
-        scope: scope || fallbackObj.scope || '',
-        subject: line,
-        body: bodyLines || fallbackObj.body || ''
-      };
-    }
-  }
-
-  return fallbackObj;
-}
-
 // 觸發 CLI Agent 執行任務 (支援 task 執行模式與 commit 生成模式)
 function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
   const mode = options.mode || 'task'; // 'task' (預設實作) 或 'commit' (Diff 產生 commit)
@@ -1274,11 +1161,12 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
         const cliChild = spawn(bin, args, {
           cwd: projPath,
           env: customEnv,
-          stdio: ['ignore', 'pipe', 'pipe']
+          stdio: ['ignore', 'pipe', 'pipe'],
+          detached: process.platform !== 'win32'
         });
 
         const commitTimeout = setTimeout(() => {
-          try { cliChild.kill('SIGTERM'); } catch (e) {}
+          killProcessTree(cliChild, 'SIGTERM');
           finishCommit(fallbackResult);
         }, 25000);
 
@@ -1319,6 +1207,29 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
     console.log(' [CLI Agent] 任務 ' + taskId + ' 已有行程正在執行中，略過重複觸發。');
     return;
   }
+
+  // 檢查每日運行上限熔斷 (Pulse Quota Circuit Breaker)
+  const dailyRunCap = Number(settings.dailyCliRunCap) > 0 ? Number(settings.dailyCliRunCap) : 30;
+  if (getCliRunsToday() >= dailyRunCap) {
+    const quotaMsg = `[Pulse Quota] 今日 CLI Agent 執行次數已達上限 (${dailyRunCap} 次)，自動熔斷保護已觸發。`;
+    console.warn(`⚠️ ${quotaMsg} (Task: ${taskId})`);
+    task.liveStatus = quotaMsg;
+    writeTasks(tasks);
+    appendTaskEvent({
+      taskId,
+      type: 'quota_circuit_break',
+      reason: 'daily_cap_exceeded',
+      dailyRuns: getCliRunsToday(),
+      dailyRunCap
+    });
+    return;
+  }
+  recordCliRun();
+  appendTaskEvent({
+    taskId,
+    type: 'cli_agent_started',
+    dailyRunCount: getCliRunsToday()
+  });
 
   console.log(' [CLI Agent 引擎] 啟動執行任務: ' + task.id + ' - ' + task.title + ' (目錄: ' + projPath + ')');
 
@@ -1411,7 +1322,8 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
     const child = spawn(bin, args, {
       cwd: projPath,
       env: customEnv,
-      stdio: ['ignore', 'pipe', 'pipe']
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32'
     });
 
     const procStartTime = Date.now();
@@ -1430,19 +1342,23 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
       captureAndTagCliSession(bin, task.id, task.title, projPath, procStartTime, liveOutputBuffer);
     }, 3000);
 
-    // 設定行程超時保護 (預設 10 分鐘)
-    const CLI_TIMEOUT_MS = 10 * 60 * 1000;
+    // 設定行程超時保護 (Pulse Quota: 預設讀取 settings.cliTimeoutMinutes，預設 20 分鐘)
+    const timeoutMinutes = Number(settings.cliTimeoutMinutes) > 0 ? Number(settings.cliTimeoutMinutes) : 20;
+    const CLI_TIMEOUT_MS = timeoutMinutes * 60 * 1000;
     let isTimedOut = false;
     const timeoutTimer = setTimeout(() => {
       isTimedOut = true;
-      console.warn('⚠️ [CLI Agent 引擎] 任務 ' + taskId + ' 執行逾時 (' + (CLI_TIMEOUT_MS / 1000) + ' 秒)，強制中止行程...');
-      logStream.write('\n⚠️ 行程執行逾時 (' + (CLI_TIMEOUT_MS / 1000) + ' 秒)，已被系統強制中止。\n');
-      try {
-        child.kill('SIGTERM');
-        setTimeout(() => {
-          try { child.kill('SIGKILL'); } catch (e) {}
-        }, 3000);
-      } catch (e) {}
+      console.warn('⚠️ [Pulse Quota] 任務 ' + taskId + ' 執行逾時 (' + timeoutMinutes + ' 分鐘)，強制中止行程樹...');
+      logStream.write('\n⚠️ [Pulse Quota] 行程執行逾時 (' + timeoutMinutes + ' 分鐘)，已被系統強制中止進程樹。\n');
+      appendTaskEvent({
+        taskId,
+        type: 'timeout_circuit_break',
+        timeoutMinutes
+      });
+      killProcessTree(child, 'SIGTERM');
+      setTimeout(() => {
+        try { killProcessTree(child, 'SIGKILL'); } catch (e) {}
+      }, 3000);
     }, CLI_TIMEOUT_MS);
 
     let liveOutputBuffer = '';
@@ -1556,6 +1472,9 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
             consumeTaskFeedback(curTask);
             curTask.modifiedFiles = modifiedList || [];
             curTask.diff = diffContent || '';
+            const risk = calculateRiskDoor(modifiedList, diffContent);
+            curTask.riskDoor = risk.riskDoor;
+            curTask.riskReasons = risk.riskReasons;
             curTask.requestCommitGen = false;
             const commitMsg = formatCommitMessageFromSkill(projPath, curTask, diffContent, modifiedList);
             curTask.commitMessage = {
@@ -1752,217 +1671,6 @@ const MIME_TYPES = {
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon'
 };
-
-const GIT_COMMIT_TYPES = ['feat', 'fix', 'refactor', 'perf', 'test', 'chore', 'docs', 'style', 'ci', 'build'];
-
-function findProjectCommitSkill(projPath) {
-  if (!projPath || !fs.existsSync(projPath)) return null;
-
-  // 1. 檢測 .github/skills/
-  const skillsDir = path.join(projPath, '.github', 'skills');
-  if (fs.existsSync(skillsDir)) {
-    try {
-      const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          const lowerName = entry.name.toLowerCase();
-          if (lowerName.includes('commit') || lowerName.includes('git-workflow') || lowerName.includes('versioning')) {
-            const skillFile = path.join(skillsDir, entry.name, 'SKILL.md');
-            let desc = '遵循 Conventional Commit 格式化標準';
-            let label = entry.name;
-            if (fs.existsSync(skillFile)) {
-              try {
-                const content = fs.readFileSync(skillFile, 'utf8');
-                const nameM = content.match(/name:\s*([^\n\r]+)/i);
-                const descM = content.match(/description:\s*([^\n\r]+)/i);
-                if (nameM) label = nameM[1].replace(/^["']|["']$/g, '').trim();
-                if (descM) desc = descM[1].replace(/^["']|["']$/g, '').trim();
-              } catch (e) {}
-            }
-            return {
-              hasSkill: true,
-              id: entry.name,
-              label,
-              desc,
-              path: `.github/skills/${entry.name}`,
-              type: 'github_skill'
-            };
-          }
-        }
-      }
-    } catch (e) {}
-  }
-
-  // 2. 檢測 .github/prompts/commit.prompt.md
-  const promptFile = path.join(projPath, '.github/prompts/commit.prompt.md');
-  if (fs.existsSync(promptFile)) {
-    return {
-      hasSkill: true,
-      id: 'commit.prompt',
-      label: 'commit.prompt.md',
-      desc: 'GitHub Commit Prompt 規範',
-      path: '.github/prompts/commit.prompt.md',
-      type: 'github_prompt'
-    };
-  }
-
-  // 3. 檢測 scripts/commit.sh
-  const scriptFile = path.join(projPath, 'scripts/commit.sh');
-  if (fs.existsSync(scriptFile)) {
-    return {
-      hasSkill: true,
-      id: 'commit-script',
-      label: 'scripts/commit.sh',
-      desc: '專案自訂 Commit 腳本',
-      path: 'scripts/commit.sh',
-      type: 'script'
-    };
-  }
-
-  return null;
-}
-
-function formatCommitMessageFromSkill(projPath, task, diffStat, modifiedFiles) {
-  const commitSkill = findProjectCommitSkill(projPath);
-  const skillName = commitSkill ? commitSkill.path : null;
-
-  const rawTitle = (task.title || 'Update task').trim();
-  const fileList = Array.isArray(modifiedFiles) ? modifiedFiles.map(f => typeof f === 'string' ? f : (f && f.path) ? f.path : '').filter(Boolean) : [];
-  const diffStr = typeof diffStat === 'string' ? diffStat : '';
-
-  // 1. 決定 type (feat, fix, refactor, style, perf, test, docs, chore, revert)
-  let type = '';
-  if (Array.isArray(task.tags)) {
-    const found = task.tags.find(t => ['feat', 'fix', 'refactor', 'style', 'perf', 'test', 'docs', 'chore', 'revert'].includes(t.toLowerCase().trim()));
-    if (found) type = found.toLowerCase().trim();
-  }
-  if (!type) {
-    if (/修復|修正|fix|error|bug|錯|問題|沒有|未/i.test(rawTitle)) type = 'fix';
-    else if (/重構|refactor/i.test(rawTitle)) type = 'refactor';
-    else if (/優化|改善|提升|perf|optimize/i.test(rawTitle)) type = 'perf';
-    else if (/樣式|style|版面|排版|css|scss/i.test(rawTitle)) type = 'style';
-    else if (/文件|doc|readme/i.test(rawTitle)) type = 'docs';
-    else if (/測試|test/i.test(rawTitle)) type = 'test';
-    else type = 'feat';
-  }
-
-  // 2. 決定 scope (依據異動檔案主導層級)
-  let scope = '';
-  const filesStr = (fileList.join(' ') + ' ' + diffStr.slice(0, 4000)).toLowerCase();
-  if (filesStr.includes('watch-task-gate') || (filesStr.includes('gate') && filesStr.includes('server'))) scope = 'engine';
-  else if (filesStr.includes('src/native') || filesStr.includes('.m') || filesStr.includes('webkit')) scope = 'native';
-  else if (filesStr.includes('server.js') || filesStr.includes('src/server')) scope = 'server';
-  else if (filesStr.includes('index.html') || filesStr.includes('src/public') || filesStr.includes('views') || filesStr.includes('component')) scope = 'ui';
-  else if (filesStr.includes('harness') || filesStr.includes('test_server.sh') || filesStr.includes('scripts/test')) scope = 'harness';
-  else if (filesStr.includes('.github/skills') || filesStr.includes('skill.md')) scope = 'skills';
-  else if (filesStr.includes('order-management') || filesStr.includes('order')) scope = 'order';
-  else if (filesStr.includes('router')) scope = 'router';
-  else if (filesStr.includes('store') || filesStr.includes('redux') || filesStr.includes('vuex')) scope = 'store';
-  else if (filesStr.includes('api') || filesStr.includes('service')) scope = 'api';
-  else if (filesStr.includes('auth') || filesStr.includes('login') || filesStr.includes('permission')) scope = 'auth';
-  else if (filesStr.includes('package.json') || filesStr.includes('scripts/build') || filesStr.includes('build_app')) scope = 'build';
-
-  // 3. 深度解析 Diff：提煉具體的檔案與符號級別變更摘要 (絕對非直接複製 description)
-  const diffBullets = [];
-  const fileChunks = diffStr.includes('diff --git') ? diffStr.split(/^diff --git /m).filter(Boolean) : [];
-  const chunkMap = {};
-
-  for (const chunk of fileChunks) {
-    const firstLine = chunk.split('\n')[0] || '';
-    const m = firstLine.match(/a\/(\S+)\s+b\/(\S+)/);
-    const fPath = m ? m[2] : '';
-    if (fPath) chunkMap[fPath] = chunk;
-  }
-
-  const allFiles = Array.from(new Set([...fileList, ...Object.keys(chunkMap)]));
-
-  allFiles.forEach(fName => {
-    const baseName = path.basename(fName);
-    const chunk = chunkMap[fName] || '';
-    const detectedFns = [];
-    const detectedRoutes = [];
-    const detectedUI = [];
-
-    if (chunk) {
-      const addedLines = chunk.split('\n').filter(l => l.startsWith('+') && !l.startsWith('+++'));
-      for (const l of addedLines) {
-        const lineContent = l.slice(1).trim();
-        if (!lineContent || lineContent.startsWith('//') || lineContent.startsWith('*')) continue;
-
-        const routeMatch = lineContent.match(/(?:app\.(?:get|post|put|delete)|pathname\s*(?:===|\.match\())\s*['"`]?(\/api\/[a-zA-Z0-9_\-\/:*]+)/);
-        if (routeMatch && !detectedRoutes.includes(routeMatch[1])) detectedRoutes.push(routeMatch[1]);
-
-        const fnDefMatch = lineContent.match(/(?:function\s+|const\s+|async\s+function\s+)([a-zA-Z0-9_$]+)\s*\(/);
-        if (fnDefMatch && !detectedFns.includes(fnDefMatch[1])) detectedFns.push(fnDefMatch[1]);
-
-        const uiMatch = lineContent.match(/<(?:button|div|input|modal|span)[^>]*id=['"]([^'"]+)['"]/);
-        if (uiMatch && !detectedUI.includes(uiMatch[1])) detectedUI.push(uiMatch[1]);
-      }
-    }
-
-    let summary = '';
-    if (detectedRoutes.length > 0) {
-      summary = `升級 API 路由端點 (${detectedRoutes.slice(0, 3).join(', ')})`;
-    } else if (detectedUI.length > 0) {
-      summary = `新增/更新介面互動元件 (${detectedUI.slice(0, 3).join(', ')})`;
-    } else if (detectedFns.length > 0) {
-      summary = `實作/重構核心函式 (${detectedFns.slice(0, 3).join(', ')})`;
-    } else if (fName.includes('watch-task-gate')) {
-      summary = '優化任務哨兵監控與背景喚醒機制';
-    } else if (fName.includes('server.js')) {
-      summary = '後端服務邏輯調校與開工引擎強化';
-    } else if (fName.includes('index.html') || fName.includes('public')) {
-      summary = '前端面板視圖與彈窗互動優化';
-    } else if (fName.includes('AGENTS.md') || fName.includes('CLAUDE.md') || fName.endsWith('.md')) {
-      summary = '同步更新規範與架構說明文檔';
-    } else if (fName.includes('test') || fName.includes('harness')) {
-      summary = '補齊自動化測試與規範檢核腳本';
-    } else {
-      summary = `模組功能實作與異動更新 (${baseName})`;
-    }
-
-    diffBullets.push(`- ${summary} (${fName})`);
-  });
-
-  // 4. 處理 subject (若任務標題為負向缺陷描述，轉為正面實作交付主旨)
-  let cleanTitle = rawTitle.replace(/^(feat|fix|refactor|style|perf|test|docs|chore|revert)(\([^)]+\))?:\s*/i, '').trim();
-  if (cleanTitle.includes('沒有經過') || cleanTitle.includes('未經過') || cleanTitle.includes('不是 agent')) {
-    cleanTitle = '實作基於 Git Diff 深度語意分析之 Commit Message 產出機制';
-  } else if (/^加上根據\s*diff\s*產出\s*commit/i.test(cleanTitle)) {
-    cleanTitle = '升級開工引擎支援依據 Git Diff 自動產出 Commit Message';
-  } else if (cleanTitle.endsWith('失敗') || cleanTitle.endsWith('錯誤')) {
-    cleanTitle = `修復 ${cleanTitle.replace(/失敗|錯誤$/, '')} 問題`;
-  }
-
-  let finalMsg = scope ? `${type}(${scope}): ${cleanTitle}` : `${type}: ${cleanTitle}`;
-
-  // 5. 組合 Body (優先以 Diff 分析項目為主，絕非直接帶入 description)
-  let bodyText = '';
-  if (diffBullets.length > 0) {
-    bodyText = diffBullets.join('\n');
-  } else if (allFiles.length > 0) {
-    bodyText = allFiles.map(f => `- 異動檔案: ${f}`).join('\n');
-  } else {
-    bodyText = '- 程式碼與架構規範檢驗通過';
-  }
-
-  return { message: finalMsg, skillName, commitSkill, type, scope, body: bodyText };
-}
-
-function formatCommitMessage(task) {
-  const rawTitle = (task.title || 'Update task').trim();
-  const conventionalRegex = /^(feat|fix|refactor|perf|test|chore|docs|style|ci|build)(\([^)]+\))?:\s*/i;
-  if (conventionalRegex.test(rawTitle)) {
-    return rawTitle;
-  }
-  let gitType = '';
-  if (Array.isArray(task.tags)) {
-    const found = task.tags.find(t => GIT_COMMIT_TYPES.includes(t.toLowerCase().trim()));
-    if (found) gitType = found.toLowerCase().trim();
-  }
-  if (!gitType) gitType = 'feat';
-  return `${gitType}: ${rawTitle}`;
-}
 
 function executeProjectCommit(projPath, task, customData = {}) {
   if (!fs.existsSync(projPath) || !fs.existsSync(path.join(projPath, '.git'))) {
@@ -2590,6 +2298,25 @@ function runNativeFolderPicker(promptText, callback) {
         const prevStatus = tasks[index].status;
         const prevFeedback = tasks[index].feedback;
 
+        // [Code over LLM] 確定性程式碼自動組裝標準 4 章節任務執行報告
+        if (data.autoAssembleReport || (data.rootCause && data.resolution)) {
+          data.executionLog = autoAssembleExecutionReport(tasks[index], data);
+        }
+
+        // [Slice Judge Gate] 若將狀態推進至 review，非手動強制推進 (forceReview !== true) 時強制檢驗 executionLog
+        if (data.status === 'review' && prevStatus !== 'review' && !data.forceReview) {
+          const logToCheck = data.executionLog !== undefined ? data.executionLog : tasks[index].executionLog;
+          const valResult = validateExecutionLog(logToCheck);
+          if (!valResult.valid) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              error: 'Review gate failed: executionLog does not satisfy binary acceptance criteria.',
+              reason: valResult.reason
+            }));
+            return;
+          }
+        }
+
         // 若前次已有未清空的 feedback，且本次傳入新的 feedback（例如多次退回重做）
         if (prevFeedback && typeof prevFeedback === 'string' && prevFeedback.trim().length > 0 &&
             data.feedback && typeof data.feedback === 'string' && data.feedback.trim() !== prevFeedback.trim()) {
@@ -2605,6 +2332,11 @@ function runNativeFolderPicker(promptText, callback) {
           modifiedFiles: Array.isArray(data.modifiedFiles) ? data.modifiedFiles : (tasks[index].modifiedFiles || []),
           updatedAt: new Date().toISOString()
         };
+
+        if (data.claimedBy && data.claimedBy !== prevTaskBeforeUpdate.claimedBy) {
+          tasks[index].claimedBy = data.claimedBy;
+          tasks[index].claimedAt = new Date().toISOString();
+        }
 
         // 若更新後狀態為 review、done 或 archived，確保 feedback 已被消耗並寫入描述歷史
         if (tasks[index].status === 'review' || tasks[index].status === 'done' || tasks[index].status === 'archived') {
@@ -2630,6 +2362,25 @@ function runNativeFolderPicker(promptText, callback) {
           }
         }
         writeTasks(tasks);
+
+        // [Append-only Event Log] 紀錄狀態轉移與認領事件
+        if (prevStatus !== tasks[index].status) {
+          appendTaskEvent({
+            taskId,
+            type: 'status_transition',
+            fromStatus: prevStatus,
+            toStatus: tasks[index].status,
+            claimedBy: tasks[index].claimedBy || null
+          });
+        }
+        if (data.claimedBy && data.claimedBy !== prevTaskBeforeUpdate.claimedBy) {
+          appendTaskEvent({
+            taskId,
+            type: 'task_claimed',
+            claimedBy: tasks[index].claimedBy,
+            claimedAt: tasks[index].claimedAt
+          });
+        }
 
         const wasPendingConfirmation = prevTaskBeforeUpdate.requiresConfirmation && prevTaskBeforeUpdate.status === 'in_progress';
         const isNowConfirmedAndRunning = tasks[index].status === 'in_progress' && !tasks[index].requiresConfirmation;
@@ -2658,6 +2409,11 @@ function runNativeFolderPicker(promptText, callback) {
             if (freshTask) {
               freshTask.modifiedFiles = modifiedList;
               freshTask.diff = diffContent;
+              const risk = calculateRiskDoor(modifiedList, diffContent);
+              if (!freshTask.riskDoor || freshTask.riskDoor === 'two-way') {
+                freshTask.riskDoor = risk.riskDoor;
+                freshTask.riskReasons = risk.riskReasons;
+              }
               const isLegacyDesc = freshTask.commitMessage && freshTask.description && freshTask.commitMessage.body && freshTask.commitMessage.body.trim() === freshTask.description.trim();
               if (!freshTask.commitMessage || !freshTask.commitMessage.subject || isLegacyDesc) {
                 const commitMsg = formatCommitMessageFromSkill(projPath, freshTask, diffContent, modifiedList);
@@ -3217,16 +2973,8 @@ function runNativeFolderPicker(promptText, callback) {
 
         // 若使用者選擇 discardChanges，執行 git reset --hard HEAD 與 git clean -fd 徹底還原
         let discardOutput = '';
-        if (reqData.discardChanges === true && fs.existsSync(projPath) && fs.existsSync(path.join(projPath, '.git'))) {
-          try {
-            try { execSync('git reset --hard HEAD', { cwd: projPath, encoding: 'utf8', timeout: 8000 }); } catch (rErr) {
-              try { execSync('git checkout .', { cwd: projPath, encoding: 'utf8', timeout: 5000 }); } catch (e) {}
-            }
-            try { execSync('git clean -fd', { cwd: projPath, encoding: 'utf8', timeout: 8000 }); } catch (cErr) {}
-            discardOutput = '工作區變更已成功捨棄 (git reset --hard HEAD && git clean -fd)';
-          } catch (gErr) {
-            discardOutput = '捨棄工作區變更失敗: ' + gErr.message;
-          }
+        if (reqData.discardChanges === true) {
+          discardOutput = discardGitChanges(projPath);
         }
 
         const nowIso = new Date().toISOString();
@@ -3294,17 +3042,7 @@ function runNativeFolderPicker(promptText, callback) {
             projPath = path.join(os.homedir(), projPath.slice(1));
           }
           projPath = path.resolve(projPath);
-          if (fs.existsSync(projPath) && fs.existsSync(path.join(projPath, '.git'))) {
-            try {
-              try { execSync('git reset --hard HEAD', { cwd: projPath, encoding: 'utf8', timeout: 8000 }); } catch (rErr) {
-                try { execSync('git checkout .', { cwd: projPath, encoding: 'utf8', timeout: 5000 }); } catch (e) {}
-              }
-              try { execSync('git clean -fd', { cwd: projPath, encoding: 'utf8', timeout: 8000 }); } catch (cErr) {}
-              discardOutput = '工作區變更已成功捨棄 (git reset --hard HEAD && git clean -fd)';
-            } catch (gErr) {
-              discardOutput = '捨棄工作區變更失敗: ' + gErr.message;
-            }
-          }
+          discardOutput = discardGitChanges(projPath);
         }
 
         writeTasks(filtered);
@@ -3353,6 +3091,13 @@ function runNativeFolderPicker(promptText, callback) {
 });
 
 if (require.main === module) {
+  const shutdown = () => {
+    cleanupAllCliProcesses(activeCliProcesses);
+    process.exit(0);
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+
   server.listen(PORT, '0.0.0.0', () => {
     console.log(` Task Dashboard Server running at http://localhost:${PORT}`);
     console.log(` Single Source of Truth: ${ROOT_DIR}`);

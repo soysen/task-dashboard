@@ -5,7 +5,12 @@ const path = require('node:path');
 const net = require('node:net');
 const { spawn, execFileSync } = require('node:child_process');
 const { once } = require('node:events');
-const { formatStructuredExecutionLog } = require('../src/server/feedbackManager');
+const {
+  formatStructuredExecutionLog,
+  validateExecutionLog,
+  calculateRiskDoor,
+  autoAssembleExecutionReport
+} = require('../src/server/feedbackManager');
 
 const root = path.resolve(__dirname, '..');
 const longOutput = 'BEGIN-DETAIL\n' + '執行細節 <script>alert("test")</script>\t✓\n'.repeat(5000) + 'END-DETAIL\n';
@@ -42,6 +47,15 @@ async function main() {
   assert(formatStructuredExecutionLog('\n  raw output \t\n\n').endsWith('\n  raw output \t\n\n'), 'Preserve leading/trailing whitespace');
   assert(formatStructuredExecutionLog('').includes('未提供前置檢閱細節'));
   assert(formatStructuredExecutionLog('raw', { phase1: 'read AGENTS.md', phase2: 'changed file', phase3: 'node test: exit 0' }).includes('node test: exit 0'));
+
+  // Task 1.1: Slice Judge 二元驗收門禁單元斷言
+  assert.equal(validateExecutionLog('').valid, false, 'Empty log must fail');
+  assert.equal(validateExecutionLog('已完成修改').valid, false, 'Superficial single line log must fail');
+  assert.equal(validateExecutionLog('修正完畢！').valid, false, 'Superficial short log must fail');
+  assert.equal(validateExecutionLog('短字串未滿三十字元長度限制').valid, false, 'Sub-30 character log must fail');
+  assert.equal(validateExecutionLog('這是一段超過三十個字的說明，但是裡面完全沒有任何測試結果與驗證指令證據').valid, false, 'Log without test evidence must fail');
+  assert.equal(validateExecutionLog('這是一段超過三十個字的修復說明，已執行 npm test 通過，PASS 測試套件零回歸。').valid, true, 'Log with valid test evidence must pass');
+  assert.equal(validateExecutionLog('### Phase 1: Pre-flight\n### Phase 2: Impl\n### Phase 3: Exit Code: 0').valid, true, 'Standard 3-phase log must pass');
   const html = fs.readFileSync(path.join(root, 'src/public/index.html'), 'utf8');
   const modules = fs.readdirSync(path.join(root, 'src/public/modules')).filter(f => f.endsWith('.js')).map(f => fs.readFileSync(path.join(root, 'src/public/modules', f), 'utf8')).join('\n');
   const uiContent = html + '\n' + modules;
@@ -169,6 +183,101 @@ async function main() {
       assert.equal(apiTasks.find(t => t.id === created.id).executionLog, task.executionLog, 'API preserves saved log');
       console.log(`PASS execution logs: ${mode}`);
     }
+
+    // Task 1.1 & 1.3: 測試 PUT /api/tasks/:id 之二元審查門禁與 task-events.jsonl
+    const gateTaskRes = await request('/api/tasks', 'POST', {
+      title: '二元審查門禁測試任務',
+      project: 'logs',
+      status: 'in_progress'
+    });
+    const gateTask = await gateTaskRes.json();
+
+    // 1. 嘗試以敷衍日誌推進至 review (非手動強制) -> 預期被 400 攔截
+    const superficialRes = await fetch(base + `/api/tasks/${gateTask.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'review', executionLog: '已完成修改' })
+    });
+    assert.equal(superficialRes.status, 400, 'Superficial review transition must be rejected with 400');
+    const rejData = await superficialRes.json();
+    assert(rejData.error.includes('Review gate failed'), 'Error message must specify Review gate failed');
+
+    // 2. 傳入合規日誌推進至 review -> 預期 200 通過
+    const validRes = await fetch(base + `/api/tasks/${gateTask.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: 'review',
+        executionLog: '### Phase 1: Pre-Flight 分析目標\n### Phase 2: Impl 修正\n### Phase 3: 驗證指令 npm test 通過，Exit Code: 0'
+      })
+    });
+    assert.equal(validRes.status, 200, 'Valid review transition must succeed');
+
+    // 3. 檢驗 task-events.jsonl Append-only 是否正確紀錄
+    const eventsFile = path.join(dataDir, 'task-events.jsonl');
+    assert(fs.existsSync(eventsFile), 'task-events.jsonl must exist');
+    const eventsContent = fs.readFileSync(eventsFile, 'utf8');
+    assert(eventsContent.includes(gateTask.id), 'Events log must record events for gateTask');
+    assert(eventsContent.includes('status_transition'), 'Events log must record status transitions');
+    console.log('PASS Slice 1: Backend Slice Judge Gate & Append-only Event Log');
+
+    // Task 2.1: calculateRiskDoor 判定測試
+    const criticalRisk = calculateRiskDoor(['src/server/server.js'], '+ line\n- line');
+    assert.equal(criticalRisk.riskDoor, 'one-way', 'Modifying server.js must trigger one-way door');
+    assert(criticalRisk.riskReasons.some(r => r.includes('server.js')));
+
+    const deleteRisk = calculateRiskDoor(['D oldFile.js'], 'deleted file mode 100644');
+    assert.equal(deleteRisk.riskDoor, 'one-way', 'File deletion must trigger one-way door');
+
+    const largeDiff = '+ test\n'.repeat(350);
+    const largeDiffRisk = calculateRiskDoor(['src/public/app.js'], largeDiff);
+    assert.equal(largeDiffRisk.riskDoor, 'one-way', 'Diff > 300 lines must trigger one-way door');
+
+    const safeRisk = calculateRiskDoor(['src/public/style.css'], '+ .btn { color: red; }');
+    assert.equal(safeRisk.riskDoor, 'two-way', 'Minor UI change must be two-way door');
+
+    // Task 2.2: 確定性報告自動組裝 (Code over LLM)
+    const assembled = autoAssembleExecutionReport(
+      { title: '優化測試', modifiedFiles: ['src/test.js'] },
+      {
+        rootCause: '原先缺少單元測試覆蓋',
+        resolution: '補充斷言並修復邊界條件',
+        testCommand: 'node test.js',
+        exitCode: 0,
+        rawLog: 'PASS all test cases'
+      }
+    );
+    assert(assembled.includes('## 1. 任務目標與根因分析'));
+    assert(assembled.includes('原先缺少單元測試覆蓋'));
+    assert(assembled.includes('## 2. 解決方案與核心異動'));
+    assert(assembled.includes('## 4. 品質驗證與交付證明'));
+    assert(assembled.includes('PASS all test cases'));
+
+    // API 呼叫：透過簡短因果參數推進至 review，由後端自動組裝報告並通過門禁
+    const autoTaskRes = await request('/api/tasks', 'POST', {
+      title: '自動報告組裝測試任務',
+      project: 'logs',
+      status: 'in_progress',
+      modifiedFiles: ['src/test.js']
+    });
+    const autoTask = await autoTaskRes.json();
+    const autoReviewRes = await fetch(base + `/api/tasks/${autoTask.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: 'review',
+        autoAssembleReport: true,
+        rootCause: 'API 缺乏結構化報告組裝',
+        resolution: '後端以確定性程式碼自動組裝報告骨架',
+        testCommand: 'npm test',
+        exitCode: 0
+      })
+    });
+    assert.equal(autoReviewRes.status, 200, 'Auto-assembled review transition must succeed');
+    const autoUpdated = await autoReviewRes.json();
+    assert(autoUpdated.executionLog.includes('## 1. 任務目標與根因分析'));
+    assert(autoUpdated.executionLog.includes('## 4. 品質驗證與交付證明'));
+    console.log('PASS Slice 2: One-Way/Two-Way Door & Deterministic Report Assembly');
   } finally {
     server.kill('SIGTERM');
     await serverClosed;
