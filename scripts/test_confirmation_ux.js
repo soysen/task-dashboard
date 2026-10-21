@@ -84,6 +84,8 @@ async function main() {
     assert.equal(request.assignedAgent, 'Copilot');
     assert.equal(request.executionPlan, 'user edited plan');
     assert.equal(request.confirmExecution, true);
+    assert.equal(request.claimedBy, null);
+    assert.equal(request.claimedAt, null);
     assert(request.executionLog.startsWith('previous evidence\n'));
     assert(request.executionLog.includes('✅ [Confirmation Gate]'));
     assert.equal(f.errors.length, 0, 'No ReferenceError after successful API response');

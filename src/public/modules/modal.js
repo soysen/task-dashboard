@@ -1566,6 +1566,8 @@ import { loadData } from "./app.js";
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               ...task,
+              claimedBy: null,
+              claimedAt: null,
               requiresConfirmation: false,
               confirmExecution: true,
               executionPlan: currentPlan,

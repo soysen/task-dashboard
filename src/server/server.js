@@ -835,6 +835,33 @@ function cleanAnsi(str) {
 
 const activeCliProcesses = new Map();
 
+// SSE (Server-Sent Events) 客戶端連線池與廣播
+const sseClients = new Set();
+
+function broadcastSse(event, data) {
+  if (sseClients.size === 0) return;
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const client of sseClients) {
+    try {
+      client.write(payload);
+    } catch (e) {
+      sseClients.delete(client);
+    }
+  }
+}
+
+const sseKeepAliveTimer = setInterval(() => {
+  if (sseClients.size === 0) return;
+  for (const client of sseClients) {
+    try {
+      client.write(': keepalive\n\n');
+    } catch (e) {
+      sseClients.delete(client);
+    }
+  }
+}, 25000);
+sseKeepAliveTimer.unref();
+
 // 週期性對所有活躍中 CLI 任務執行輕量 Git 變更探針
 function probeLiveActiveTasks() {
   if (activeCliProcesses.size === 0) return;
@@ -1484,6 +1511,7 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
             curTask._retryCount = 0;
             writeTasks(updatedTasks);
             syncToMarkdown(updatedTasks);
+            broadcastSse('task-complete', { taskId });
             console.log(' [CLI Agent 引擎] 任務 ' + taskId + ' 驗收通過，已依據 Diff 產出 Commit 訊息並推進至 Review！');
           } else if (isSuccess && !hasGitChanges) {
             if (curTask.requiresConfirmation && (!curTask.executionPlan || !curTask.executionPlan.trim())) {
@@ -1511,6 +1539,7 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
             curTask._retryCount = 0;
             writeTasks(updatedTasks);
             syncToMarkdown(updatedTasks);
+            broadcastSse('task-complete', { taskId });
             console.log(' [CLI Agent 引擎] 任務 ' + taskId + ' 執行完畢 (無檔案變更)，已推進至 Review。');
           } else {
             // 失敗 (包括有 API 429 報錯、超時或無產出且異常)
@@ -1524,6 +1553,7 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
               curTask._retryCount = retryCount + 1;
               writeTasks(updatedTasks);
               syncToMarkdown(updatedTasks);
+              broadcastSse('task-error', { taskId, error: reasonMsg });
               setTimeout(() => executeTaskWithCliAgent(taskId), 5000);
             } else {
               const failLog = '\n[' + new Date().toISOString() + '] ❌ CLI Agent 執行失敗 (' + reasonMsg + ')，無有效變更產出。\n' +
@@ -1534,6 +1564,7 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
               curTask._retryCount = 0;
               writeTasks(updatedTasks);
               syncToMarkdown(updatedTasks);
+              broadcastSse('task-error', { taskId, error: reasonMsg });
               console.error(' [CLI Agent 引擎] 任務 ' + taskId + ' 執行失敗，已重置為 Todo。');
             }
           }
@@ -1803,6 +1834,34 @@ const server = http.createServer((req, res) => {
   }
 
   // --- API 路由 ---
+
+  // SSE: 即時任務與 Agent 事件推送
+  if (pathname === '/api/events' && req.method === 'GET') {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no'
+    });
+    res.write(': keepalive\n\n');
+    sseClients.add(res);
+
+    req.on('close', () => {
+      sseClients.delete(res);
+    });
+    return;
+  }
+
+  // 重啟伺服器
+  if (pathname === '/api/server/restart' && req.method === 'POST') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true, message: 'Server restarting...' }));
+    setTimeout(() => {
+      cleanupAllCliProcesses(activeCliProcesses);
+      process.exit(0);
+    }, 500);
+    return;
+  }
 
   // 系統設定 (CLI Agent 開關與指令)
   if (pathname === '/api/settings' && req.method === 'GET') {
@@ -2269,6 +2328,7 @@ function runNativeFolderPicker(promptText, callback) {
           executeTaskWithCliAgent(newTask.id);
         }
 
+        broadcastSse('task-update', { taskId: newTask.id, status: newTask.status });
         res.writeHead(201, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(newTask));
       } catch (err) {
@@ -2333,9 +2393,15 @@ function runNativeFolderPicker(promptText, callback) {
           updatedAt: new Date().toISOString()
         };
 
-        if (data.claimedBy && data.claimedBy !== prevTaskBeforeUpdate.claimedBy) {
-          tasks[index].claimedBy = data.claimedBy;
-          tasks[index].claimedAt = new Date().toISOString();
+        if (data.claimedBy !== undefined && data.claimedBy !== prevTaskBeforeUpdate.claimedBy) {
+          tasks[index].claimedBy = data.claimedBy || null;
+          tasks[index].claimedAt = data.claimedBy ? new Date().toISOString() : null;
+        }
+
+        // 若狀態切換為 todo 或非 in_progress，清除認領鎖定
+        if (tasks[index].status === 'todo') {
+          tasks[index].claimedBy = null;
+          tasks[index].claimedAt = null;
         }
 
         // 若更新後狀態為 review、done 或 archived，確保 feedback 已被消耗並寫入描述歷史
@@ -2393,6 +2459,11 @@ function runNativeFolderPicker(promptText, callback) {
           if (data.modifiedFiles === undefined) tasks[index].modifiedFiles = [];
           tasks[index].commitMessage = null;
           tasks[index].requestCommitGen = false;
+          // 若為確認執行觸發，釋放 planning 階段的認領鎖定，使背景守候中的哨兵或 CLI 能夠立即認領
+          if (isConfirmedExecutionTrigger || data.confirmExecution === true) {
+            tasks[index].claimedBy = null;
+            tasks[index].claimedAt = null;
+          }
           writeTasks(tasks);
           executeTaskWithCliAgent(taskId);
         }
@@ -2471,6 +2542,7 @@ function runNativeFolderPicker(promptText, callback) {
           }
         }
 
+        broadcastSse('task-update', { taskId, status: tasks[index].status });
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(responseTask));
       } catch (err) {

@@ -40,6 +40,10 @@ if (!claimerId) {
 
 // 1. 動態解析真實資料庫目錄 (Single Source of Truth)
 function resolveDataDir() {
+  if (process.env.TASK_DASHBOARD_DATA_DIR && process.env.TASK_DASHBOARD_DATA_DIR.trim()) {
+    return process.env.TASK_DASHBOARD_DATA_DIR.trim();
+  }
+
   // 優先檢查同目錄或標準 Application Support 目錄中的 settings.json
   const candidateSettingsFiles = [
     path.join(__dirname, 'settings.json'),
@@ -70,6 +74,15 @@ function resolveDataDir() {
 const DATA_DIR = resolveDataDir();
 const TASKS_FILE = path.join(DATA_DIR, 'tasks.json');
 
+function isPidAlive(pid) {
+  try {
+    process.kill(Number(pid), 0);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 function findActionableTask() {
   try {
     if (!fs.existsSync(TASKS_FILE)) return null;
@@ -89,10 +102,14 @@ function findActionableTask() {
       if (t.status === 'in_progress') {
         // Conversation Lock 判定：若已被其他活躍視窗認領（15 分鐘內有效），則跳過避免雙重喚醒搶單
         if (t.claimedBy && t.claimedBy !== claimerId && t.claimedAt) {
-          const claimAgeMs = Date.now() - new Date(t.claimedAt).getTime();
-          const CLAIM_TTL_MS = 15 * 60 * 1000;
-          if (!isNaN(claimAgeMs) && claimAgeMs < CLAIM_TTL_MS) {
-            return false;
+          const pidMatch = String(t.claimedBy).match(/-(\d+)$/);
+          const isOwnerAlive = pidMatch ? isPidAlive(pidMatch[1]) : true;
+          if (isOwnerAlive) {
+            const claimAgeMs = Date.now() - new Date(t.claimedAt).getTime();
+            const CLAIM_TTL_MS = 15 * 60 * 1000;
+            if (!isNaN(claimAgeMs) && claimAgeMs < CLAIM_TTL_MS) {
+              return false;
+            }
           }
         }
         // 若任務勾選需確認後再執行，且已經產出完整執行計劃，則處於「待確認」等待使用者審閱並點擊「確認並執行」，哨兵暫不喚醒開工

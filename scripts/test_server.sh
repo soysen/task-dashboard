@@ -48,6 +48,15 @@ echo "  [3/5] 測試 GET /api/settings ..."
 curl -s -f "http://localhost:$TEST_PORT/api/settings" > /dev/null
 echo "    ✅ /api/settings 正常"
 
+echo "  [3.5/5] 測試 GET /api/events (SSE 即時推送端點) ..."
+SSE_HEADERS=$(curl -s -m 1 -i "http://localhost:$TEST_PORT/api/events" || true)
+if echo "$SSE_HEADERS" | grep -qi "text/event-stream"; then
+  echo "    ✅ /api/events SSE 串流標頭正常 (text/event-stream)"
+else
+  echo "    ❌ /api/events 標頭異常: $SSE_HEADERS"
+  exit 1
+fi
+
 echo "  [4/5] 測試 GET / (靜態首頁) ..."
 curl -s -f "http://localhost:$TEST_PORT/" > /dev/null
 echo "    ✅ 首頁靜態資源託管正常"
