@@ -1,6 +1,6 @@
 # 🚀 Task Dashboard 開發歷程與技術回顧 (Retrospective)
 
-> **版本週期**：TASK-001 ~ TASK-134  
+> **版本週期**：TASK-001 ~ TASK-138  
 > **核心主題**：打造以 Ticket-driven 為核心的 AI 代理人自動化開發與審查樞紐  
 > **參與專案**：`task-dashboard`、`fetnet-eservice-f2e`、`tool-static-portal`、`tool-static-web`、`service-mobilecircle-inline-page`、`service-fami-controller`、`plan-to-build`
 
@@ -17,6 +17,7 @@
 8. [🎯 2026-10-13 任務執行報告、Git Diff 檢視器與人機協同品質門禁深化覆盤 (TASK-093 ~ TASK-112)](#8-2026-10-13-任務執行報告git-diff-檢視器與人機協同品質門禁深化覆盤-task-093--task-112)
 9. [🚀 2026-10-21 系統架構模組化、二元審查門禁 (Slice Judge Gate)、單雙向門風險評級與人機協同防護技術回顧 (TASK-113 ~ TASK-129)](#9-2026-10-21-系統架構模組化二元審查門禁-slice-judge-gate單雙向門風險評級與人機協同防護技術回顧-task-113--task-129)
 10. [⚡️ 2026-10-21 確認並執行 (Confirmation Gate) 徹底解鎖、進程活體死鎖偵測與哨兵即時喚醒閉環技術回顧 (TASK-130 ~ TASK-134)](#10-2026-10-21-確認並執行-confirmation-gate-徹底解鎖進程活體死鎖偵測與哨兵即時喚醒閉環技術回顧-task-130--task-134)
+11. [🎨 2026-10-22 待確認執行計劃 HTML 視覺化排版、審閱意見輸入解鎖與跨專案 5GSA 錯誤導頁重構技術回顧 (TASK-135 ~ TASK-138)](#11-2026-10-22-待確認執行計劃-html-視覺化排版審閱意見輸入解鎖與跨專案-5gsa-錯誤導頁重構技術回顧-task-135--task-138)
 
 ---
 
@@ -567,7 +568,111 @@ graph TD
    - 目前 `watch-task-gate.js` 主要依賴 `fs.watch` 檔案系統事件。後續可評估讓哨兵直接掛載 `/api/events` 作為內部推播，形成「檔案變更事件 + SSE 記憶體即時廣播」雙通道守候，達到更極致的 0 毫秒即時喚醒。
 
 ---
-*Retrospective Report updated at 2026-10-21 by Antigravity.*
+
+## 11. 🎨 2026-10-22 待確認執行計劃 HTML 視覺化排版、審閱意見輸入解鎖與跨專案 5GSA 錯誤導頁重構技術回顧 (TASK-135 ~ TASK-138)
+
+### 11.1 任務清單與交付總覽
+
+| 任務編號 | 所屬專案 | 類型 | 核心交付目標與實作內容 | 交付狀態 |
+| :--- | :--- | :--- | :--- | :--- |
+| **TASK-135** | `fetnet-eservice-f2e` | Inspect / Fix | 檢查 5GSA API Root 與網關端點映射，校準 MSW Mock API 路由與真實服務層請求連通性 | 審核通過並歸檔 |
+| **TASK-136** | `fetnet-eservice-f2e` | Feature / Sec | 5GSA 互動與個資安全重構：全面移除各頁面（首頁、資格檢查、場館選擇、預約確認與預約記錄）直接暴露技術細節之紅字 (`five-gsa-error`)，改以封裝通用 `ToResultErrorPage` 工具導向標準 `/resultController/ResultPage`；首頁與方案確認頁登入門號改由驗證資訊帶入並以 `maskPhoneNo` 加密遮罩格式呈現；全模組 8 組測試套件 54 項單元測試全數 PASS，Harness GATE:PASS | 審核通過並歸檔 |
+| **TASK-137** | `task-dashboard` | UX / Feature | 待確認執行計劃 HTML 格式視覺化排版與意見回饋通道解鎖：參考待驗收狀態之任務執行過程，實作結構化 HTML 計劃容器 (`#formPlanVisual`) 與即時切換按鈕 (`btnPlanTabVisual` vs `btnPlanTabRaw`)；解除待確認狀態下 `#reviewFeedbackBox` 的隱藏與唯讀鎖定，讓使用者在授權前能直接輸入補充意見並自動附帶至 `task.feedback` 與 `confirmLog`；補齊專屬測試 `test_plan_html_ux.js` | 審核通過並推入 Review |
+| **TASK-138** | `task-dashboard` | Retro / Arch | 系統性盤點與提煉 TASK-135 ~ TASK-138 跨專案之安全導頁、隱私遮罩、人機協同審核介面演進與雙向通訊架構決策之全景覆盤報告 | 本次深度覆盤報告交付 |
+
+---
+
+### 11.2 架構演進流程圖 (Confirmation Gate & Pre-Execution Feedback Loop)
+
+```mermaid
+flowchart TD
+    A["Agent 啟動 Phase 1"] --> B["擬定 Markdown 格式 executionPlan"]
+    B --> C["回寫 tasks.json (requiresConfirmation: true)"]
+    C --> D["進入『待確認 (Pending Confirmation)』狀態"]
+    D --> E["使用者開啟任務彈窗 (openModalForEdit)"]
+    E --> F["renderExecutionPlan 自動解析為結構化 HTML (分級標題/Badge/清單/Code)"]
+    E --> G["解鎖下方 reviewFeedbackBox (開放輸入審閱意見/補充邊界)"]
+    F & G --> H{"使用者審閱決策"}
+    H -- "需調整/切換文字" --> I["切換 switchPlanViewTab('raw') 自由修改 Textarea"]
+    H -- "補充指示並授權執行" --> J["輸入意見 + 點擊『確認並執行』"]
+    J --> K["confirmAndExecuteTask 收集 formFeedback"]
+    K --> L["PUT /api/tasks/:id (附帶 feedback + confirmLog + 釋放認領鎖定)"]
+    L --> M["哨兵 watch-task-gate 即時 Wakeup 喚醒 Agent 開工 (Phase 2)"]
+    M --> N["Agent 讀取 task.feedback 優先落實使用者指示並開始實作"]
+```
+
+---
+
+### 11.3 深度技術評價：Keep（做得好 / 關鍵突破）
+
+1. **待確認執行計劃 HTML 結構化排版與雙向檢視分頁 (Structured HTML Plan & Dual-View Tabs)**：
+   - **痛點根因**：過去待確認階段僅提供一個純文字 `<textarea id="formExecutionPlan">`，Markdown 的分級標題、實作切片、條列項目與程式碼標記全混雜在一起，資訊層級扁平且視覺擁擠，審閱者難以快速抓住核心變更點。
+   - **結構化排版突破**：借鏡待驗收狀態下「任務執行與驗證報告 (Task Execution Report)」的優雅設計，在 `executionReport.js` 擴充 `renderExecutionPlan` 模組：
+     - 自動解析 Markdown 標題，匹配 `需求與目標`、`受影響檔案`、`實作切片`、`品質驗證` 與 `邊界決策` 五大主題，動態賦予琥珀、紫、天藍、翡翠與珊瑚等高辨識度狀態 Badge。
+     - 解析有序清單 (`list-decimal`)、無序項目 (`list-disc`) 與行內程式碼 (`code` 標籤高亮)，配合左側邊框色條與分隔線 (`divide-y`)，使執行計劃具備現代 IDE 等級的排版質感。
+   - **雙向檢視彈性**：提供 `btnPlanTabVisual`（結構化計劃）與 `btnPlanTabRaw`（原始文字）按鈕，使用者既能在視覺化模式下清晰審閱，也能隨時切換至純文字編輯器微調內容，切換回視覺化時自動即時重繪。
+
+2. **待確認狀態意見回饋輸入通道解鎖與資料閉環 (Pre-Execution Feedback Channel)**：
+   - **痛點根因**：過去前端將所有進行中任務統一套用 `isSimpleMode`，導致左側的審查回饋區塊 (`reviewFeedbackBox`) 被全面隱藏，且 `setModalFieldsReadOnly` 將所有文字欄位設為唯讀。這造成一個巨大的 UX 斷層：**使用者在待確認階段看到計劃若有小意見或補充邊界，卻無處可寫，只能切換至外部對話框或手動編輯計劃文字**。
+   - **審閱通道解鎖設計**：
+     - 細分表單模式：在 `isPendingConfirmation` 時主動解除 `reviewFeedbackBox` 的隱藏限制，並將 `formFeedback` 的 `readOnly` 解除。
+     - 動態語意調整：將標籤名稱動態置換為「執行計劃審閱意見 (Plan Feedback)」，提示「確認並執行時自動附帶」，輸入框提示文字引導「如對執行計劃有調整意見、補充邊界或修改指示，請在此輸入...」。
+     - API 閉環連動：在 `confirmAndExecuteTask` 中同時讀取 `formFeedback`，除了追加至 `confirmLog` 留存於審計日誌外，亦直接寫入 `task.feedback`。當背景哨兵喚醒 Agent 時，開工 SOP 會第一優先讀取並滿足 feedback，使人機協同的指令下達無縫閉環。
+
+3. **跨專案 5GSA 錯誤安全遮蔽與登入門號遮罩標準化 (Privacy & Safe Error Handling)**：
+   - **痛點根因**：舊版 5GSA 多個子頁面在 API 回應失敗時，直接在頁面上以紅字（`five-gsa-error`）印出底層 API 原始訊息或錯誤代碼，不僅違反資安防護（不應暴露內部技術細節），且與全站標準錯誤導頁不一致；此外首頁門號區塊寫死文字，未動態反映登入者的隱碼門號。
+   - **安全架構落地**：
+     - 在 `src/utils/errorUtil.js` 封裝通用的 `ToResultErrorPage(history, description, title, pageName)` 導向函式，統一把失敗導引至 `/resultController/ResultPage`，搭配友好提示（「很抱歉！目前系統忙碌中，請稍後再試。」），全面移除頁面紅字暴露。
+     - 首頁與預約確認頁全面介接 `maskPhoneNo` 工具，支援從 `authData.msisdn`、`authData.maskMsisdn`、`props` 或 `location.state` 中提取門號並自動遮罩為 `0912***456`，嚴格保障使用者隱私。
+
+4. **專屬 UX 自動化測試防護網 (`test_plan_html_ux.js`)**：
+   - 建立獨立的前端互動防禦測試，涵蓋：
+     - HTML 容器與按鈕元素契約檢核。
+     - `renderExecutionPlan` 在空字串、一般文字與完整 Markdown 階層下的結構化 HTML 渲染斷言。
+     - `switchPlanViewTab` 在 `visual` 與 `raw` 模式間的 class 切換與內容雙向同步。
+     - `confirmAndExecuteTask` 在輸入審閱意見時的 API 傳遞與日誌格式驗證。
+   - 整合進 `scripts/test_server.sh`，確保後續 UI 重構絕不破壞待確認人機協同防線。
+
+---
+
+### 11.4 ⚠️ Problem（遇到的障礙、邊界盲點與根因分析）
+
+1. **表單 SimpleMode 與 ReadOnly 邏輯的一刀切盲點 (Overzealous Form Locking)**：
+   - **現象**：在進行 TASK-137 初期，即便解除了 HTML 元素的隱藏狀態，使用者依然無法在意見輸入框中打字。
+   - **根因分析**：`modal.js` 的 `setModalFieldsReadOnly(isReadOnly)` 函式中，硬編碼了 `textInputs = ['formTitle', 'formProjectInput', 'formDescription', 'formFeedback', 'select2Input']`。只要任務狀態為 `in_progress`，便無差別將整個清單內的 input/textarea 設為 `readOnly = true`。
+   - **防守策**：將 `formFeedback` 從泛用清單中抽離，獨立撰寫判定邏輯：`const feedbackReadOnly = isReadOnly && !isPendingConfirm;`。唯有在真正的「執行實作中」才鎖定，在「待確認審閱窗口」給予使用者完全的輸入自由。
+
+2. **Node.js VM 沙箱環境下的 Lucide 全域物件差異 (lucide vs window.lucide ReferenceError)**：
+   - **現象**：執行 `test_plan_html_ux.js` 時，`renderExecutionPlan` 丟出 `ReferenceError: lucide is not defined` 導致測試崩潰。
+   - **根因分析**：在實際瀏覽器中，`<script src="lucide.min.js">` 會同時宣告全域變數 `window.lucide` 與頂層變數 `lucide`。然而在 Node.js `vm.createContext` 沙箱環境中，若 mock 物件僅掛載在 `window: { lucide: ... }`，直接呼叫 `lucide.createIcons()` 就會因為頂層無此識別字而拋出錯誤。
+   - **防守策**：在模組代碼中嚴格遵循安全存取模式：
+     ```javascript
+     if (typeof lucide !== "undefined" && lucide.createIcons) {
+       lucide.createIcons();
+     } else if (typeof window !== "undefined" && window.lucide?.createIcons) {
+       window.lucide.createIcons();
+     }
+     ```
+
+3. **React-Router v4/v5 `history.push` 參數簽章斷言差異**：
+   - **現象**：在 `fetnet-eservice-f2e` 的單元測試中，嘗試以 `expect(history.push).toHaveBeenCalledWith({ pathname: '...', state: { ... } })` 檢驗錯誤導頁，結果斷言失敗。
+   - **根因分析**：`ToResultErrorPage` 底層呼叫的是 `history.push(pathObject, stateObject)`，其中第一個參數為路徑與 query（`{ pathname: '...', search: '...' }`），第二個參數為 state 物件，而非將 state 塞在第一個物件內。
+   - **防守策**：校準測試預期，使用雙參數斷言：`expect(history.push).toHaveBeenCalledWith(expect.objectContaining({ pathname: '/resultController/ResultPage' }), expect.objectContaining({ type: 'fail' }))`。
+
+---
+
+### 11.5 💡 行動建議與後續演進策略 (Action Items)
+
+1. **待確認狀態下的退回修改流程 (Reject / Re-plan Action)**：
+   - 目前使用者若對執行計劃不滿意，除了輸入意見點擊「確認並執行」外，缺乏顯式的「退回重新擬定」按鈕。後續可評估在待確認彈窗新增「退回重擬計劃」動作，清空現有計劃或標記 feedback，讓 Agent 重新進入 Phase 1 產出新計劃。
+2. **執行計劃結構化草稿範本擴充**：
+   - 建立任務時可提供常用執行計劃 Markdown 模板（如 3-Phase SOP、TDD 流程、Rollback 策略），進一步加速執行計劃產出。
+3. **推動全域 Zero-Polling 與 SSE 記憶體通知**：
+   - 結合已上線的 `/api/events` SSE 端點，逐步替換前端看板每 3 秒一次的定時輪詢，全面達成事件驅動的即時介面重繪。
+
+---
+*Retrospective Report updated at 2026-10-22 by Antigravity.*
+
 
 
 

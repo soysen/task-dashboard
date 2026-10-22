@@ -21,7 +21,7 @@ import {
   copyCurrentDiff, filterDiffForFile, showAllDiffs, renderLineNumberedDiff,
   renderDiffViewer
 } from "./diffViewer.js";
-import { switchLogViewTab, renderExecutionReport } from "./executionReport.js";
+import { switchLogViewTab, renderExecutionReport, switchPlanViewTab, renderExecutionPlan } from "./executionReport.js";
 import {
   setFormProject, updateConfirmationGateForProject, clearFormProject,
   updateProjectClearButtonVisibility, showProjectAutocomplete, hideProjectAutocomplete,

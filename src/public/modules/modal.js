@@ -2,7 +2,7 @@ import { projects, tasks, settings, projectGitStatus, currentProject, currentTas
 import { escapeHtml, autoResizeTextarea, resetTextareaHeight, formatDuration, showToast, withButtonLoading, copyPrompt, copySessionId, copyToClipboard } from "./utils.js";
 import { renderKanban, renderMetrics } from "./kanban.js";
 import { renderDiffViewer, parseDiffStats, filterDiffForFile, showAllDiffs } from "./diffViewer.js";
-import { renderExecutionReport } from "./executionReport.js";
+import { renderExecutionReport, renderExecutionPlan, switchPlanViewTab } from "./executionReport.js";
 import { loadData } from "./app.js";
 
     function setFormProject(projId) {
@@ -592,6 +592,8 @@ import { loadData } from "./app.js";
       if (reqConfirmEl) reqConfirmEl.checked = !!initialData.requiresConfirmation;
       const execPlanEl = document.getElementById('formExecutionPlan');
       if (execPlanEl) execPlanEl.value = initialData.executionPlan || '';
+      if (typeof renderExecutionPlan === 'function') renderExecutionPlan(initialData.executionPlan || '');
+      if (typeof switchPlanViewTab === 'function') switchPlanViewTab('visual');
       toggleFormRequiresConfirmation(!!initialData.requiresConfirmation);
 
       setModalFieldsReadOnly(false);
@@ -622,8 +624,8 @@ import { loadData } from "./app.js";
         }
       }
 
-      // 2. 所有文字與文字區塊欄位 readonly (若任務處於待確認狀態，執行計劃 formExecutionPlan 允許使用者進行修改)
-      const textInputs = ['formTitle', 'formProjectInput', 'formDescription', 'formFeedback', 'select2Input'];
+      // 2. 所有文字與文字區塊欄位 readonly (若任務處於待確認狀態，執行計劃 formExecutionPlan 與審閱意見 formFeedback 允許使用者進行修改)
+      const textInputs = ['formTitle', 'formProjectInput', 'formDescription', 'select2Input'];
       textInputs.forEach(id => {
         const el = document.getElementById(id);
         if (el) {
@@ -645,6 +647,18 @@ import { loadData } from "./app.js";
           execPlanInput.classList.add('bg-slate-100/90', 'dark:bg-slate-800/80', 'cursor-not-allowed', 'text-slate-600', 'dark:text-slate-300');
         } else {
           execPlanInput.classList.remove('bg-slate-100/90', 'dark:bg-slate-800/80', 'cursor-not-allowed', 'text-slate-600', 'dark:text-slate-300');
+        }
+      }
+
+      const feedbackInput = document.getElementById('formFeedback');
+      if (feedbackInput) {
+        const isPendingConfirm = !!currentModalEditingTask?.requiresConfirmation && currentModalEditingTask?.status === 'in_progress';
+        const feedbackReadOnly = isReadOnly && !isPendingConfirm;
+        feedbackInput.readOnly = feedbackReadOnly;
+        if (feedbackReadOnly) {
+          feedbackInput.classList.add('bg-slate-100/90', 'dark:bg-slate-800/80', 'cursor-not-allowed', 'text-slate-600', 'dark:text-slate-300');
+        } else {
+          feedbackInput.classList.remove('bg-slate-100/90', 'dark:bg-slate-800/80', 'cursor-not-allowed', 'text-slate-600', 'dark:text-slate-300');
         }
       }
 
@@ -828,6 +842,8 @@ import { loadData } from "./app.js";
       if (reqConfirmEl) reqConfirmEl.checked = !!task.requiresConfirmation;
       const execPlanEl = document.getElementById('formExecutionPlan');
       if (execPlanEl) execPlanEl.value = task.executionPlan || '';
+      if (typeof renderExecutionPlan === 'function') renderExecutionPlan(task.executionPlan || '', task);
+      if (typeof switchPlanViewTab === 'function') switchPlanViewTab('visual');
       toggleFormRequiresConfirmation(!!task.requiresConfirmation);
 
       // 設定 Select2 標籤
@@ -1259,7 +1275,15 @@ import { loadData } from "./app.js";
           dialogEl.className = 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100 transition-all';
         }
       } else {
-        if (reviewFeedbackBox) reviewFeedbackBox.classList.remove('hidden');
+        if (reviewFeedbackBox) {
+          reviewFeedbackBox.classList.remove('hidden');
+          const fbLabel = document.getElementById('reviewFeedbackLabelText');
+          if (fbLabel) fbLabel.innerText = '審查意見與修改回饋 (Review Feedback)';
+          const fbNotice = document.getElementById('reviewFeedbackNotice');
+          if (fbNotice) fbNotice.innerText = '退回重做時自動附帶';
+          const fbInput = document.getElementById('formFeedback');
+          if (fbInput) fbInput.placeholder = '如需修改或退回重做，請點選上方標籤或在此輸入修改意見...';
+        }
         if (rightCol) rightCol.classList.remove('hidden');
         if (formGrid) {
           formGrid.className = 'grid grid-cols-1 lg:grid-cols-2 gap-5 flex-1 min-h-0 p-5 overflow-hidden';
@@ -1346,7 +1370,22 @@ import { loadData } from "./app.js";
       if (planBox) {
         if (isReqConfirmChecked && status === 'in_progress' && !!taskId) {
           planBox.classList.remove('hidden');
+          if (typeof renderExecutionPlan === 'function') renderExecutionPlan(currentExecPlan, currentModalEditingTask);
           if (hasExecutionPlan) {
+            // 開放待確認狀態的審閱意見輸入欄位
+            if (reviewFeedbackBox) {
+              reviewFeedbackBox.classList.remove('hidden');
+              const fbLabel = document.getElementById('reviewFeedbackLabelText');
+              if (fbLabel) fbLabel.innerText = '執行計劃審閱意見 (Plan Feedback)';
+              const fbNotice = document.getElementById('reviewFeedbackNotice');
+              if (fbNotice) fbNotice.innerText = '確認並執行時自動附帶';
+              const fbInput = document.getElementById('formFeedback');
+              if (fbInput) {
+                fbInput.placeholder = '如對執行計劃有調整意見、補充邊界或修改指示，請在此輸入...（點選「確認並執行」將一併傳送）';
+                fbInput.readOnly = false;
+                fbInput.classList.remove('bg-slate-100/90', 'dark:bg-slate-800/80', 'cursor-not-allowed', 'text-slate-600', 'dark:text-slate-300');
+              }
+            }
             if (planBadge) {
               if (hasGrillMeSkill) {
                 planBadge.innerText = '🔥 Grill-Me 待確認';
@@ -1557,7 +1596,9 @@ import { loadData } from "./app.js";
       await withButtonLoading(btnConfirm, '啟動中...', async () => {
         try {
           const nowIso = new Date().toISOString();
-          const confirmLog = '\n[' + nowIso + '] ✅ [Confirmation Gate] 使用者已審閱並確認執行計劃，正式授權進入實作階段！\n----------------------------------------\n';
+          const formFeedback = (document.getElementById('formFeedback')?.value || '').trim();
+          const feedbackMsg = formFeedback ? `\n💬 [審閱意見] ${formFeedback}\n` : '';
+          const confirmLog = '\n[' + nowIso + '] ✅ [Confirmation Gate] 使用者已審閱並確認執行計劃，正式授權進入實作階段！' + feedbackMsg + '----------------------------------------\n';
           const newExecutionLog = (task.executionLog || '') + confirmLog;
           const formExecPlan = (document.getElementById('formExecutionPlan')?.value || '').trim();
           const currentPlan = formExecPlan || task.executionPlan || '';
@@ -1572,6 +1613,7 @@ import { loadData } from "./app.js";
               confirmExecution: true,
               executionPlan: currentPlan,
               executionLog: newExecutionLog,
+              feedback: formFeedback || task.feedback || '',
               status: 'in_progress',
               updatedAt: nowIso
             })

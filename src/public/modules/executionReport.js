@@ -199,16 +199,171 @@ import { escapeHtml } from "./utils.js";
           </div>
         `;
       }
-      if (window.lucide) lucide.createIcons();
+      if (typeof lucide !== "undefined" && lucide.createIcons) {
+        lucide.createIcons();
+      } else if (typeof window !== "undefined" && window.lucide && window.lucide.createIcons) {
+        window.lucide.createIcons();
+      }
+    }
+
+    function switchPlanViewTab(tab) {
+      const visualBtn = document.getElementById('btnPlanTabVisual');
+      const rawBtn = document.getElementById('btnPlanTabRaw');
+      const planVisual = document.getElementById('formPlanVisual');
+      const planRaw = document.getElementById('formExecutionPlan');
+      if (!planVisual || !planRaw) return;
+
+      if (tab === 'visual') {
+        renderExecutionPlan(planRaw.value);
+        planVisual.classList.remove('hidden');
+        planRaw.classList.add('hidden');
+        if (visualBtn) {
+          visualBtn.className = 'px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 text-amber-700 dark:text-amber-300 font-bold transition whitespace-nowrap flex-shrink-0 shadow-xs';
+        }
+        if (rawBtn) {
+          rawBtn.className = 'px-2 py-0.5 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition whitespace-nowrap flex-shrink-0';
+        }
+      } else {
+        planVisual.classList.add('hidden');
+        planRaw.classList.remove('hidden');
+        if (typeof autoResizeTextarea === 'function') {
+          autoResizeTextarea(planRaw, 60, 300);
+        }
+        if (rawBtn) {
+          rawBtn.className = 'px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 text-amber-700 dark:text-amber-300 font-bold transition whitespace-nowrap flex-shrink-0 shadow-xs';
+        }
+        if (visualBtn) {
+          visualBtn.className = 'px-2 py-0.5 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition whitespace-nowrap flex-shrink-0';
+        }
+      }
+    }
+
+    function renderExecutionPlan(taskOrText) {
+      const planEl = document.getElementById('formPlanVisual');
+      if (!planEl) return;
+      const raw = typeof taskOrText === 'string'
+        ? taskOrText
+        : ((taskOrText && taskOrText.executionPlan) ? taskOrText.executionPlan.trim() : '');
+
+      if (!raw) {
+        planEl.innerHTML = `
+          <div class="py-4 text-center text-xs text-slate-400 dark:text-slate-500 italic bg-white/40 dark:bg-slate-900/40 rounded-lg border border-dashed border-slate-300 dark:border-slate-700">
+            尚未擬定執行計劃，等待負責人或 AI 規劃中...
+          </div>
+        `;
+        return;
+      }
+
+      const formatInlinePlanText = (str) => escapeHtml(str)
+        .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-slate-900 dark:text-slate-100">$1</strong>')
+        .replace(/`([^`]+)`/g, '<code class="px-1.5 py-0.5 rounded bg-white/90 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-[11px] border border-slate-200 dark:border-slate-700/60">$1</code>');
+
+      const lines = raw.split('\n');
+      const sectionsHtml = [];
+      let curCardTitle = '';
+      let curCardLines = [];
+      let curBadge = '';
+      let curAccentColor = 'bg-amber-500 dark:bg-amber-400';
+      let curMarkerBg = 'bg-amber-100/80 dark:bg-amber-950/50';
+
+      const flushPlanCard = () => {
+        if (!curCardTitle && curCardLines.length === 0) return;
+        const bodyHtml = curCardLines.map(l => {
+          const trimmed = l.trim();
+          if (!trimmed) return '';
+          if (l.startsWith('- **') || l.startsWith('- ') || l.startsWith('* ')) {
+            const content = l.replace(/^[-*]\s+/, '');
+            return `<li class="ml-4 list-disc text-slate-800 dark:text-slate-200 leading-[1.7] py-0.5">${formatInlinePlanText(content)}</li>`;
+          } else if (l.startsWith('  - ') || l.startsWith('    - ')) {
+            const content = l.replace(/^\s+[-*]\s+/, '');
+            return `<li class="ml-8 list-circle text-slate-700 dark:text-slate-300 text-[11px] leading-[1.7] py-0.5">${formatInlinePlanText(content)}</li>`;
+          } else if (/^\s*\d+\.\s+/.test(l)) {
+            const content = l.replace(/^\s*\d+\.\s+/, '');
+            return `<li class="ml-4 list-decimal text-slate-800 dark:text-slate-200 leading-[1.7] py-0.5">${formatInlinePlanText(content)}</li>`;
+          } else {
+            return `<p class="text-slate-700 dark:text-slate-300 leading-[1.7] py-0.5">${formatInlinePlanText(l)}</p>`;
+          }
+        }).filter(Boolean).join('');
+
+        sectionsHtml.push(`
+          <div class="report-section-block py-2.5 first:pt-1 last:pb-1 space-y-1.5 shadow-none">
+            <div class="flex items-center justify-between gap-2">
+              <span class="font-semibold text-xs text-slate-800 dark:text-slate-100 flex items-center gap-2 min-w-0">
+                <span class="w-4 h-4 rounded-md ${curMarkerBg} flex items-center justify-center flex-shrink-0">
+                  <span class="w-1.5 h-1.5 rounded-full ${curAccentColor}"></span>
+                </span>
+                <span class="leading-snug">${escapeHtml(curCardTitle || '計劃步驟與內容')}</span>
+              </span>
+              ${curBadge}
+            </div>
+            <div class="space-y-1 text-xs pl-6">
+              ${bodyHtml}
+            </div>
+          </div>
+        `);
+
+        curCardTitle = '';
+        curCardLines = [];
+        curBadge = '';
+        curAccentColor = 'bg-amber-500 dark:bg-amber-400';
+        curMarkerBg = 'bg-amber-100/80 dark:bg-amber-950/50';
+      };
+
+      for (const line of lines) {
+        if (line.startsWith('# ') || line.startsWith('## ') || line.startsWith('### ') || line.startsWith('#### ')) {
+          flushPlanCard();
+          const rawTitle = line.replace(/^[#]+\s*/, '').trim();
+          curCardTitle = rawTitle;
+          if (rawTitle.includes('目標') || rawTitle.includes('需求') || rawTitle.includes('分析')) {
+            curBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold font-mono bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 whitespace-nowrap flex-shrink-0">需求與目標</span>';
+            curAccentColor = 'bg-amber-600 dark:bg-amber-400';
+            curMarkerBg = 'bg-amber-100/80 dark:bg-amber-950/50';
+          } else if (rawTitle.includes('檔案') || rawTitle.includes('Impact') || rawTitle.includes('架構') || rawTitle.includes('清單')) {
+            curBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold font-mono bg-slate-200/90 dark:bg-slate-800 text-slate-800 dark:text-slate-200 whitespace-nowrap flex-shrink-0">受影響檔案</span>';
+            curAccentColor = 'bg-slate-600 dark:bg-slate-400';
+            curMarkerBg = 'bg-slate-200/80 dark:bg-slate-800';
+          } else if (rawTitle.includes('切片') || rawTitle.includes('步驟') || rawTitle.includes('實作') || rawTitle.includes('Slice')) {
+            curBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold font-mono bg-sky-100 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 whitespace-nowrap flex-shrink-0">實作切片</span>';
+            curAccentColor = 'bg-sky-600 dark:bg-sky-400';
+            curMarkerBg = 'bg-sky-100/80 dark:bg-sky-950/50';
+          } else if (rawTitle.includes('驗證') || rawTitle.includes('測試') || rawTitle.includes('指標') || rawTitle.includes('門禁')) {
+            curBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold font-mono bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 whitespace-nowrap flex-shrink-0">品質驗證</span>';
+            curAccentColor = 'bg-emerald-600 dark:bg-emerald-400';
+            curMarkerBg = 'bg-emerald-100/80 dark:bg-emerald-950/50';
+          } else if (rawTitle.includes('Grill') || rawTitle.includes('邊界') || rawTitle.includes('決策')) {
+            curBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold font-mono bg-orange-100 dark:bg-orange-950/60 text-orange-800 dark:text-orange-300 whitespace-nowrap flex-shrink-0">邊界決策</span>';
+            curAccentColor = 'bg-orange-500 dark:bg-orange-400';
+            curMarkerBg = 'bg-orange-100/80 dark:bg-orange-950/50';
+          }
+        } else {
+          curCardLines.push(line);
+        }
+      }
+      flushPlanCard();
+
+      planEl.innerHTML = `
+        <div class="divide-y divide-slate-200 dark:divide-slate-700/80 bg-white/70 dark:bg-slate-900/70 rounded-lg p-3 border border-slate-200/80 dark:border-slate-800">
+          ${sectionsHtml.join('')}
+        </div>
+      `;
+      if (typeof lucide !== "undefined" && lucide.createIcons) {
+        lucide.createIcons();
+      } else if (typeof window !== "undefined" && window.lucide && window.lucide.createIcons) {
+        window.lucide.createIcons();
+      }
     }
 
 
 export {
   switchLogViewTab,
-  renderExecutionReport
+  renderExecutionReport,
+  switchPlanViewTab,
+  renderExecutionPlan
 };
 
 if (typeof window !== "undefined") {
   window.switchLogViewTab = switchLogViewTab;
   window.renderExecutionReport = renderExecutionReport;
+  window.switchPlanViewTab = switchPlanViewTab;
+  window.renderExecutionPlan = renderExecutionPlan;
 }
