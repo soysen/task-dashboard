@@ -2,27 +2,27 @@
 
 ## Active Task
 
-- ID: TASK-001
-- Title: 測試 in_progress 巡檢
+- ID: TASK-145
+- Title: 優化“查看封存任務”
 - Status: 已完成
 - Last updated: 2026-10-22
-- Goal: 測試 in_progress 巡檢
+- Goal: 查看封存任務時，任務彈窗會出現在封存彈窗後，必須關閉封存任務列表才能閱讀，從資深 UI/UX 設計師角度優化查看封存任務的流程，讓封存任務的查找不會中斷
 - Route: dashboard-state-and-sync
-- Scope: 測試 in_progress 巡檢
+- Scope: 優化“查看封存任務”
 - Out of scope: 跨專案副作用
 
 ## Last Completed Task
 
-- ID: TASK-138
-- Title: retro
+- ID: TASK-145
+- Title: 優化“查看封存任務”
 - Status: 已完成
 - Last updated: 2026-10-22
 
 ## Execution Tracking
 
 - CurrentStep: 任務驗收通過，已成功結案
-- Evidence: 進行中
-- NextStep: 完成實作與測試後推入 review 交付審查
+- Evidence: 測試與 Harness Check 通過
+- NextStep: 交付審查
 
 ## Reset Decision Log
 

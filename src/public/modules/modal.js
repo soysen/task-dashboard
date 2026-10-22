@@ -1,4 +1,4 @@
-import { projects, tasks, settings, projectGitStatus, currentProject, currentTaskDependencies, currentActiveTaskDiff, currentModalEditingTask, selectedArchivedTaskIds, setTasks, setCurrentModalEditingTask, setCurrentTaskDependencies, setCurrentActiveTaskDiff } from "./state.js";
+import { projects, tasks, settings, projectGitStatus, currentProject, currentTaskDependencies, currentActiveTaskDiff, currentModalEditingTask, selectedArchivedTaskIds, isOpenedFromArchive, setTasks, setCurrentModalEditingTask, setCurrentTaskDependencies, setCurrentActiveTaskDiff, setIsOpenedFromArchive } from "./state.js";
 import { escapeHtml, autoResizeTextarea, resetTextareaHeight, formatDuration, showToast, withButtonLoading, copyPrompt, copySessionId, copyToClipboard } from "./utils.js";
 import { renderKanban, renderMetrics } from "./kanban.js";
 import { renderDiffViewer, parseDiffStats, filterDiffForFile, showAllDiffs } from "./diffViewer.js";
@@ -798,10 +798,40 @@ import { loadData } from "./app.js";
       return !!((task.executionLog || '').trim() || (task.feedback || '').trim() || (task.executionPlan || '').trim());
     }
 
-    function openModalForEdit(id) {
+    function openModalForEdit(id, options = {}) {
       const task = tasks.find(t => t.id === id);
       if (!task) return;
       setCurrentModalEditingTask(task);
+
+      const fromArchive = Boolean(options && options.fromArchive);
+      setIsOpenedFromArchive(fromArchive);
+
+      const btnBackToArchive = document.getElementById('btnBackToArchive');
+      if (btnBackToArchive) {
+        if (fromArchive) {
+          btnBackToArchive.classList.remove('hidden');
+          btnBackToArchive.classList.add('flex');
+        } else {
+          btnBackToArchive.classList.add('hidden');
+          btnBackToArchive.classList.remove('flex');
+        }
+      }
+
+      const modalArchivedBadge = document.getElementById('modalArchivedBadge');
+      if (modalArchivedBadge) {
+        if (task.status === 'archived' || fromArchive) {
+          modalArchivedBadge.classList.remove('hidden');
+          modalArchivedBadge.classList.add('flex');
+        } else {
+          modalArchivedBadge.classList.add('hidden');
+          modalArchivedBadge.classList.remove('flex');
+        }
+      }
+
+      const btnCancelTaskModal = document.getElementById('btnCancelTaskModal');
+      if (btnCancelTaskModal) {
+        btnCancelTaskModal.innerText = fromArchive ? '返回封存列表' : '取消';
+      }
 
       document.getElementById('formTaskId').value = task.id;
       document.getElementById('formConversationId').value = task.conversationId || '';
@@ -2028,7 +2058,7 @@ import { loadData } from "./app.js";
                   </span>
                   <span class="text-[10px] text-slate-400 font-mono"> ${dateStr}</span>
                 </div>
-                <h4 class="text-xs font-bold text-slate-800 dark:text-slate-200 truncate" title="${escapeHtml(t.title)}">
+                <h4 onclick="openModalForEdit('${t.id}', { fromArchive: true })" class="text-xs font-bold text-slate-800 dark:text-slate-200 truncate cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition" title="${escapeHtml(t.title)}">
                   ${escapeHtml(t.title)}
                 </h4>
                 ${t.description ? `<p class="text-[11px] text-slate-500 dark:text-slate-400 truncate">${escapeHtml(t.description)}</p>` : ''}
@@ -2037,7 +2067,7 @@ import { loadData } from "./app.js";
 
             <!-- 操作按鈕 -->
             <div class="flex items-center gap-1.5 flex-shrink-0">
-              <button onclick="openModalForEdit('${t.id}')" title="檢視詳情與 Diff" class="text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-xs flex items-center gap-1 transition">
+              <button onclick="openModalForEdit('${t.id}', { fromArchive: true })" title="檢視詳情與 Diff" class="text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-xs flex items-center gap-1 transition">
                 <i data-lucide="eye" class="w-3.5 h-3.5"></i>
                 <span class="hidden sm:inline text-[11px]"> 查看</span>
               </button>
@@ -2336,6 +2366,24 @@ import { loadData } from "./app.js";
       }
       try { currentModalEditingTask = null; } catch (_) {}
       document.getElementById('taskModal').classList.add('hidden');
+
+      const btnBackToArchive = document.getElementById('btnBackToArchive');
+      if (btnBackToArchive) {
+        btnBackToArchive.classList.add('hidden');
+        btnBackToArchive.classList.remove('flex');
+      }
+      const modalArchivedBadge = document.getElementById('modalArchivedBadge');
+      if (modalArchivedBadge) {
+        modalArchivedBadge.classList.add('hidden');
+        modalArchivedBadge.classList.remove('flex');
+      }
+      const btnCancelTaskModal = document.getElementById('btnCancelTaskModal');
+      if (btnCancelTaskModal) {
+        btnCancelTaskModal.innerText = '取消';
+      }
+
+      setIsOpenedFromArchive(false);
+
       const descEl = document.getElementById('formDescription');
       if (descEl) {
         descEl.rows = 8;

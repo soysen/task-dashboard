@@ -437,9 +437,26 @@ import {
 
     // 全域鍵盤操作與快捷鍵監聽器
     window.addEventListener('keydown', (e) => {
-      // 1. Esc 關閉所有彈窗、抽屜與開工引擎選單
+      // 1. Esc 依彈窗層級（Modal Stack）由上至下依序退棧關閉
       if (e.key === 'Escape') {
-        closeModal();
+        const taskActionConfirmModal = document.getElementById('taskActionConfirmModal');
+        if (taskActionConfirmModal && !taskActionConfirmModal.classList.contains('hidden')) {
+          if (typeof closeTaskActionConfirmModal === 'function') closeTaskActionConfirmModal();
+          return;
+        }
+
+        const commitModal = document.getElementById('commitModal');
+        if (commitModal && !commitModal.classList.contains('hidden')) {
+          if (typeof closeCommitModal === 'function') closeCommitModal();
+          return;
+        }
+
+        const taskModal = document.getElementById('taskModal');
+        if (taskModal && !taskModal.classList.contains('hidden')) {
+          closeModal();
+          return;
+        }
+
         closeSettingsModal();
         closeProjectModal();
         closeHelpModal();
