@@ -1,6 +1,6 @@
 # Build Plan: [TASK-138] retro
 
-- Status: review
+- Status: done
 - Skill Route: dashboard-state-and-sync
 - Feature Name: retro
 
