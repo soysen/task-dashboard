@@ -21,9 +21,10 @@ models-tested: [flash, sonnet, opus]
 2. **[MUST] 檢索上限防止迴圈 (Max 2 Inspections)**：同一檔案相同區塊最多檢索 2 次；確定關鍵邏輯後立即進入實作與測試驗證，嚴防原地循環。
 3. **[MUST] 優先滿足 Feedback**：若任務帶有 `task.feedback`，必須視為最高優先權目標，不因其他上下文干擾而偏離。
 4. **[MUST] SSOT 隔離防污染**：禁止將任何執行時資料寫入專案內 `data/` 範本，避免污染 Git 上下文。
+5. **[MUST] Subagent 雙階隔離執行**：在支援 Subagent 的環境下，條件允許時優先透過 Subagent（以 `flash` 模型負責實作執行，再由 `pro` 模型進行審核把關，並設定 `Workspace: "inherit"`）隔離單一任務的龐大程式碼與終端輸出，保持主視窗 Context 乾淨。
 
 ## 適用時機與豁免規則
-- **適用時機**：探索大型檔案結構、規劃任務執行前置檢閱、遭遇 Token 消耗過大或排查重複呼叫迴圈時。
+- **適用時機**：探索大型檔案結構、規劃任務執行前置檢閱、遭遇 Token 消耗過大、排查重複呼叫迴圈，或具備 Subagent 環境欲隔離實作與審查負載時。
 - **豁免規則**：小型設定檔（< 100 行）或純文字說明可直接全覽，無需刻意切片。
 
 ## Context 的層次結構
@@ -56,4 +57,5 @@ models-tested: [flash, sonnet, opus]
 - [ ] 檢索目標檔案前，已先用 `grep -n` 鎖定行號，避免整檔載入。
 - [ ] 相同片段檢索不超過 2 次，避免陷入 Loop。
 - [ ] 保持 Single Source of Truth，未污染倉庫範本。
+- [ ] 支援 Subagent 時已遵循雙階調度隔離上下文（flash 實作 + pro 審核，Workspace: "inherit"）。
 - [ ] 程式碼修改完成後，已執行 `npm run harness:check` 與 `npm test`。

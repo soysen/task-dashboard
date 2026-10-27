@@ -19,7 +19,7 @@ Task Dashboard 支援 **Desktop AI 哨兵待命 (Reactive Wakeup)** 與 **獨立
 - **工作原理**：
   腳本利用 macOS 原生 FSEvents 在背景靜默監聽資料庫 `tasks.json`。一旦任務變更為 `in_progress` 或請求依據 Diff 生成 Commit 訊息 (`requestCommitGen: true`)，哨兵立即輸出完整開工上下文並以 `exit(0)` 正常退出，觸發外部 IDE 的 **Reactive Wakeup** 喚醒機制。
 - **Agent 接續開工**：
-  AI 被喚醒後，根據哨兵輸出的開工指示執行 **3-Phase Execution Gate**。執行完畢將任務推進至 `review` 後，AI 再次在背景掛載哨兵，進入下一輪無縫待命。
+  AI 被喚醒後，根據哨兵輸出的開工指示執行 **3-Phase Execution Gate**。若執行環境支援 Subagent 工具，應依據雙階自動調度策略委派執行與審核。執行完畢將任務推進至 `review` 後，主 Agent 再次在背景掛載哨兵，進入下一輪無縫待命。
 
 ### 模式 B：本機 CLI Agent 自動即時觸發
 - 若使用者在 Dashboard 設定中啟用了 **「CLI Agent 模式」**（支援 `agy`、`claude`、`hermes` 或自訂指令）：
@@ -63,6 +63,19 @@ flowchart TD
 
     Phase1 --> Phase2 --> Phase3
 ```
+
+### Subagent 雙階自動調度策略 (Flash 執行 + Pro 審核)
+當執行環境具備 Subagent 工具（如 `invoke_subagent`）時，為避免龐大程式碼檢索與終端輸出佔滿主視窗 Context，並落實客觀嚴格的代碼審查，平台制定**雙階自動調度策略**：
+
+- **觸發條件**：
+  當執行環境支援 Subagent 工具（如 `invoke_subagent`）且任務屬於正式實作、除錯或跨檔調查（**非**單純 `requestCommitGen: true` 亦**非**未填妥 `executionPlan` 之待確認狀態）時，主 Agent 應自動啟用 Subagent 執行。
+- **雙模型分工（Flash 執行 → Pro 審核）**：
+  1. **執行階段 (`Model: "flash"`)**：主 Agent 委派 `self` subagent（設定 `Model: "flash"`, `Workspace: "inherit"`）於獨立 Context 執行 Phase 1~2 程式碼實作、大檔切片檢索與單元測試。
+  2. **審核階段 (`Model: "pro"`)**：實作完成後，主 Agent 委派 `self` subagent（設定 `Model: "pro"`, `Workspace: "inherit"`）進行 Phase 3 嚴格審核（檢驗 Git Diff 完整性、無截斷、無副作用、測試與 Harness 通過、結構化任務執行報告合規），審核通過後方推進至 `review`。
+- **三大安全守則**：
+  1. **強制繼承工作區 (`Workspace: "inherit"`)**：Subagent 必須設定 `Workspace: "inherit"`，確保所有 Git Diff 與檔案異動直接落於原專案工作區，嚴禁隔離導致 Diff 脫鉤。
+  2. **完整任務上下文注入**：委派時必須注入完整任務上下文（包含 `taskId`, `projPath`, `description`, `feedback`, `harnessCmd`, 以及 API 交付格式）。
+  3. **防搶單時序 (Race Condition Prevention)**：主 Agent 在 `flash` 執行與 `pro` 審核皆完成並將任務正式推入 `review` 後，才可重新掛載 `watch-task-gate.js` 進入背景待命。**嚴禁於 Subagent 運行期間提前重啟哨兵**，避免重複認領與衝突。
 
 ### Phase 1: Pre-Flight & Review Feedback Ingestion (審查回饋與前置檢閱)
 1. **最高優先級門禁（Review Feedback 檢查）**：

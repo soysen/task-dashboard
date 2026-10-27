@@ -19,12 +19,23 @@ cp -R "$PROJECT_DIR/data/"* "$TEST_DATA_DIR/"
 PORT=$TEST_PORT TASK_DASHBOARD_DATA_DIR="$TEST_DATA_DIR" node "$PROJECT_DIR/src/server/server.js" </dev/null >/dev/null 2>&1 &
 SERVER_PID=$!
 
+AGENT_STATUS_FILE="$PROJECT_DIR/.github/worklog/agent-status.md"
+AGENT_STATUS_BACKUP=""
+if [ -f "$AGENT_STATUS_FILE" ]; then
+  AGENT_STATUS_BACKUP=$(mktemp)
+  cp "$AGENT_STATUS_FILE" "$AGENT_STATUS_BACKUP"
+fi
+
 cleanup() {
   if [ -n "$SERVER_PID" ]; then
     kill -9 "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
   fi
   rm -rf "$TEST_DATA_DIR" 2>/dev/null || true
+  if [ -n "$AGENT_STATUS_BACKUP" ] && [ -f "$AGENT_STATUS_BACKUP" ]; then
+    cp "$AGENT_STATUS_BACKUP" "$AGENT_STATUS_FILE"
+    rm -f "$AGENT_STATUS_BACKUP"
+  fi
 }
 trap cleanup EXIT INT TERM
 

@@ -2382,7 +2382,9 @@ import { loadData } from "./app.js";
         btnCancelTaskModal.innerText = '取消';
       }
 
-      setIsOpenedFromArchive(false);
+      if (typeof setIsOpenedFromArchive === 'function') {
+        setIsOpenedFromArchive(false);
+      }
 
       const descEl = document.getElementById('formDescription');
       if (descEl) {

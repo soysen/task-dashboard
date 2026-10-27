@@ -115,11 +115,13 @@ import { tasks, projects, settings } from "./state.js";
       }
 
       const negativeGuardrails = `\n【負向守門邊界 (Negative Boundaries / Never Do)】:\n• 嚴禁整檔盲讀與未經 Impact Analysis 任意搜尋取代。\n• 純調查/診斷任務嚴禁變更原始碼；實作僅限任務最小必要範圍，禁止跨專案副作用。`;
+      const subagentNotice = `\n【Subagent 自動調度規範 (Flash 執行 + Pro 審核)】:\n• 條件允許時自動啟用 Subagent (Workspace: "inherit")：先以 flash 執行實作與測試、再以 pro 進行審核把關。`;
 
       const prompt = `【任務開工】[${task.id}] ${task.title}
 • 專案: ${projName} (${projPath}) | 驗證: ${harnessCmd} | 資料庫: ${tasksFilePath}
 • 需求: ${task.description || '無'}${feedbackText}${recommendedSkillText}
 ${negativeGuardrails}
+${subagentNotice}
 
 【Task Dashboard 3-Phase Gate 平台規範】：
 1. Pre-Flight: 檢閱專案架構文檔並執行 ${harnessCmd}；有 Feedback 優先滿足；若任務勾選需確認後再執行且未具備執行計劃，必須先產出完整執行計劃回寫 executionPlan 供確認；大檔 (>500 行) 禁整檔全覽，一律以 grep-n 定位切片 30-50 行避免 Loop。

@@ -88,6 +88,7 @@ task-dashboard/
 3. **平台標準遵照 (Platform Execution SOP)**：
    - 執行本專案任務時，須依循 [`docs/AUTOMATION_STANDARD.md`](docs/AUTOMATION_STANDARD.md) 規範：
      - 恪遵 3-Phase Gate（Pre-Flight、Implementation、Review Promotion）。
+     - 在支援 Subagent 的環境執行任務時，於條件允許下自動啟用 Subagent 雙階模式（以 `flash` 負責執行實作、再由 `pro` 進行審核把關，並共用 `Workspace: "inherit"`）。
      - 交付時必須產出符合規範的**結構化任務執行報告**，並落實 **Chat-Report Symmetry（對齊回報原則）**。
      - 依任務核心主軸產出標準 Conventional Commit 訊息。
 

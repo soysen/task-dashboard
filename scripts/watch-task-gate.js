@@ -187,6 +187,8 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
     `【負向守門邊界 (Negative Boundaries / Never Do)】:\n` +
     `• 嚴禁整檔盲讀與未經 Impact Analysis 任意搜尋取代。\n` +
     `• 純調查/診斷任務嚴禁變更原始碼；實作僅限任務最小必要範圍，禁止跨專案副作用。\n\n` +
+    `【Subagent 自動調度規範 (Flash 執行 + Pro 審核)】:\n` +
+    `• 若環境具備 Subagent 工具且條件允許（非單純 requestCommitGen 且非待使用者確認之空白 executionPlan），請自動啟用 Subagent (Workspace: "inherit")：先以 Model: "flash" 執行 Phase 1~2 實作與測試，再以 Model: "pro" 進行 Phase 3 程式碼與執行報告審核並推進至 review；全程完成後主 Agent 再重啟哨兵待命（嚴禁於 Subagent 運行期間提前重啟哨兵）。\n\n` +
     `【Task Dashboard 3-Phase Gate 平台執行標準】：\n` +
     `1. Phase 1 (Pre-Flight): 優先滿足 Feedback；檢閱專案文檔與執行 Harness 驗證；>500 行大檔一律以 grep-n 切片檢索；若勾選需確認後執行且 executionPlan 為空，須先填妥執行計劃供確認。\n` +
     `2. Phase 2 (Implementation): 遵循目錄規範最小範圍實作並補齊測試，嚴禁跨專案副作用。\n` +

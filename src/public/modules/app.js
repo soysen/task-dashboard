@@ -278,36 +278,36 @@ node "${gateScriptPath}" --agent=antigravity
 
 【開工指示 (Reactive Wakeup)】：
 1. 喚醒後依情境開工：
-   • in_progress: 3-Phase Gate（優先滿足 Feedback；若勾選需確認且無執行計劃，首要任務為擬定執行計劃回寫 executionPlan 保持 in_progress 供確認；若已確認或免確認，依規範實作與測試，通過後收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })，回寫 tasks.json 推入 review，若有 feedback 歸入 description 並清空）。
+   • in_progress: 3-Phase Gate（優先滿足 Feedback；若勾選需確認且無執行計劃，首要任務為擬定執行計劃回寫 executionPlan 保持 in_progress 供確認；條件允許時自動啟用 Subagent [Workspace: "inherit"]：先以 flash 執行實作與測試，再以 pro 審核把關；通過後收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })，回寫 tasks.json 推入 review，若有 feedback 歸入 description 並清空）。
    • requestCommitGen: 依工作區全量 diff 產出 commitMessage 寫回 tasks.json 並重置 flag。
-2. 交付後再次背景執行上述 node 指令重新待命。`;
+2. 交付後（Subagent 雙階執行與審核皆完成並推入 review 後）再次背景執行上述 node 指令重新待命。`;
       } else if (currentDesktopAgentTarget === 'claude') {
         promptText = `使用 bash/execute_command 背景啟動哨兵待命 (0 Token，專屬認領 Claude 任務)：
 node "${gateScriptPath}" --agent=claude
 
 【開工指示 (Reactive Wakeup)】：
 1. 喚醒後依情境開工：
-   • in_progress: 優先處理 Feedback；若勾選需確認且無執行計劃，先擬定執行計劃回寫 executionPlan 保持 in_progress 供確認；若已確認則實作測試，收集全量 diff 產出 commitMessage ({ subject, body }) 寫回 tasks.json 推入 review (feedback 歸入 description 並清空)。
+   • in_progress: 優先處理 Feedback；若勾選需確認且無執行計劃，先擬定執行計劃回寫 executionPlan 保持 in_progress 供確認；條件允許時自動啟用 Subagent (Workspace: "inherit")：先用 flash 執行實作與測試、再用 pro 審核把關；收集全量 diff 產出 commitMessage ({ subject, body }) 寫回 tasks.json 推入 review (feedback 歸入 description 並清空)。
    • requestCommitGen: 依 diff 產出 commitMessage 寫回 tasks.json 並重置請求。
-2. 交付後再次背景執行上述 node 指令重新待命。`;
+2. 交付後（雙階完成推入 review 後）再次背景執行上述 node 指令重新待命。`;
       } else if (currentDesktopAgentTarget === 'codex') {
         promptText = `在終端背景執行指令啟動哨兵待命 (0 Token，專屬認領 Codex 任務)：
 node "${gateScriptPath}" --agent=codex
 
 【開工指示 (Reactive Wakeup)】：
 1. 喚醒後依情境開工：
-   • in_progress: 優先處理 Feedback；若勾選需確認且無執行計劃，先擬定執行計劃回寫 executionPlan 保持 in_progress 供確認；若已確認則實作驗證，收集全量 diff 產出 commitMessage 寫回 tasks.json 推入 review (feedback 歸入 description 並清空)。
+   • in_progress: 優先處理 Feedback；若勾選需確認且無執行計劃，先擬定執行計劃回寫 executionPlan 保持 in_progress 供確認；條件允許時自動啟用 Subagent (Workspace: "inherit")：先用 flash 執行實作與測試、再用 pro 審核把關；收集全量 diff 產出 commitMessage 寫回 tasks.json 推入 review (feedback 歸入 description 並清空)。
    • requestCommitGen: 依 diff 產出 commitMessage 寫回 tasks.json 並重置請求。
-2. 交付後再次背景執行上述 node 指令重新待命。`;
+2. 交付後（雙階完成推入 review 後）再次背景執行上述 node 指令重新待命。`;
       } else if (currentDesktopAgentTarget === 'copilot') {
         promptText = `在終端背景執行指令啟動哨兵待命 (0 Token，專屬認領 Copilot 任務)：
 node "${gateScriptPath}" --agent=copilot
 
 【開工指示 (Reactive Wakeup)】：
 1. 喚醒後自主開工：
-   • in_progress: 優先滿足 Feedback；若勾選需確認且無執行計劃，先擬定執行計劃回寫 executionPlan 保持 in_progress 供確認；若已確認則實作測試，收集全量 diff 產出 commitMessage 寫回 tasks.json 推入 review (feedback 歸入 description 並清空)。
+   • in_progress: 優先滿足 Feedback；若勾選需確認且無執行計劃，先擬定執行計劃回寫 executionPlan 保持 in_progress 供確認；條件允許時自動啟用 Subagent (Workspace: "inherit")：先用 flash 執行實作與測試、再用 pro 審核把關；收集全量 diff 產出 commitMessage 寫回 tasks.json 推入 review (feedback 歸入 description 並清空)。
    • requestCommitGen: 依 diff 產出 commitMessage 寫回 tasks.json 並重置請求。
-2. 交付後再次背景執行上述 node 指令重新待命。`;
+2. 交付後（雙階完成推入 review 後）再次背景執行上述 node 指令重新待命。`;
       } else {
         // universal
         promptText = `在終端工具背景執行以下指令啟動哨兵待命 (0 Token，通用認領所有任務)：
@@ -315,9 +315,9 @@ node "${gateScriptPath}"
 
 【開工指示 (Reactive Wakeup)】：
 1. 喚醒後自主開工：
-   • in_progress: 優先處理 Feedback；若勾選需確認且無執行計劃，先擬定執行計劃回寫 executionPlan 保持 in_progress 供確認；若已確認則實作驗證，收集全量 diff 產出 commitMessage ({ subject, body }) 寫回 tasks.json 推入 review (feedback 歸入 description 並清空)。
+   • in_progress: 優先處理 Feedback；若勾選需確認且無執行計劃，先擬定執行計劃回寫 executionPlan 保持 in_progress 供確認；條件允許時自動啟用 Subagent (Workspace: "inherit")：先用 flash 執行實作與測試、再用 pro 審核把關；收集全量 diff 產出 commitMessage ({ subject, body }) 寫回 tasks.json 推入 review (feedback 歸入 description 並清空)。
    • requestCommitGen: 依 diff 產出 commitMessage 寫回 tasks.json 並重置 flag。
-2. 交付後再次背景執行上述 node 指令重新待命。`;
+2. 交付後（雙階完成推入 review 後）再次背景執行上述 node 指令重新待命。`;
       }
 
       const promptEl = document.getElementById('aiPromptTextDisplay');
