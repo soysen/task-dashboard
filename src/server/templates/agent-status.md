@@ -7,7 +7,7 @@
 - Status: idle
 - Last updated: 2026-09-24
 - Goal: N/A
-- Route: dashboard-state-and-sync
+- Route: none
 - Scope: N/A
 - Out of scope: 跨專案副作用
 

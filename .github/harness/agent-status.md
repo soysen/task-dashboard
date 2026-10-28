@@ -1,10 +1,10 @@
 # Agent Status
 
-- Task ID: TASK-126
-- Title: 打開 app 時 UI 字級大小未照設定顯示
+- Task ID: TASK-156
+- Title: task commit 遇到 pre-commit 阻斷仍進入封存庫
 - Status: review
-- Route: dashboard-state-and-sync
-- Current Slice Goal: 完成 TASK-126 修正開啟 App 時 `loadData` 讀取 `/api/settings` 後自動套用已紀錄之 `fontSize` 字級設定，並於 `setAppFontSize` 即時同步持久化至後端
-- Current Step: 完成實作、單元測試、App 打包同步與 Harness Check 驗證，推進至 review
-- Evidence: `node scripts/test_ui_behavior.js && npm test && npm run harness:check && npm run build:app` (exit 0)
-- Resume Entry: `src/public/modules/app.js`, `src/public/modules/state.js`, `scripts/test_ui_behavior.js`
+- Route: none
+- Current Slice Goal: task-154 審核完點選 commit 時遇到 pre-commit 阻擋，task 仍進入封存庫，應顯示 pre-commit 失敗原因。
+- Current Step: 實作與測試驗證通過 (harness:check、test_server.sh、test_ui_behavior.js 全數 PASS)，推入 review
+- Evidence: `node scripts/test_ui_behavior.js && bash scripts/test_server.sh && npm run harness:check` (exit 0)
+- Resume Entry: `src/server/server.js`, `src/public/index.html`, `src/public/modules/modal.js`

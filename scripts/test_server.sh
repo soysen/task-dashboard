@@ -145,13 +145,89 @@ if [ -n "$TASK_ID" ]; then
   rm -rf "$DUMMY_DIR"
 fi
 
+echo "  [6.6/7] 測試 POST /api/tasks/:id/commit 遇 pre-commit 阻斷保持原狀態並回傳 400 與成功 commit 封存流程 ..."
+PRECOMMIT_REPO="/tmp/test-precommit-repo-$$"
+mkdir -p "$PRECOMMIT_REPO/.git/hooks"
+git -C "$PRECOMMIT_REPO" init > /dev/null 2>&1
+git -C "$PRECOMMIT_REPO" config user.email "tester@example.com"
+git -C "$PRECOMMIT_REPO" config user.name "Tester"
+git -C "$PRECOMMIT_REPO" commit --allow-empty -m "initial commit" > /dev/null 2>&1
+
+# 建立會攔截並報錯的 pre-commit hook
+cat << 'HOOK_EOF' > "$PRECOMMIT_REPO/.git/hooks/pre-commit"
+#!/bin/sh
+echo "Pre-commit check failed: linter reported errors in auth.js" >&2
+exit 1
+HOOK_EOF
+chmod +x "$PRECOMMIT_REPO/.git/hooks/pre-commit"
+
+echo "const x = 1;" > "$PRECOMMIT_REPO/auth.js"
+curl -s -f -X POST "http://localhost:$TEST_PORT/api/projects" -H "Content-Type: application/json" -d "{\"id\":\"test-precommit-proj\",\"name\":\"test-precommit-proj\",\"path\":\"$PRECOMMIT_REPO\"}" > /dev/null 2>&1
+PC_TASK=$(curl -s -f -X POST "http://localhost:$TEST_PORT/api/tasks" -H "Content-Type: application/json" -d "{\"title\":\"測試 pre-commit 門禁\",\"project\":\"test-precommit-proj\",\"status\":\"review\"}")
+PC_TASK_ID=$(echo "$PC_TASK" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)
+
+COMMIT_RESP_FILE="/tmp/commit_resp_$$.json"
+COMMIT_CODE=$(curl -s -o "$COMMIT_RESP_FILE" -w "%{http_code}" -X POST "http://localhost:$TEST_PORT/api/tasks/$PC_TASK_ID/commit" -H "Content-Type: application/json" -d '{"customSubject":"feat(auth): add login","customBody":"implement auth"}')
+
+if [ "$COMMIT_CODE" = "400" ]; then
+  echo "    ✅ pre-commit 失敗時 API 正確回傳 HTTP 400"
+else
+  echo "    ❌ pre-commit 失敗時 API 未回傳 400: $COMMIT_CODE"
+  cat "$COMMIT_RESP_FILE"
+  exit 1
+fi
+
+if grep -q "Pre-commit check failed: linter reported errors" "$COMMIT_RESP_FILE"; then
+  echo "    ✅ API 錯誤內容成功包含 pre-commit hook 之 stderr 輸出"
+else
+  echo "    ❌ API 錯誤內容缺少 stderr 輸出: $(cat "$COMMIT_RESP_FILE")"
+  exit 1
+fi
+
+# 驗證任務狀態仍為 review，嚴格禁止進入 archived
+ALL_TASKS_CHECK=$(curl -s -f "http://localhost:$TEST_PORT/api/tasks")
+PC_TASK_STATUS=$(node -e 'const tasks = JSON.parse(process.argv[1]); const t = tasks.find(x => x.id === process.argv[2]); console.log(t ? t.status : "");' "$ALL_TASKS_CHECK" "$PC_TASK_ID")
+if [ "$PC_TASK_STATUS" = "review" ]; then
+  echo "    ✅ pre-commit 阻斷時任務狀態仍為 review，未被移入封存庫"
+else
+  echo "    ❌ pre-commit 阻斷時任務狀態被錯誤變更為: $PC_TASK_STATUS"
+  exit 1
+fi
+
+# 驗證修復 pre-commit hook (改為 exit 0) 後，commit 成功且任務順利進入 archived
+cat << 'HOOK_PASS' > "$PRECOMMIT_REPO/.git/hooks/pre-commit"
+#!/bin/sh
+exit 0
+HOOK_PASS
+chmod +x "$PRECOMMIT_REPO/.git/hooks/pre-commit"
+
+SUCCESS_CODE=$(curl -s -o "$COMMIT_RESP_FILE" -w "%{http_code}" -X POST "http://localhost:$TEST_PORT/api/tasks/$PC_TASK_ID/commit" -H "Content-Type: application/json" -d '{"customSubject":"feat(auth): add login","customBody":"implement auth"}')
+if [ "$SUCCESS_CODE" = "200" ]; then
+  echo "    ✅ pre-commit 通過後 API 正確回傳 HTTP 200"
+else
+  echo "    ❌ pre-commit 通過後 API 回傳非 200: $SUCCESS_CODE"
+  cat "$COMMIT_RESP_FILE"
+  exit 1
+fi
+
+ALL_TASKS_CHECK_AFTER=$(curl -s -f "http://localhost:$TEST_PORT/api/tasks")
+PC_TASK_STATUS_AFTER=$(node -e 'const tasks = JSON.parse(process.argv[1]); const t = tasks.find(x => x.id === process.argv[2]); console.log(t ? t.status : "");' "$ALL_TASKS_CHECK_AFTER" "$PC_TASK_ID")
+if [ "$PC_TASK_STATUS_AFTER" = "archived" ]; then
+  echo "    ✅ commit 成功後任務正確變更為 archived 封存狀態"
+else
+  echo "    ❌ commit 成功後任務狀態異常: $PC_TASK_STATUS_AFTER"
+  exit 1
+fi
+
+rm -rf "$PRECOMMIT_REPO" "$COMMIT_RESP_FILE"
+
 echo "  [7/7] 測試 多任務 agent-status 與切片隔離單元測試 ..."
 node -e '
 const assert = require("assert");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { parseAgentStatusContent, parseBuildPlanContent, scanProjectWorklogAndPlan, syncProjectWorklogOnReview } = require("./src/server/server.js");
+const { resolveTaskSkillRoute, parseAgentStatusContent, parseBuildPlanContent, scanProjectWorklogAndPlan, syncProjectWorklogOnReview } = require("./src/server/server.js");
 
 const multiTaskWorklog = `# Agent Status
 
@@ -352,6 +428,93 @@ assert(!allFrontendContent.includes("function switchFieldViewMode("), "前端已
 assert(!allFrontendContent.includes("formDescriptionPreview"), "前端彈窗已移除 formDescriptionPreview 預覽容器");
 assert(!allFrontendContent.includes("formExecutionPlanPreview"), "前端彈窗已移除 formExecutionPlanPreview 預覽容器");
 assert(allFrontendContent.includes("autoResizeTextarea"), "前端保留原生彈性 autoResizeTextarea 編輯體驗");
+
+// 驗證 resolveTaskSkillRoute 邏輯
+assert.strictEqual(resolveTaskSkillRoute({ route: "custom-route", tags: ["frontend-ui-engineering"] }, "."), "custom-route");
+
+const dummyProjSkills = fs.mkdtempSync(path.join(os.tmpdir(), "task-dashboard-skills-"));
+fs.mkdirSync(path.join(dummyProjSkills, ".github", "skills", "skill-a"), { recursive: true });
+fs.mkdirSync(path.join(dummyProjSkills, ".github", "skills", "skill-b"), { recursive: true });
+
+const skillRouteResult = resolveTaskSkillRoute(
+  { tags: ["feat", "skill-a", "fix", "skill-b", "urgent"] },
+  dummyProjSkills
+);
+assert.strictEqual(skillRouteResult, "skill-a, skill-b", "應從 task.tags 精準篩選專案 skills 並排除 non-skill tags");
+
+const noSkillsProj = fs.mkdtempSync(path.join(os.tmpdir(), "task-dashboard-noskills-"));
+const fallbackTagsResult = resolveTaskSkillRoute(
+  { tags: ["feat", "my-feature-skill", "bug"] },
+  noSkillsProj
+);
+assert.strictEqual(fallbackTagsResult, "my-feature-skill", "無專案 skills 時應篩選出非 Git commit/狀態 tags");
+
+const emptyRouteResult = resolveTaskSkillRoute(
+  { tags: ["feat", "fix"] },
+  dummyProjSkills
+);
+assert.strictEqual(emptyRouteResult, "none", "無任何技能標籤時應為 none");
+assert.notStrictEqual(emptyRouteResult, "dashboard-state-and-sync", "絕不得回傳寫死的 dashboard-state-and-sync");
+
+fs.rmSync(dummyProjSkills, { recursive: true, force: true });
+fs.rmSync(noSkillsProj, { recursive: true, force: true });
+
+// 驗證 parseAgentStatusContent 對頂層無 ## Active Task 標題的相容性
+const topLevelNoH2Worklog = `# Agent Status
+
+- ID: TASK-NO-H2
+- Title: 無二級標題任務
+- Status: in_progress
+- Goal: 測試相容性
+- Route: test-skill
+- CurrentStep: 執行診斷中
+- Evidence: 進行中證據
+- NextStep: 推進至實作
+- LastUpdated: 2026-10-27
+`;
+
+const parsedTopLevel = parseAgentStatusContent(topLevelNoH2Worklog, "dummy.md", "TASK-NO-H2");
+assert(parsedTopLevel.activeTask, "無 ## Active Task 標題之 worklog 應能被 parseAgentStatusContent 成功解析出 activeTask");
+assert.strictEqual(parsedTopLevel.activeTask.id, "TASK-NO-H2");
+assert.strictEqual(parsedTopLevel.activeTask.status, "進行中");
+assert.strictEqual(parsedTopLevel.activeTask.currentStep, "執行診斷中");
+assert.strictEqual(parsedTopLevel.activeTask.evidence, "進行中證據");
+assert.strictEqual(parsedTopLevel.activeTask.nextStep, "推進至實作");
+
+// 驗證 syncProjectWorklogForActiveTask 升級無 ## Active Task 的 agent-status.md 為標準結構
+const tempProjNoH2 = fs.mkdtempSync(path.join(os.tmpdir(), "task-dashboard-upgrade-h2-"));
+const worklogDirNoH2 = path.join(tempProjNoH2, ".github", "worklog");
+fs.mkdirSync(worklogDirNoH2, { recursive: true });
+fs.writeFileSync(path.join(worklogDirNoH2, "agent-status.md"), topLevelNoH2Worklog, "utf8");
+
+syncProjectWorklogForActiveTask(tempProjNoH2, {
+  id: "TASK-NO-H2",
+  title: "無二級標題任務升級",
+  tags: ["my-skill"]
+});
+
+const upgradedContent = fs.readFileSync(path.join(worklogDirNoH2, "agent-status.md"), "utf8");
+assert(upgradedContent.includes("## Active Task"), "syncProjectWorklogForActiveTask 必須將無二級標題檔案升級重整為包含 ## Active Task");
+assert(upgradedContent.includes("## Execution Tracking"), "必須包含 ## Execution Tracking");
+assert(upgradedContent.includes("- Route: my-skill"), "Route 必須反映任務解析之 Skill");
+
+// 驗證 syncProjectWorklogOnReview 與 syncProjectWorklogOnDone 對無 ## Active Task 結構之相容更新
+const { syncProjectWorklogOnDone } = require("./src/server/server.js");
+const tempProjReviewNoH2 = fs.mkdtempSync(path.join(os.tmpdir(), "task-dashboard-review-noh2-"));
+const worklogDirReviewNoH2 = path.join(tempProjReviewNoH2, ".github", "worklog");
+fs.mkdirSync(worklogDirReviewNoH2, { recursive: true });
+fs.writeFileSync(path.join(worklogDirReviewNoH2, "agent-status.md"), topLevelNoH2Worklog, "utf8");
+
+syncProjectWorklogOnReview(tempProjReviewNoH2, { id: "TASK-NO-H2", title: "審查任務" });
+const reviewedContent = fs.readFileSync(path.join(worklogDirReviewNoH2, "agent-status.md"), "utf8");
+assert(reviewedContent.includes("- Status: review"), "無 ## Active Task 結構下 review 同步必須正確更新 - Status: review");
+
+syncProjectWorklogOnDone(tempProjReviewNoH2, { id: "TASK-NO-H2", title: "結案任務" });
+const doneContent = fs.readFileSync(path.join(worklogDirReviewNoH2, "agent-status.md"), "utf8");
+assert(doneContent.includes("- Status: 已完成"), "無 ## Active Task 結構下 done 同步必須正確更新 - Status: 已完成");
+
+fs.rmSync(tempProjNoH2, { recursive: true, force: true });
+fs.rmSync(tempProjReviewNoH2, { recursive: true, force: true });
 
 console.log("    ✅ agent-status、build-plan 隔離保護、多輪 Feedback Commit 訊息、consumeTaskFeedback、executionPlan 門禁與簡潔編輯器單元測試通過！");
 '

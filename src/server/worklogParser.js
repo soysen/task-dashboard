@@ -21,6 +21,61 @@ function getTasksSafe() {
   return [];
 }
 
+function resolveTaskSkillRoute(task, projPath, fallbackRoute) {
+  if (task && task.route && task.route !== 'none') {
+    return task.route;
+  }
+  if (task && Array.isArray(task.tags) && task.tags.length > 0) {
+    const NON_SKILL_TAGS = new Set([
+      'feat', 'fix', 'docs', 'style', 'refactor', 'perf', 'test', 'chore',
+      'revert', 'build', 'ci', 'abandoned', 'urgent', 'bug', 'enhancement'
+    ]);
+    let projectSkillIds = null;
+    if (projPath) {
+      const skillsDir = path.join(projPath, '.github', 'skills');
+      if (fs.existsSync(skillsDir)) {
+        try {
+          projectSkillIds = new Set(
+            fs.readdirSync(skillsDir, { withFileTypes: true })
+              .filter(d => d.isDirectory())
+              .map(d => d.name)
+          );
+        } catch (e) {
+          projectSkillIds = null;
+        }
+      }
+    }
+
+    if (projectSkillIds && projectSkillIds.size > 0) {
+      const lowerMap = new Map();
+      for (const id of projectSkillIds) {
+        lowerMap.set(id.toLowerCase(), id);
+      }
+      const matched = [];
+      for (const tag of task.tags) {
+        const cleanTag = String(tag).trim();
+        if (projectSkillIds.has(cleanTag)) {
+          matched.push(cleanTag);
+        } else if (lowerMap.has(cleanTag.toLowerCase())) {
+          matched.push(lowerMap.get(cleanTag.toLowerCase()));
+        }
+      }
+      if (matched.length > 0) {
+        return matched.join(', ');
+      }
+    }
+
+    const filtered = task.tags
+      .map(t => String(t).trim())
+      .filter(t => t && !NON_SKILL_TAGS.has(t.toLowerCase()));
+    if (filtered.length > 0) {
+      return filtered.join(', ');
+    }
+  }
+
+  return (fallbackRoute && fallbackRoute !== 'none') ? fallbackRoute : 'none';
+}
+
 function parseAgentStatusContent(content, statusFilePath, targetTaskId) {
   const lines = content.split('\n');
   let currentSection = '';
@@ -76,7 +131,7 @@ function parseAgentStatusContent(content, statusFilePath, targetTaskId) {
         const key = line.substring(2, idx).trim().toLowerCase();
         const value = line.substring(idx + 1).trim();
 
-        if (currentSection === 'Active Task' || currentSection.includes('活躍任務') || currentSection.includes('進行中任務') || currentSection.includes('Active Tasks')) {
+        if (currentSection === '' || currentSection === 'Active Task' || currentSection.includes('活躍任務') || currentSection.includes('進行中任務') || currentSection.includes('Active Tasks')) {
           if (currentActiveTaskFields) {
             currentActiveTaskFields[key] = value;
           } else {
@@ -103,6 +158,14 @@ function parseAgentStatusContent(content, statusFilePath, targetTaskId) {
           } else if (!currentActiveTaskFields && currentActiveTaskId && activeTasksMap.has(currentActiveTaskId.toLowerCase())) {
             activeTasksMap.get(currentActiveTaskId.toLowerCase())[key] = value;
           }
+
+          if (currentSection === '') {
+            if (key === 'currentstep' || key === 'current step' || key === '當前步驟' || key === '當下切片' || key === '當前進度' || key === '步驟' || key === 'step' ||
+                key === 'evidence' || key === '驗證證據' || key === '驗證' ||
+                key === 'nextstep' || key === 'next step' || key === '下一步' || key === '下個步驟') {
+              executionFields[key] = value;
+            }
+          }
         } else if (currentSection === 'Last Completed Task' || currentSection.includes('前次完成') || currentSection.includes('最近完成')) {
           completedFields[key] = value;
         } else if (currentSection === 'Execution Tracking' || currentSection.includes('執行狀態') || currentSection.includes('執行追蹤')) {
@@ -120,7 +183,7 @@ function parseAgentStatusContent(content, statusFilePath, targetTaskId) {
             activeTasksMap.get(currentActiveTaskId.toLowerCase())[key] = value;
           }
         }
-      } else if ((currentSection.includes('Active Task') || currentSection.includes('活躍任務')) && (line.toLowerCase().startsWith('- updated files:') || line.startsWith('- 異動檔案:') || line.startsWith('- 修改檔案:'))) {
+      } else if ((currentSection === '' || currentSection.includes('Active Task') || currentSection.includes('活躍任務')) && (line.toLowerCase().startsWith('- updated files:') || line.startsWith('- 異動檔案:') || line.startsWith('- 修改檔案:'))) {
         let j = i + 1;
         while (j < lines.length && (lines[j].trim().startsWith('  - ') || lines[j].trim().startsWith('\t- ') || lines[j].trim().startsWith('- '))) {
           activeUpdatedFiles.push(lines[j].trim().replace(/^[- \t]+/, ''));
@@ -631,6 +694,7 @@ function scanProjectWorklogAndPlan(projPath, taskId) {
       : (taskId ? `任務執行與驗證：${taskId}` : undefined);
 
     if (currentTask || taskId) {
+      const taskRoute = resolveTaskSkillRoute(currentTask, projPath, 'none');
       const taskStatus = currentTask ? currentTask.status : 'in_progress';
       return {
         hasWorklog: false,
@@ -640,10 +704,10 @@ function scanProjectWorklogAndPlan(projPath, taskId) {
           status: taskStatus === 'in_progress' ? '進行中' : (taskStatus === 'review' ? '待審查' : (taskStatus === 'done' ? '已完成' : '未開始')),
           lastUpdated: (currentTask && (currentTask.updatedAt || currentTask.createdAt) || new Date().toISOString()).split('T')[0],
           goal: goalText || taskTitle,
-          route: (currentTask && currentTask.route) || 'dashboard-state-and-sync'
+          route: taskRoute
         },
         currentSliceGoal: goalText || taskTitle,
-        route: (currentTask && currentTask.route) || 'dashboard-state-and-sync',
+        route: taskRoute,
         currentStep: taskStatus === 'in_progress' ? `正在執行：${taskTitle}` : `任務狀態：${taskStatus}`,
         evidence: taskStatus === 'done' ? '測試通過已驗收' : '進行中',
         nextStep: taskStatus === 'in_progress' ? '完成實作與測試後推入 review 交付審查' : '無',
@@ -652,7 +716,7 @@ function scanProjectWorklogAndPlan(projPath, taskId) {
             sliceId: `slice-${(currentTask ? currentTask.id : taskId).toLowerCase()}-1`,
             title: `[${taskStatus === 'done' ? '已完成' : '進行中'}] ${taskTitle}`,
             status: taskStatus === 'done' ? '已完成' : '進行中',
-            route: (currentTask && currentTask.route) || 'dashboard-state-and-sync',
+            route: taskRoute,
             goal: goalText || taskTitle
           }
         ],
@@ -670,6 +734,10 @@ function scanProjectWorklogAndPlan(projPath, taskId) {
   const isTargetActiveTask = activeTask && activeTask.id !== 'none' && (!taskId || activeTask.id.toLowerCase() === taskId.toLowerCase());
   let effectiveActiveTask = isTargetActiveTask ? activeTask : null;
 
+  const hasDashboardSkill = fs.existsSync(path.join(projPath, '.github', 'skills', 'dashboard-state-and-sync'));
+  const currentTaskRoute = currentTask ? resolveTaskSkillRoute(currentTask, projPath) : 'none';
+  const hasTaskExplicitSkill = currentTaskRoute !== 'none';
+
   // 若當前任務有資訊，補全 activeTask 中為 'N/A' 或缺失的欄位
   if (effectiveActiveTask && currentTask) {
     if (!effectiveActiveTask.title || effectiveActiveTask.title === 'N/A') {
@@ -680,8 +748,9 @@ function scanProjectWorklogAndPlan(projPath, taskId) {
         ? `[退回重做] ${currentTask.feedback.replace(/[\r\n]+/g, ' ').trim()}`
         : (currentTask.description || currentTask.title);
     }
-    if (!effectiveActiveTask.route || effectiveActiveTask.route === 'none') {
-      effectiveActiveTask.route = currentTask.route || fallbackRoute || 'dashboard-state-and-sync';
+    const isLegacyDashboard = effectiveActiveTask.route === 'dashboard-state-and-sync' && !hasDashboardSkill;
+    if (!effectiveActiveTask.route || effectiveActiveTask.route === 'none' || isLegacyDashboard || hasTaskExplicitSkill) {
+      effectiveActiveTask.route = hasTaskExplicitSkill ? currentTaskRoute : resolveTaskSkillRoute(currentTask, projPath, fallbackRoute);
     }
   }
 
@@ -696,13 +765,21 @@ function scanProjectWorklogAndPlan(projPath, taskId) {
       ? `根據審查意見修復：${currentTask.feedback.replace(/[\r\n]+/g, ' ').trim()}`
       : `正在執行：${currentTask.title}`;
 
+    const syntheticRoute = resolveTaskSkillRoute(
+      currentTask,
+      projPath,
+      (activeBuildPlan && activeBuildPlan.taskCard && activeBuildPlan.taskCard.route && activeBuildPlan.taskCard.route !== 'none')
+        ? activeBuildPlan.taskCard.route
+        : fallbackRoute
+    );
+
     effectiveActiveTask = {
       id: currentTask.id,
       title: currentTask.title,
       status: '進行中',
       lastUpdated: (currentTask.updatedAt || currentTask.createdAt || todayStr).split('T')[0],
       goal: goalText,
-      route: currentTask.route || (activeBuildPlan && activeBuildPlan.taskCard && activeBuildPlan.taskCard.route) || fallbackRoute || 'dashboard-state-and-sync',
+      route: syntheticRoute,
       currentStep: stepText,
       evidence: currentTask.feedback && currentTask.feedback.trim() ? '待退回重做驗證' : '進行中',
       nextStep: '完成實作與測試後推入 review 交付審查',
@@ -715,13 +792,30 @@ function scanProjectWorklogAndPlan(projPath, taskId) {
     ? activeBuildPlan.currentSliceGoal
     : (effectiveActiveTask && effectiveActiveTask.goal && effectiveActiveTask.goal !== 'N/A' ? effectiveActiveTask.goal : (currentTask ? (currentTask.description || currentTask.title) : undefined));
 
-  let resolvedRoute = (effectiveActiveTask && effectiveActiveTask.route && effectiveActiveTask.route !== 'none')
-    ? effectiveActiveTask.route
-    : (activeBuildPlan && activeBuildPlan.taskCard && activeBuildPlan.taskCard.route && activeBuildPlan.taskCard.route !== 'none')
-    ? activeBuildPlan.taskCard.route
-    : (activeBuildPlan && activeBuildPlan.slices && activeBuildPlan.slices.length > 0 && activeBuildPlan.slices[0].route && activeBuildPlan.slices[0].route !== 'none')
-    ? activeBuildPlan.slices[0].route
-    : fallbackRoute;
+  let resolvedRoute = 'none';
+  if (hasTaskExplicitSkill) {
+    resolvedRoute = currentTaskRoute;
+  } else if (effectiveActiveTask && effectiveActiveTask.route && effectiveActiveTask.route !== 'none') {
+    const isLegacy = effectiveActiveTask.route === 'dashboard-state-and-sync' && !hasDashboardSkill;
+    if (!isLegacy) resolvedRoute = effectiveActiveTask.route;
+  }
+
+  if (resolvedRoute === 'none') {
+    if (activeBuildPlan && activeBuildPlan.taskCard && activeBuildPlan.taskCard.route && activeBuildPlan.taskCard.route !== 'none') {
+      const isLegacy = activeBuildPlan.taskCard.route === 'dashboard-state-and-sync' && !hasDashboardSkill;
+      if (!isLegacy) resolvedRoute = activeBuildPlan.taskCard.route;
+    } else if (activeBuildPlan && activeBuildPlan.slices && activeBuildPlan.slices.length > 0 && activeBuildPlan.slices[0].route && activeBuildPlan.slices[0].route !== 'none') {
+      const isLegacy = activeBuildPlan.slices[0].route === 'dashboard-state-and-sync' && !hasDashboardSkill;
+      if (!isLegacy) resolvedRoute = activeBuildPlan.slices[0].route;
+    } else if (fallbackRoute && fallbackRoute !== 'none') {
+      const isLegacy = fallbackRoute === 'dashboard-state-and-sync' && !hasDashboardSkill;
+      if (!isLegacy) resolvedRoute = fallbackRoute;
+    }
+  }
+
+  if (resolvedRoute === 'none' && currentTask) {
+    resolvedRoute = resolveTaskSkillRoute(currentTask, projPath, 'none');
+  }
 
   let finalPlanSlices = (activeBuildPlan && activeBuildPlan.slices) ? [...activeBuildPlan.slices] : [];
 
@@ -741,7 +835,7 @@ function scanProjectWorklogAndPlan(projPath, taskId) {
         sliceId: `slice-${currentTask.id.toLowerCase()}-${idx + 1}`,
         title: `[-] Slice ${idx + 1}: ${t}`,
         status: idx === 0 ? '進行中' : '未開始',
-        route: resolvedRoute || 'dashboard-state-and-sync',
+        route: (resolvedRoute && resolvedRoute !== 'none') ? resolvedRoute : 'none',
         goal: t
       }));
       if (finalPlanSlices.length > 0 && (!resolvedSliceGoal || resolvedSliceGoal === 'N/A')) {
@@ -757,7 +851,7 @@ function scanProjectWorklogAndPlan(projPath, taskId) {
       sliceId: `slice-${effectiveActiveTask.id.toLowerCase()}-1`,
       title: `[進行中] ${defaultSliceGoal}`,
       status: '進行中',
-      route: resolvedRoute || 'dashboard-state-and-sync',
+      route: (resolvedRoute && resolvedRoute !== 'none') ? resolvedRoute : 'none',
       goal: defaultSliceGoal
     });
     if (!resolvedSliceGoal || resolvedSliceGoal === 'N/A') resolvedSliceGoal = defaultSliceGoal;
@@ -814,7 +908,7 @@ function syncProjectWorklogForActiveTask(projPath, task) {
     : `正在執行：${task.title}`;
 
   const evidenceText = isRedo ? '待退回重做驗證' : '進行中';
-  const routeText = (task.route && task.route !== 'none') ? task.route : 'dashboard-state-and-sync';
+  const routeText = resolveTaskSkillRoute(task, projPath, 'none');
 
   let hasUpdated = false;
 
@@ -824,8 +918,41 @@ function syncProjectWorklogForActiveTask(projPath, task) {
     try {
       let content = fs.readFileSync(statusPath, 'utf8');
 
-      content = content.replace(/(## Active Task[\s\S]*?)(## |$)/, (match, activeSection, nextHeading) => {
-        let updated = `## Active Task\n\n` +
+      if (content.includes('## Active Task')) {
+        content = content.replace(/(## Active Task[\s\S]*?)(## |$)/, (match, activeSection, nextHeading) => {
+          let updated = `## Active Task\n\n` +
+            `- ID: ${task.id}\n` +
+            `- Title: ${task.title}\n` +
+            `- Status: in_progress\n` +
+            `- Last updated: ${todayStr}\n` +
+            `- Goal: ${goalText}\n` +
+            `- Route: ${routeText}\n` +
+            `- Scope: ${task.title}\n` +
+            `- Out of scope: 跨專案副作用\n\n`;
+          return updated + nextHeading;
+        });
+
+        content = content.replace(/(## Execution Tracking[\s\S]*?)(## |$)/, (match, execSection, nextHeading) => {
+          let updated = `## Execution Tracking\n\n` +
+            `- CurrentStep: ${currentStepText}\n` +
+            `- Evidence: ${evidenceText}\n` +
+            `- NextStep: 完成實作與測試後推入 review 交付審查\n\n`;
+          return updated + nextHeading;
+        });
+      } else {
+        // 不包含 ## Active Task，重整為包含標準結構並保留其他現存 ## 區段
+        let preservedSections = '';
+        const firstH2Idx = content.indexOf('## ');
+        if (firstH2Idx !== -1) {
+          const h2Part = content.substring(firstH2Idx);
+          const sections = h2Part.split(/(?=^## )/m).filter(sec => {
+            return !sec.startsWith('## Active Task') && !sec.startsWith('## Execution Tracking');
+          });
+          preservedSections = sections.join('\n').trim();
+        }
+
+        let newContent = `# Agent Status\n\n` +
+          `## Active Task\n\n` +
           `- ID: ${task.id}\n` +
           `- Title: ${task.title}\n` +
           `- Status: in_progress\n` +
@@ -833,17 +960,19 @@ function syncProjectWorklogForActiveTask(projPath, task) {
           `- Goal: ${goalText}\n` +
           `- Route: ${routeText}\n` +
           `- Scope: ${task.title}\n` +
-          `- Out of scope: 跨專案副作用\n\n`;
-        return updated + nextHeading;
-      });
-
-      content = content.replace(/(## Execution Tracking[\s\S]*?)(## |$)/, (match, execSection, nextHeading) => {
-        let updated = `## Execution Tracking\n\n` +
+          `- Out of scope: 跨專案副作用\n\n` +
+          `## Execution Tracking\n\n` +
           `- CurrentStep: ${currentStepText}\n` +
           `- Evidence: ${evidenceText}\n` +
           `- NextStep: 完成實作與測試後推入 review 交付審查\n\n`;
-        return updated + nextHeading;
-      });
+
+        if (preservedSections) {
+          newContent += preservedSections + '\n';
+        } else {
+          newContent += `## Resume Entry\n\n- Start here: .github/worklog/agent-status.md\n`;
+        }
+        content = newContent;
+      }
 
       fs.writeFileSync(statusPath, content, 'utf8');
       hasUpdated = true;
@@ -1022,16 +1151,31 @@ function syncProjectWorklogOnReview(projPath, task) {
   if (fs.existsSync(statusPath)) {
     try {
       let content = fs.readFileSync(statusPath, 'utf8');
-      if (content.includes(`- ID: ${task.id}`)) {
-        content = content.replace(/(## Active Task[\s\S]*?)(## |$)/, (match, activeSection, nextHeading) => {
-          let updated = activeSection.replace(/- Status:.*$/m, `- Status: review`);
-          updated = updated.replace(/- Last updated:.*$/m, `- Last updated: ${todayStr}`);
-          return updated + nextHeading;
-        });
-        content = content.replace(/(## Execution Tracking[\s\S]*?)(## |$)/, (match, execSection, nextHeading) => {
-          let updated = execSection.replace(/- CurrentStep:.*$/m, `- CurrentStep: 實作與測試驗證通過，已推入待審查 (Review)`);
-          return updated + nextHeading;
-        });
+      const hasActiveHeader = content.includes('## Active Task');
+      const isTargetTask = content.includes(`- ID: ${task.id}`) || !hasActiveHeader;
+
+      if (isTargetTask) {
+        if (hasActiveHeader) {
+          content = content.replace(/(## Active Task[\s\S]*?)(## |$)/, (match, activeSection, nextHeading) => {
+            let updated = activeSection.replace(/- Status:.*$/m, `- Status: review`);
+            updated = updated.replace(/- Last updated:.*$/m, `- Last updated: ${todayStr}`);
+            return updated + nextHeading;
+          });
+          content = content.replace(/(## Execution Tracking[\s\S]*?)(## |$)/, (match, execSection, nextHeading) => {
+            let updated = execSection.replace(/- CurrentStep:.*$/m, `- CurrentStep: 實作與測試驗證通過，已推入待審查 (Review)`);
+            return updated + nextHeading;
+          });
+        } else {
+          if (/- Status:.*$/m.test(content)) {
+            content = content.replace(/- Status:.*$/m, `- Status: review`);
+          }
+          if (/- (?:Last updated|LastUpdated):.*$/mi.test(content)) {
+            content = content.replace(/- (?:Last updated|LastUpdated):.*$/mi, `- Last updated: ${todayStr}`);
+          }
+          if (/- CurrentStep:.*$/m.test(content)) {
+            content = content.replace(/- CurrentStep:.*$/m, `- CurrentStep: 實作與測試驗證通過，已推入待審查 (Review)`);
+          }
+        }
         fs.writeFileSync(statusPath, content, 'utf8');
       }
     } catch (e) {}
@@ -1049,28 +1193,44 @@ function syncProjectWorklogOnDone(projPath, task) {
   if (fs.existsSync(statusPath)) {
     try {
       let content = fs.readFileSync(statusPath, 'utf8');
+      const hasActiveHeader = content.includes('## Active Task');
+      const isTargetTask = content.includes(`- ID: ${task.id}`) || !hasActiveHeader;
 
-      // 更新 Last Completed Task
-      content = content.replace(/(## Last Completed Task[\s\S]*?)(## |$)/, (match, compSection, nextHeading) => {
-        let updated = `## Last Completed Task\n\n` +
-          `- ID: ${task.id}\n` +
-          `- Title: ${task.title}\n` +
-          `- Status: 已完成\n` +
-          `- Last updated: ${todayStr}\n\n`;
-        return updated + nextHeading;
-      });
+      // 更新 Last Completed Task (若有 ## Last Completed Task)
+      if (content.includes('## Last Completed Task')) {
+        content = content.replace(/(## Last Completed Task[\s\S]*?)(## |$)/, (match, compSection, nextHeading) => {
+          let updated = `## Last Completed Task\n\n` +
+            `- ID: ${task.id}\n` +
+            `- Title: ${task.title}\n` +
+            `- Status: 已完成\n` +
+            `- Last updated: ${todayStr}\n\n`;
+          return updated + nextHeading;
+        });
+      }
 
       // 若 Active Task 正是本任務，將其狀態更新為已完成
-      if (content.includes(`- ID: ${task.id}`)) {
-        content = content.replace(/(## Active Task[\s\S]*?)(## |$)/, (match, activeSection, nextHeading) => {
-          let updated = activeSection.replace(/- Status:.*$/m, `- Status: 已完成`);
-          updated = updated.replace(/- Last updated:.*$/m, `- Last updated: ${todayStr}`);
-          return updated + nextHeading;
-        });
-        content = content.replace(/(## Execution Tracking[\s\S]*?)(## |$)/, (match, execSection, nextHeading) => {
-          let updated = execSection.replace(/- CurrentStep:.*$/m, `- CurrentStep: 任務驗收通過，已成功結案`);
-          return updated + nextHeading;
-        });
+      if (isTargetTask) {
+        if (hasActiveHeader) {
+          content = content.replace(/(## Active Task[\s\S]*?)(## |$)/, (match, activeSection, nextHeading) => {
+            let updated = activeSection.replace(/- Status:.*$/m, `- Status: 已完成`);
+            updated = updated.replace(/- Last updated:.*$/m, `- Last updated: ${todayStr}`);
+            return updated + nextHeading;
+          });
+          content = content.replace(/(## Execution Tracking[\s\S]*?)(## |$)/, (match, execSection, nextHeading) => {
+            let updated = execSection.replace(/- CurrentStep:.*$/m, `- CurrentStep: 任務驗收通過，已成功結案`);
+            return updated + nextHeading;
+          });
+        } else {
+          if (/- Status:.*$/m.test(content)) {
+            content = content.replace(/- Status:.*$/m, `- Status: 已完成`);
+          }
+          if (/- (?:Last updated|LastUpdated):.*$/mi.test(content)) {
+            content = content.replace(/- (?:Last updated|LastUpdated):.*$/mi, `- Last updated: ${todayStr}`);
+          }
+          if (/- CurrentStep:.*$/m.test(content)) {
+            content = content.replace(/- CurrentStep:.*$/m, `- CurrentStep: 任務驗收通過，已成功結案`);
+          }
+        }
       }
 
       fs.writeFileSync(statusPath, content, 'utf8');
@@ -1084,6 +1244,7 @@ function syncProjectWorklogOnDone(projPath, task) {
 
 
 module.exports = {
+  resolveTaskSkillRoute,
   parseAgentStatusContent,
   parseBuildPlanContent,
   scanProjectWorklogAndPlan,

@@ -94,7 +94,7 @@ for (const task of tasks) {
   }
 
   // 檢查 3: 任務若在其專案之 .github/harness/plan/ 已產出 build-plan.md，則 tasks.json 的 executionPlan 不可為空脫鉤
-  if (task.projectPath && fs.existsSync(task.projectPath)) {
+  if (task.status !== "archived" && task.projectPath && fs.existsSync(task.projectPath)) {
     const planDir = path.join(task.projectPath, ".github", "harness", "plan");
     if (fs.existsSync(planDir)) {
       const cleanId = (task.id || "").toLowerCase().replace(/^task-/, "");

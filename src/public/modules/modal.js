@@ -1889,6 +1889,11 @@ import { loadData } from "./app.js";
       document.getElementById('commitSubjectInput').value = subject;
       document.getElementById('commitBodyInput').value = bodyText;
 
+      const errorBox = document.getElementById('commitErrorBox');
+      const errorText = document.getElementById('commitErrorText');
+      if (errorBox) errorBox.classList.add('hidden');
+      if (errorText) errorText.textContent = '';
+
       // 若尚未有 Agent 生成的 commitMessage 或為舊版複製內容，自動非同步向後端獲取依據 diff 分析的 commit 內容
       if (!task.commitMessage || !task.commitMessage.subject || isLegacyDesc) {
         fetch(`/api/tasks/${encodeURIComponent(task.id)}/generate-commit`, {
@@ -1911,6 +1916,10 @@ import { loadData } from "./app.js";
     }
 
     function closeCommitModal() {
+      const errorBox = document.getElementById('commitErrorBox');
+      const errorText = document.getElementById('commitErrorText');
+      if (errorBox) errorBox.classList.add('hidden');
+      if (errorText) errorText.textContent = '';
       document.getElementById('commitModal').classList.add('hidden');
     }
 
@@ -1925,6 +1934,11 @@ import { loadData } from "./app.js";
       }
 
       const submitBtn = document.getElementById('commitSubmitBtn');
+      const errorBox = document.getElementById('commitErrorBox');
+      const errorText = document.getElementById('commitErrorText');
+      if (errorBox) errorBox.classList.add('hidden');
+      if (errorText) errorText.textContent = '';
+
       await withButtonLoading(submitBtn, '提交中...', async () => {
         try {
           showToast(`正在提交 Commit 並封存任務...`);
@@ -1934,6 +1948,17 @@ import { loadData } from "./app.js";
             body: JSON.stringify({ customSubject: subject, customBody: body })
           });
           const result = await res.json();
+          if (!res.ok || !result.success || result.isCommitted === false) {
+            const errMsg = result.error || result.message || 'Commit 執行失敗';
+            if (errorText) errorText.textContent = errMsg;
+            if (errorBox) {
+              errorBox.classList.remove('hidden');
+              if (window.lucide) lucide.createIcons();
+            }
+            showToast('Commit 遭到 pre-commit 阻斷，請檢視失敗原因');
+            return;
+          }
+
           const arcMsg = result.archivedTaskIds && result.archivedTaskIds.length > 0
             ? `，已將 ${result.archivedTaskIds.length} 個已完成任務移入封存庫 `
             : '';
@@ -1942,6 +1967,11 @@ import { loadData } from "./app.js";
           closeModal();
           await loadData();
         } catch (err) {
+          if (errorText) errorText.textContent = err.message;
+          if (errorBox) {
+            errorBox.classList.remove('hidden');
+            if (window.lucide) lucide.createIcons();
+          }
           showToast(`Commit 失敗: ${err.message}`);
         }
       });

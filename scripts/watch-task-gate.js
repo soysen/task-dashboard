@@ -164,17 +164,31 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
       const projs = JSON.parse(fs.readFileSync(projFile, 'utf8'));
       const p = projs.find(item => item.id === task.project);
       if (p && Array.isArray(p.skills) && p.skills.length > 0) {
-        const fullText = `${task.title} ${task.description || ''} ${(task.tags || []).join(' ')}`.toLowerCase();
-        const matched = p.skills.filter(s => {
-          const l = (s.label || s.id || '').toLowerCase();
-          const d = (s.desc || '').toLowerCase();
-          if (fullText.includes('ui') || fullText.includes('切版') || fullText.includes('css')) return l.includes('web') || l.includes('ui') || d.includes('ui');
-          if (fullText.includes('test') || fullText.includes('測試')) return l.includes('test') || d.includes('test');
-          if (fullText.includes('api') || fullText.includes('後端') || fullText.includes('server')) return l.includes('api') || d.includes('api');
-          return false;
-        }).slice(0, 2);
-        if (matched.length > 0) {
-          skillsText = `\n• 【推薦動態 Skills】: ${matched.map(m => `${m.label} (${m.path || m.id})`).join('、')}`;
+        let selected = [];
+        if (Array.isArray(task.tags) && task.tags.length > 0) {
+          selected = p.skills.filter(s => {
+            return task.tags.some(t => {
+              const cleanTag = String(t).trim().toLowerCase();
+              return cleanTag === (s.id || '').toLowerCase() || cleanTag === (s.label || '').toLowerCase();
+            });
+          });
+        }
+
+        if (selected.length > 0) {
+          skillsText = `\n• 【任務指定專案 Skills (必須優先載入遵循)】: ${selected.map(m => `${m.label} (${m.path || m.id})`).join('、')}`;
+        } else {
+          const fullText = `${task.title} ${task.description || ''} ${(task.tags || []).join(' ')}`.toLowerCase();
+          const matched = p.skills.filter(s => {
+            const l = (s.label || s.id || '').toLowerCase();
+            const d = (s.desc || '').toLowerCase();
+            if (fullText.includes('ui') || fullText.includes('切版') || fullText.includes('css')) return l.includes('web') || l.includes('ui') || d.includes('ui');
+            if (fullText.includes('test') || fullText.includes('測試')) return l.includes('test') || d.includes('test');
+            if (fullText.includes('api') || fullText.includes('後端') || fullText.includes('server')) return l.includes('api') || d.includes('api');
+            return false;
+          }).slice(0, 2);
+          if (matched.length > 0) {
+            skillsText = `\n• 【推薦動態 Skills】: ${matched.map(m => `${m.label} (${m.path || m.id})`).join('、')}`;
+          }
         }
       }
     }

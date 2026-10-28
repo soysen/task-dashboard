@@ -15,6 +15,7 @@ const {
   autoAssembleExecutionReport
 } = require('./feedbackManager');
 const {
+  resolveTaskSkillRoute,
   parseAgentStatusContent,
   parseBuildPlanContent,
   scanProjectWorklogAndPlan,
@@ -472,7 +473,7 @@ function initProjectHarness(projPath) {
 - Status: idle
 - Last updated: ${new Date().toISOString().split('T')[0]}
 - Goal: N/A
-- Route: dashboard-state-and-sync
+- Route: none
 - Scope: N/A
 - Out of scope: 跨專案副作用
 
@@ -1264,7 +1265,23 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
 
   let skillsSection = '';
   if (githubInfo.skills && githubInfo.skills.length > 0) {
-    skillsSection = '\n【專案專屬 .github Skills 技能庫】\n' +
+    let specifiedSkills = [];
+    if (task && Array.isArray(task.tags) && task.tags.length > 0) {
+      specifiedSkills = githubInfo.skills.filter(s => {
+        return task.tags.some(t => {
+          const cleanTag = String(t).trim().toLowerCase();
+          return cleanTag === (s.id || '').toLowerCase() || cleanTag === (s.label || '').toLowerCase();
+        });
+      });
+    }
+
+    let specifiedText = '';
+    if (specifiedSkills.length > 0) {
+      specifiedText = '【本任務指定使用之專案 Skills (請優先詳閱並遵循)】\n' +
+        specifiedSkills.map(s => `- ${s.label} (${s.path}/SKILL.md): ${s.desc}`).join('\n') + '\n\n';
+    }
+
+    skillsSection = '\n' + specifiedText + '【專案專屬 .github Skills 技能庫】\n' +
       githubInfo.skills.map(s => `- ${s.label} (${s.path}): ${s.desc}`).join('\n') + '\n';
   }
 
@@ -1706,31 +1723,37 @@ const MIME_TYPES = {
 
 function executeProjectCommit(projPath, task, customData = {}) {
   if (!fs.existsSync(projPath) || !fs.existsSync(path.join(projPath, '.git'))) {
-    return { output: '專案非 Git 版本控制目錄，已記錄狀態並封存', isCommitted: true };
+    return { output: '專案非 Git 版本控制目錄，已記錄狀態並封存', isCommitted: true, hasError: false };
   }
 
+  // 建立包含完整 PATH 的 custom env
+  const commitEnv = {
+    ...buildCustomEnv(),
+    TASK_ID: task.id || ''
+  };
+
   // 1. Step 1: 環境確認 & Staging
-  try { execSync('git add -A', { cwd: projPath, timeout: 5000 }); } catch (e) {}
+  try { execSync('git add -A', { cwd: projPath, timeout: 10000, env: commitEnv }); } catch (e) {}
 
   let statusOutput = '';
-  try { statusOutput = execSync('git status --short', { cwd: projPath, encoding: 'utf8', timeout: 3000 }).trim(); } catch (e) {}
+  try { statusOutput = execSync('git status --short', { cwd: projPath, encoding: 'utf8', timeout: 5000, env: commitEnv }).trim(); } catch (e) {}
   
   if (!statusOutput) {
-    return { output: '無新異動需要 commit (Working tree clean)', isCommitted: false };
+    return { output: '無新異動需要 commit (Working tree clean)', isCommitted: false, hasError: false };
   }
 
   let diffStat = '';
-  try { diffStat = execSync('git diff --cached --stat', { cwd: projPath, encoding: 'utf8', timeout: 3000 }).trim(); } catch (e) {}
+  try { diffStat = execSync('git diff --cached --stat', { cwd: projPath, encoding: 'utf8', timeout: 5000, env: commitEnv }).trim(); } catch (e) {}
 
   let stagedFiles = [];
   try {
-    const rawFiles = execSync('git diff --cached --name-only', { cwd: projPath, encoding: 'utf8', timeout: 3000 }).trim();
+    const rawFiles = execSync('git diff --cached --name-only', { cwd: projPath, encoding: 'utf8', timeout: 5000, env: commitEnv }).trim();
     stagedFiles = rawFiles.split('\n').filter(Boolean);
   } catch (e) {}
 
   // 2. 檢測 .github/ 內之 Commit Skill 並分析 Diff
   let cachedDiff = '';
-  try { cachedDiff = execSync('git diff --cached', { cwd: projPath, encoding: 'utf8', timeout: 3000 }); } catch (e) {}
+  try { cachedDiff = execSync('git diff --cached', { cwd: projPath, encoding: 'utf8', timeout: 5000, env: commitEnv }); } catch (e) {}
   const { message: autoMsg, body: autoBody, skillName } = formatCommitMessageFromSkill(projPath, task, cachedDiff || diffStat, stagedFiles);
 
   // 處理自訂標題與內文 (優先使用自訂值或 Agent 產出的 commitMessage.body 或 diff 產出的 autoBody，絕非直接帶入 task.description)
@@ -1749,6 +1772,7 @@ function executeProjectCommit(projPath, task, customData = {}) {
   }
 
   const safeFullMsg = fullCommitMsg.replace(/"/g, '\\"');
+  commitEnv.COMMIT_MESSAGE = safeFullMsg;
 
   // A. 優先嘗試 package.json scripts.commit
   const pkgPath = path.join(projPath, 'package.json');
@@ -1760,15 +1784,18 @@ function executeProjectCommit(projPath, task, customData = {}) {
           const out = execSync(`npm run commit -- "${safeFullMsg}"`, {
             cwd: projPath,
             encoding: 'utf8',
-            timeout: 15000,
-            env: { ...process.env, COMMIT_MESSAGE: safeFullMsg, TASK_ID: task.id || '' }
+            timeout: 30000,
+            env: commitEnv
           }).trim();
-          return { output: `[Commit Skill: npm run commit]\n${out}`, isCommitted: true };
+          return { output: `[Commit Skill: npm run commit]\n${out}`, isCommitted: true, hasError: false };
         } catch (npmErr) {
-          const npmOut = (npmErr.stdout || npmErr.message || '').toString().trim();
+          const npmOut = (npmErr.stdout || '').toString().trim();
+          const npmErrStr = (npmErr.stderr || '').toString().trim();
           if (npmOut.includes('file changed') || npmOut.includes('insertion') || npmOut.includes('deletion')) {
-            return { output: `[Commit Skill: npm run commit]\n${npmOut}`, isCommitted: true };
+            return { output: `[Commit Skill: npm run commit]\n${npmOut}`, isCommitted: true, hasError: false };
           }
+          const fullErr = [npmErrStr, npmOut, npmErr.message].filter(Boolean).join('\n\n');
+          return { output: fullErr || 'npm run commit 執行失敗', isCommitted: false, hasError: true };
         }
       }
     } catch (e) {}
@@ -1781,15 +1808,18 @@ function executeProjectCommit(projPath, task, customData = {}) {
       const out = execSync(`bash "${customScriptPath}" "${safeFullMsg}"`, {
         cwd: projPath,
         encoding: 'utf8',
-        timeout: 15000,
-        env: { ...process.env, COMMIT_MESSAGE: safeFullMsg, TASK_ID: task.id || '' }
+        timeout: 30000,
+        env: commitEnv
       }).trim();
-      return { output: `[Commit Skill: scripts/commit.sh]\n${out}`, isCommitted: true };
+      return { output: `[Commit Skill: scripts/commit.sh]\n${out}`, isCommitted: true, hasError: false };
     } catch (scriptErr) {
-      const sOut = (scriptErr.stdout || scriptErr.message || '').toString().trim();
+      const sOut = (scriptErr.stdout || '').toString().trim();
+      const sErr = (scriptErr.stderr || '').toString().trim();
       if (sOut.includes('file changed') || sOut.includes('insertion') || sOut.includes('deletion')) {
-        return { output: `[Commit Skill: scripts/commit.sh]\n${sOut}`, isCommitted: true };
+        return { output: `[Commit Skill: scripts/commit.sh]\n${sOut}`, isCommitted: true, hasError: false };
       }
+      const fullErr = [sErr, sOut, scriptErr.message].filter(Boolean).join('\n\n');
+      return { output: fullErr || 'scripts/commit.sh 執行失敗', isCommitted: false, hasError: true };
     }
   }
 
@@ -1799,22 +1829,33 @@ function executeProjectCommit(projPath, task, customData = {}) {
     if (bodyText) {
       commitCmd += ` -m "${bodyText.replace(/"/g, '\\"')}"`;
     }
-    const commitOutput = execSync(commitCmd, { cwd: projPath, encoding: 'utf8', timeout: 5000 }).trim();
+    const commitOutput = execSync(commitCmd, {
+      cwd: projPath,
+      encoding: 'utf8',
+      timeout: 30000,
+      env: commitEnv
+    }).trim();
     let lastLog = '';
-    try { lastLog = execSync('git log --oneline -1', { cwd: projPath, encoding: 'utf8', timeout: 3000 }).trim(); } catch (e) {}
+    try { lastLog = execSync('git log --oneline -1', { cwd: projPath, encoding: 'utf8', timeout: 3000, env: commitEnv }).trim(); } catch (e) {}
     
     if (skillName) {
       return {
         output: `[Commit Skill: ${skillName}]\n✅ 依據專案 .github Skill 規範提交成功！\n- Commit: ${lastLog}\n- 格式: ${subject}\n\n${commitOutput}`,
-        isCommitted: true
+        isCommitted: true,
+        hasError: false
       };
     }
 
-    return { output: commitOutput, isCommitted: true };
+    return { output: commitOutput, isCommitted: true, hasError: false };
   } catch (commitErr) {
-    const commitOutput = commitErr.stdout ? commitErr.stdout.toString().trim() : (commitErr.message || '無新異動需要 commit');
-    const isCommitted = commitOutput.includes('file changed') || commitOutput.includes('insertion') || commitOutput.includes('deletion');
-    return { output: commitOutput, isCommitted };
+    const stdout = commitErr.stdout ? commitErr.stdout.toString().trim() : '';
+    const stderr = commitErr.stderr ? commitErr.stderr.toString().trim() : '';
+    const isCommitted = stdout.includes('file changed') || stdout.includes('insertion') || stdout.includes('deletion');
+    if (isCommitted) {
+      return { output: stdout || 'Commit 成功', isCommitted: true, hasError: false };
+    }
+    const fullErr = [stderr, stdout, commitErr.message].filter(Boolean).join('\n\n');
+    return { output: fullErr || 'Git Commit 執行失敗', isCommitted: false, hasError: true };
   }
 }
 
@@ -2621,15 +2662,42 @@ function runNativeFolderPicker(promptText, callback) {
 
       let commitOutput = 'Commit 已觸發';
       let isCommitted = false;
+      let hasError = false;
       try {
         const resObj = executeProjectCommit(projPath, task, customData);
         commitOutput = resObj.output;
-        isCommitted = resObj.isCommitted;
+        isCommitted = !!resObj.isCommitted;
+        hasError = !!resObj.hasError;
       } catch (err) {
-        commitOutput = err.message || '已處理 Commit';
+        commitOutput = [err.stderr ? err.stderr.toString() : '', err.stdout ? err.stdout.toString() : '', err.message].filter(Boolean).join('\n\n') || '已處理 Commit';
+        isCommitted = false;
+        hasError = true;
       }
 
-      // commit 後將該專案所有已完成 (done) 的任務全部封存 (archived)
+      // 若 commit 失敗或被 pre-commit 阻斷，嚴格禁止將任務狀態變更為 archived，保留原始狀態並回傳 400
+      if (hasError || !isCommitted) {
+        const sub = (customData.customSubject || customData.subject || '').trim();
+        const bod = (customData.customBody !== undefined ? customData.customBody : (customData.body !== undefined ? customData.body : '')).trim();
+        if (sub || bod) {
+          task.commitMessage = {
+            subject: sub || (task.commitMessage && task.commitMessage.subject) || '',
+            body: bod !== undefined ? bod : (task.commitMessage && task.commitMessage.body) || ''
+          };
+          writeTasks(tasks);
+        }
+
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          success: false,
+          isCommitted: false,
+          error: commitOutput,
+          message: commitOutput,
+          archivedTaskIds: []
+        }));
+        return;
+      }
+
+      // commit 成功後將該專案所有已完成 (done) 的任務全部封存 (archived)
       const archivedIds = [];
       const nowIso = new Date().toISOString();
       tasks.forEach(t => {
@@ -2642,7 +2710,7 @@ function runNativeFolderPicker(promptText, callback) {
       writeTasks(tasks);
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: true, message: commitOutput, archivedTaskIds: archivedIds }));
+      res.end(JSON.stringify({ success: true, isCommitted: true, message: commitOutput, output: commitOutput, archivedTaskIds: archivedIds }));
     });
     return;
   }
@@ -3180,6 +3248,8 @@ if (require.main === module) {
 
 module.exports = {
   server,
+  executeProjectCommit,
+  resolveTaskSkillRoute,
   consumeTaskFeedback,
   formatCommitMessageFromSkill,
   initProjectHarness,
