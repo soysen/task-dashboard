@@ -139,6 +139,40 @@ process.on('SIGTERM', () => cleanupAndExit(0));
 
 // --- 主流程 ---
 
+function determineTaskTier(task) {
+  if (!task) return 'standard';
+
+  // 1. 顯式 tier 欄位指定
+  const explicitTier = String(task.tier || '').trim().toLowerCase();
+  if (explicitTier === 'micro' || explicitTier === 'standard' || explicitTier === 'heavy') {
+    return explicitTier;
+  }
+
+  // 2. 標籤 tags 判定
+  const tags = Array.isArray(task.tags) ? task.tags.map(t => String(t).trim().toLowerCase()) : [];
+  if (tags.some(t => t === 'tier:micro' || t === 'micro')) return 'micro';
+  if (tags.some(t => t === 'tier:heavy' || t === 'heavy')) return 'heavy';
+  if (tags.some(t => t === 'tier:standard' || t === 'standard')) return 'standard';
+
+  // 3. riskDoor 為 one-way 時自動升級為 heavy
+  if (task.riskDoor === 'one-way') return 'heavy';
+
+  // 4. 根據標題與描述關鍵字推斷
+  const text = `${task.title || ''} ${task.description || ''}`.toLowerCase();
+
+  const heavyKeywords = ['重構', 'refactor', '架構', 'architecture', 'migration', 'breaking', '資料庫遷移', 'one-way'];
+  if (heavyKeywords.some(k => text.includes(k))) {
+    return 'heavy';
+  }
+
+  const microKeywords = ['typo', '文案', '錯字', '註解', 'comment', 'readme', '微調', 'formatting', '格式化'];
+  if (microKeywords.some(k => text.includes(k))) {
+    return 'micro';
+  }
+
+  return 'standard';
+}
+
 function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
   let projPath = '';
   try {
@@ -194,19 +228,22 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
     }
   } catch (e) {}
 
+  const tier = determineTaskTier(task);
+  let strategyText = '';
+  if (tier === 'micro') {
+    strategyText = `• 執行策略 (Tier: micro 原地實作): 由主 Agent 原地直接實作與驗證，不啟動額外附屬代理。`;
+  } else if (tier === 'heavy') {
+    strategyText = `• 執行策略 (Tier: heavy 雙階審核): 若環境支援 Subagent 啟用 flash 實作 + pro 審核雙階模式。`;
+  } else {
+    strategyText = `• 執行策略 (Tier: standard 單階實作): 若環境支援 Subagent 啟用單一 flash Subagent 實作，主 Agent 跑確定性驗證。`;
+  }
+
   return `================================================================================\n` +
     `[${triggerType}] 任務開工通知：[${task.id}] ${task.title}\n` +
     `• 專案: ${task.project || '預設'}${projPath ? ` (${projPath})` : ''}\n` +
-    `• 需求: ${task.description || '無'}${feedbackText}${skillsText}\n\n` +
-    `【負向守門邊界 (Negative Boundaries / Never Do)】:\n` +
-    `• 嚴禁整檔盲讀與未經 Impact Analysis 任意搜尋取代。\n` +
-    `• 純調查/診斷任務嚴禁變更原始碼；實作僅限任務最小必要範圍，禁止跨專案副作用。\n\n` +
-    `【Subagent 自動調度規範 (Flash 執行 + Pro 審核)】:\n` +
-    `• 若環境具備 Subagent 工具且條件允許（非單純 requestCommitGen 且非待使用者確認之空白 executionPlan），請自動啟用 Subagent (Workspace: "inherit")：先以 Model: "flash" 執行 Phase 1~2 實作與測試，再以 Model: "pro" 進行 Phase 3 程式碼與執行報告審核並推進至 review；全程完成後主 Agent 再重啟哨兵待命（嚴禁於 Subagent 運行期間提前重啟哨兵）。\n\n` +
-    `【Task Dashboard 3-Phase Gate 平台執行標準】：\n` +
-    `1. Phase 1 (Pre-Flight): 優先滿足 Feedback；檢閱專案文檔與執行 Harness 驗證；>500 行大檔一律以 grep-n 切片檢索；若勾選需確認後執行且 executionPlan 為空，須先填妥執行計劃供確認。\n` +
-    `2. Phase 2 (Implementation): 遵循目錄規範最小範圍實作並補齊測試，嚴禁跨專案副作用。\n` +
-    `3. Phase 3 (Review Promotion): 執行測試通過 (Exit Code 0)；撰寫標準結構化『任務執行報告 (Task Execution Report)』(含目標與根因、解決方案與核心異動、歷次審查因應、品質驗證與交付證明、原生輸出折疊)；恪遵 Chat-Report Symmetry 對齊原則；呼叫 API (PUT /api/tasks/${task.id}) 或回寫 tasks.json 推進至 review。\n` +
+    `• 需求: ${task.description || '無'}${feedbackText}${skillsText}\n` +
+    `${strategyText}\n` +
+    `• 執行規範: 遵循 docs/AUTOMATION_STANDARD.md 3-Phase Gate；完成後以結構化 JSON 呼叫 PUT /api/tasks/${task.id} 推進 review (勿手寫報告)。\n` +
     `================================================================================`;
 }
 
@@ -233,49 +270,57 @@ function claimTaskAndLogEvent(task) {
   } catch (e) {}
 }
 
-// 1. 若當前本來就已有進行中或請求 Commit 訊息之任務，立即退出喚醒開工
-const immediateTask = findActionableTask();
-if (immediateTask) {
-  claimTaskAndLogEvent(immediateTask);
-  console.log(formatWakeupBrief(immediateTask, 'WAKEUP_IMMEDIATE'));
-  cleanupAndExit(0);
-}
+module.exports = {
+  determineTaskTier,
+  formatWakeupBrief,
+  findActionableTask
+};
 
-console.log(`[WATCHER_ACTIVE] 任務哨兵已啟動 (指定 Agent: ${targetAgent || '全部通用'})，監聽目標: ${TASKS_FILE}`);
-console.log(`[WATCHER_WAITING] 靜默守候中 (0 Token 消耗)，等待${targetAgent ? ` [${targetAgent}] ` : ''}任務切換為 in_progress 或請求產出 Commit 訊息...`);
+if (require.main === module) {
+  // 1. 若當前本來就已有進行中或請求 Commit 訊息之任務，立即退出喚醒開工
+  const immediateTask = findActionableTask();
+  if (immediateTask) {
+    claimTaskAndLogEvent(immediateTask);
+    console.log(formatWakeupBrief(immediateTask, 'WAKEUP_IMMEDIATE'));
+    cleanupAndExit(0);
+  }
 
-let debounceTimer = null;
+  console.log(`[WATCHER_ACTIVE] 任務哨兵已啟動 (指定 Agent: ${targetAgent || '全部通用'})，監聽目標: ${TASKS_FILE}`);
+  console.log(`[WATCHER_WAITING] 靜默守候中 (0 Token 消耗)，等待${targetAgent ? ` [${targetAgent}] ` : ''}任務切換為 in_progress 或請求產出 Commit 訊息...`);
 
-function startWatching() {
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
+  let debounceTimer = null;
 
-    // 監聽父目錄以同時支援檔案直接覆寫與原子性替換 (Atomic Rename)
-    watcher = fs.watch(DATA_DIR, (eventType, filename) => {
-      if (filename && filename !== 'tasks.json' && !filename.includes('tasks.json')) {
-        return;
+  function startWatching() {
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
       }
 
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        const task = findActionableTask();
-        if (task) {
-          claimTaskAndLogEvent(task);
-          console.log(formatWakeupBrief(task, 'WAKEUP_TRIGGERED'));
-          cleanupAndExit(0);
+      // 監聽父目錄以同時支援檔案直接覆寫與原子性替換 (Atomic Rename)
+      watcher = fs.watch(DATA_DIR, (eventType, filename) => {
+        if (filename && filename !== 'tasks.json' && !filename.includes('tasks.json')) {
+          return;
         }
-      }, 150);
-    });
 
-    watcher.on('error', () => {
-      // 容錯重連
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          const task = findActionableTask();
+          if (task) {
+            claimTaskAndLogEvent(task);
+            console.log(formatWakeupBrief(task, 'WAKEUP_TRIGGERED'));
+            cleanupAndExit(0);
+          }
+        }, 150);
+      });
+
+      watcher.on('error', () => {
+        // 容錯重連
+        setTimeout(startWatching, 1000);
+      });
+    } catch (e) {
       setTimeout(startWatching, 1000);
-    });
-  } catch (e) {
-    setTimeout(startWatching, 1000);
+    }
   }
-}
 
-startWatching();
+  startWatching();
+}

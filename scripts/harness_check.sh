@@ -112,8 +112,24 @@ for (const task of tasks) {
 echo "    ✅ 所有已交付任務之 git diff 與 executionPlan 均符合全量完整度與同步門禁規範"
 
 # 6. 驗證現代化 Skills 規範與目錄完整性
-echo "  [6/6] 檢驗 .github/skills 現代化架構與規範門禁..."
+echo "  [6/7] 檢驗 .github/skills 現代化架構與規範門禁..."
 node "$PROJECT_DIR/.github/scripts/validate-skills.js"
 echo "    ✅ 所有核心 Skills 符合現代化規格 (TOC、Must 前置、Freedom 分級與檢核清單)"
+
+# 7. 驗證 Context 減稅規範門禁 (AGENTS.md < 60 行，CLAUDE.md < 15 行)
+echo "  [7/7] 檢驗 Context 減稅規範門禁 (AGENTS.md < 60 行，CLAUDE.md < 15 行)..."
+AGENTS_LINES=$(wc -l < "$PROJECT_DIR/AGENTS.md" | tr -d ' ')
+CLAUDE_LINES=$(wc -l < "$PROJECT_DIR/CLAUDE.md" | tr -d ' ')
+
+if [ "$AGENTS_LINES" -ge 60 ]; then
+  echo "❌ Context 稅超標：AGENTS.md 行數達 $AGENTS_LINES 行 (上限 60 行)！請精簡為兩跳路標。"
+  exit 1
+fi
+
+if [ "$CLAUDE_LINES" -ge 15 ]; then
+  echo "❌ Context 稅超標：CLAUDE.md 行數達 $CLAUDE_LINES 行 (上限 15 行)！請精簡為路標。"
+  exit 1
+fi
+echo "    ✅ AGENTS.md ($AGENTS_LINES 行) 與 CLAUDE.md ($CLAUDE_LINES 行) 符合 Context 減稅標準"
 
 echo "🎉 Harness Check 通過！專案處於健康且合規狀態。"

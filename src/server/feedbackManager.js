@@ -35,7 +35,7 @@ function consumeTaskFeedback(task) {
  * @param {Array} tasks
  * @returns {boolean} 是否有產生異動
  */
-function healTasksFeedback(tasks) {
+function healTasksFeedback(tasks, onHeal) {
   if (!Array.isArray(tasks)) return false;
   let hasChanges = false;
   tasks.forEach(t => {
@@ -43,6 +43,9 @@ function healTasksFeedback(tasks) {
       if (t.feedback && typeof t.feedback === 'string' && t.feedback.trim().length > 0) {
         consumeTaskFeedback(t);
         hasChanges = true;
+        if (typeof onHeal === 'function') {
+          try { onHeal(t); } catch (e) {}
+        }
       }
     }
   });
@@ -109,8 +112,8 @@ function buildTaskExecutionReport(reportInfo = {}) {
     lines.push('- **檔案異動明細**：');
     keyChanges.forEach(kc => {
       const p = typeof kc === 'string' ? kc : (kc.path || kc.file || '');
-      const d = typeof kc === 'object' && kc.description ? kc.description : '核心邏輯異動';
-      lines.push(`  - \`${p}\`: ${d}`);
+      const d = typeof kc === 'object' && kc.description ? kc.description : '';
+      lines.push(d ? `  - \`${p}\`: ${d}` : `  - \`${p}\``);
     });
   }
   lines.push('');
@@ -280,15 +283,26 @@ function autoAssembleExecutionReport(task = {}, payload = {}, options = {}) {
 
   const verification = {
     command: payload.testCommand || options.testCommand || 'npm test && npm run harness:check',
-    exitCode: payload.exitCode !== undefined ? payload.exitCode : 0,
+    exitCode: payload.exitCode !== undefined ? payload.exitCode : (options.exitCode !== undefined ? options.exitCode : 0),
     summary: payload.testSummary || options.testSummary || '所有 API 整合測試與規範門禁檢核 100% 通過',
     coverage: payload.coverage || options.coverage || null
   };
 
-  const keyChanges = (task.modifiedFiles || []).map(f => {
-    const p = typeof f === 'string' ? f : (f.path || f.file || '');
-    return { path: p, description: '依據需求進行防禦實作與介面窄化' };
-  });
+  // 優先使用 payload.keyChanges；未提供時回退至 payload.modifiedFiles 或 task.modifiedFiles，絕不填充不實假文案
+  let keyChanges = [];
+  if (Array.isArray(payload.keyChanges) && payload.keyChanges.length > 0) {
+    keyChanges = payload.keyChanges.map(kc => {
+      const p = typeof kc === 'string' ? kc : (kc.path || kc.file || '');
+      const d = typeof kc === 'object' && kc.description ? kc.description : '';
+      return { path: p, description: d };
+    });
+  } else {
+    keyChanges = (payload.modifiedFiles || task.modifiedFiles || []).map(f => {
+      const p = typeof f === 'string' ? f : (f.path || f.file || '');
+      const d = typeof f === 'object' && f.description ? f.description : '';
+      return { path: p, description: d };
+    });
+  }
 
   const rawLog = payload.rawLog || payload.rawOutput || payload.terminalOutput || '';
 
@@ -303,6 +317,45 @@ function autoAssembleExecutionReport(task = {}, payload = {}, options = {}) {
   });
 }
 
+/**
+ * 依據任務風險門、顯式屬性、標籤與描述關鍵字推斷執行階層 (tier)
+ * @param {Object} task
+ * @returns {"micro" | "standard" | "heavy"}
+ */
+function determineTaskTier(task) {
+  if (!task) return 'standard';
+
+  // 1. 顯式 tier 欄位指定
+  const explicitTier = String(task.tier || '').trim().toLowerCase();
+  if (explicitTier === 'micro' || explicitTier === 'standard' || explicitTier === 'heavy') {
+    return explicitTier;
+  }
+
+  // 2. 標籤 tags 判定
+  const tags = Array.isArray(task.tags) ? task.tags.map(t => String(t).trim().toLowerCase()) : [];
+  if (tags.some(t => t === 'tier:micro' || t === 'micro')) return 'micro';
+  if (tags.some(t => t === 'tier:heavy' || t === 'heavy')) return 'heavy';
+  if (tags.some(t => t === 'tier:standard' || t === 'standard')) return 'standard';
+
+  // 3. riskDoor 為 one-way 時自動升級為 heavy
+  if (task.riskDoor === 'one-way') return 'heavy';
+
+  // 4. 根據標題與描述關鍵字推斷
+  const text = `${task.title || ''} ${task.description || ''}`.toLowerCase();
+
+  const heavyKeywords = ['重構', 'refactor', '架構', 'architecture', 'migration', 'breaking', '資料庫遷移', 'one-way'];
+  if (heavyKeywords.some(k => text.includes(k))) {
+    return 'heavy';
+  }
+
+  const microKeywords = ['typo', '文案', '錯字', '註解', 'comment', 'readme', '微調', 'formatting', '格式化'];
+  if (microKeywords.some(k => text.includes(k))) {
+    return 'micro';
+  }
+
+  return 'standard';
+}
+
 module.exports = {
   consumeTaskFeedback,
   healTasksFeedback,
@@ -311,5 +364,6 @@ module.exports = {
   extractCoverageSummary,
   validateExecutionLog,
   calculateRiskDoor,
-  autoAssembleExecutionReport
+  autoAssembleExecutionReport,
+  determineTaskTier
 };

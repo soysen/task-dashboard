@@ -12,7 +12,8 @@ const {
   extractCoverageSummary,
   validateExecutionLog,
   calculateRiskDoor,
-  autoAssembleExecutionReport
+  autoAssembleExecutionReport,
+  determineTaskTier
 } = require('./feedbackManager');
 const {
   resolveTaskSkillRoute,
@@ -33,7 +34,9 @@ const {
   formatCommitMessageFromSkill,
   formatCommitMessage,
   buildCommitAgentPrompt,
-  parseAgentCommitOutput
+  parseAgentCommitOutput,
+  createTaskWorktree,
+  removeTaskWorktree
 } = require('./services/gitService');
 const {
   recordCliRun,
@@ -730,7 +733,9 @@ function readTasks() {
     if (fs.existsSync(file)) {
       const tasks = JSON.parse(fs.readFileSync(file, 'utf8'));
       if (Array.isArray(tasks)) {
-        const hasChanges = healTasksFeedback(tasks);
+        const hasChanges = healTasksFeedback(tasks, (t) => {
+          appendTaskEvent({ taskId: t.id, type: 'shim_triggered', shimId: 'GATE-002', action: 'healTasksFeedback' });
+        });
         if (hasChanges) {
           try {
             safeAtomicWriteJson(file, tasks);
@@ -757,7 +762,9 @@ setReadTasksProvider(readTasks);
 function writeTasks(tasks) {
   try {
     const file = getTasksFilePath();
-    healTasksFeedback(tasks);
+    healTasksFeedback(tasks, (t) => {
+      appendTaskEvent({ taskId: t.id, type: 'shim_triggered', shimId: 'GATE-002', action: 'healTasksFeedback' });
+    });
     if (Array.isArray(tasks) && tasks.length > 0) {
       lastValidTasks = tasks;
     }
@@ -1301,6 +1308,16 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
   const harnessCmd = (githubInfo.harness && githubInfo.harness.command) ? githubInfo.harness.command : 'npm test / npm run harness:check';
 
   const feedbackSection = task.feedback ? '\n• 【最高優先 Feedback】: ' + task.feedback : '';
+  const tier = determineTaskTier(task);
+  let subagentGuidance = '';
+  if (tier === 'micro') {
+    subagentGuidance = '• 本任務為 micro 級別，由主 Agent 原地直接實作與驗證，不啟動額外附屬代理。\n';
+  } else if (tier === 'heavy') {
+    subagentGuidance = '• 本任務為 heavy 級別 (或 One-Way 門禁)，若環境支援 Subagent，自動啟用 Subagent (Workspace: "inherit")：以 flash 負責實作、再由 pro 進行審核。\n';
+  } else {
+    subagentGuidance = '• 本任務為 standard 級別，若環境支援 Subagent，啟用單一 flash Subagent (Workspace: "inherit") 進行實作與測試，由主進程進行確定性驗證。\n';
+  }
+
   const promptText = '【任務開工】[' + task.id + '] ' + task.title + '\n' +
     '• 專案: ' + task.project + ' (' + projPath + ') | 驗證: ' + harnessCmd + '\n' +
     '• 需求: ' + (task.description || '無') +
@@ -1308,7 +1325,7 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
     skillsSection +
     docsSection +
     '【3-Phase Gate 規範】：\n' +
-    '• 若執行環境支援 Subagent 且條件允許，自動啟用 Subagent (Workspace: "inherit")：以 flash 負責實作、再由 pro 進行審核。\n' +
+    subagentGuidance +
     '1. Pre-Flight: 優先滿足 Feedback，檢閱規範並執行前置驗證（' + harnessCmd + '）；若任務勾選需確認後再執行且未具備執行計劃，必須先產出完整執行計劃回寫 executionPlan 供確認；面對 > 500 行大檔嚴禁整檔閱讀，必須以 grep-n 先定位後切片 30-50 行，檢索上限 2 次避免 Loop。\n' +
     '2. Implementation: 遵循專案架構最小範圍實作並補齊測試，嚴禁跨專案副作用。\n' +
     '3. Review Promotion: 驗證通過後收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })，推進至 review 並清空 feedback。\n' +
@@ -1340,6 +1357,22 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
     args = ['-c', buildCliCommand(rawCliCmd, promptText)];
   }
 
+  // 檢查是否啟用 Git Worktree 隔離模式
+  let execPath = projPath;
+  let worktreeCreated = false;
+  if (settings.cliIsolation === 'worktree') {
+    try {
+      const wt = createTaskWorktree(projPath, taskId);
+      execPath = wt.worktreePath;
+      task.worktreePath = wt.worktreePath;
+      task.branchName = wt.branchName;
+      worktreeCreated = true;
+      console.log(' [CLI Agent Worktree] 已為任務 ' + taskId + ' 建立隔離工作區: ' + execPath + ' (分支: ' + wt.branchName + ')');
+    } catch (wtErr) {
+      console.warn('⚠️ [CLI Agent Worktree] 建立隔離工作區失敗，回退至主目錄: ' + wtErr.message);
+    }
+  }
+
   // 設定負責人為 CLI
   task.assignee = 'CLI';
 
@@ -1355,7 +1388,7 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
 
   // 記錄開始日誌
   const startLog = '[' + new Date().toISOString() + ']  CLI Agent 自動觸發 (' + rawCliCmd + ')\n' +
-    '目標專案: ' + projPath + '\n' +
+    '目標專案: ' + projPath + (worktreeCreated ? ' [Worktree 隔離: ' + execPath + ']\n' : '\n') +
     '任務: ' + task.title + '\n' +
     '日誌檔案: ' + logFile + '\n' +
     '----------------------------------------\n';
@@ -1365,7 +1398,7 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
 
   try {
     const child = spawn(bin, args, {
-      cwd: projPath,
+      cwd: execPath,
       env: customEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32'
@@ -1464,8 +1497,8 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
           logReadError = err;
           console.error(' [CLI Agent 引擎] 日誌讀取失敗 (Task: ' + taskId + '):', err);
         }
-        // Smart Git Delivery Gate: 檢查專案是否產出變更
-        collectGitDiff(projPath, customEnv, (modifiedList, diffContent) => {
+        // Smart Git Delivery Gate: 檢查專案是否產出變更 (支援 Worktree 隔離工作區)
+        collectGitDiff(execPath, customEnv, (modifiedList, diffContent) => {
           const updatedTasks = readTasks();
           const curTask = updatedTasks.find(t => t.id === taskId);
           if (!curTask) return;
@@ -1578,12 +1611,17 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
                 'Exit code: ' + code + ', Signal: ' + (signal || 'none') + '\n' +
                 '----------------------------------------\n';
               curTask.executionLog = (curTask.executionLog || '') + failLog;
-              curTask.status = 'todo';
+              const isWorktreeOrResume = (settings.cliIsolation === 'worktree' || settings.enableCliResume === true);
+              curTask.status = isWorktreeOrResume ? 'in_progress' : 'todo';
+              curTask.liveStatus = {
+                text: 'CLI 異常中斷 (' + reasonMsg + ')，已保留工作區狀態',
+                resumable: isWorktreeOrResume
+              };
               curTask._retryCount = 0;
               writeTasks(updatedTasks);
               syncToMarkdown(updatedTasks);
               broadcastSse('task-error', { taskId, error: reasonMsg });
-              console.error(' [CLI Agent 引擎] 任務 ' + taskId + ' 執行失敗，已重置為 Todo。');
+              console.error(' [CLI Agent 引擎] 任務 ' + taskId + ' 執行中斷，' + (isWorktreeOrResume ? '保留 in_progress 狀態供斷點續跑。' : '回退至 todo。'));
             }
           }
         });
@@ -2355,6 +2393,7 @@ function runNativeFolderPicker(promptText, callback) {
           feedback: data.feedback || '',
           requiresConfirmation: data.requiresConfirmation === true,
           executionPlan: data.executionPlan || '',
+          tier: data.tier || '',
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
@@ -2401,15 +2440,37 @@ function runNativeFolderPicker(promptText, callback) {
         const prevFeedback = tasks[index].feedback;
 
         // [Code over LLM] 確定性程式碼自動組裝標準 4 章節任務執行報告
-        if (data.autoAssembleReport || (data.rootCause && data.resolution)) {
+        if (data.autoAssembleReport || (data.rootCause && data.resolution) || (data.objective && (data.keyChanges || data.testCommand))) {
           data.executionLog = autoAssembleExecutionReport(tasks[index], data);
         }
 
         // [Slice Judge Gate] 若將狀態推進至 review，非手動強制推進 (forceReview !== true) 時強制檢驗 executionLog
         if (data.status === 'review' && prevStatus !== 'review' && !data.forceReview) {
+          // 檢驗 exitCode：若顯式傳入非 0 exitCode，嚴格拒絕推進 review
+          if (data.exitCode !== undefined && data.exitCode !== null && Number(data.exitCode) !== 0) {
+            appendTaskEvent({
+              taskId,
+              type: 'review_gate_rejected',
+              shimId: 'GATE-001',
+              reason: `exitCode ${data.exitCode} is non-zero`
+            });
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              error: 'Review gate failed: exitCode is non-zero, verification must pass before review promotion.',
+              reason: `Exit code is ${data.exitCode}, verification failed.`
+            }));
+            return;
+          }
+
           const logToCheck = data.executionLog !== undefined ? data.executionLog : tasks[index].executionLog;
           const valResult = validateExecutionLog(logToCheck);
           if (!valResult.valid) {
+            appendTaskEvent({
+              taskId,
+              type: 'review_gate_rejected',
+              shimId: 'GATE-001',
+              reason: valResult.reason
+            });
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
               error: 'Review gate failed: executionLog does not satisfy binary acceptance criteria.',
@@ -3112,10 +3173,15 @@ function runNativeFolderPicker(promptText, callback) {
           activeCliProcesses.delete(taskId);
         }
 
-        // 若使用者選擇 discardChanges，執行 git reset --hard HEAD 與 git clean -fd 徹底還原
+        // 若使用者選擇 discardChanges，執行還原 (若為 worktree 則清理隔離區，否則 git reset --hard HEAD && clean -fd)
         let discardOutput = '';
         if (reqData.discardChanges === true) {
-          discardOutput = discardGitChanges(projPath);
+          if (task.worktreePath || (projPath && fs.existsSync(`${projPath.replace(/\/+$/, '')}.worktrees/${taskId}`))) {
+            removeTaskWorktree(projPath, taskId);
+            discardOutput = 'Worktree 隔離工作區與分支已成功清理移除';
+          } else {
+            discardOutput = discardGitChanges(projPath);
+          }
         }
 
         const nowIso = new Date().toISOString();
@@ -3183,7 +3249,12 @@ function runNativeFolderPicker(promptText, callback) {
             projPath = path.join(os.homedir(), projPath.slice(1));
           }
           projPath = path.resolve(projPath);
-          discardOutput = discardGitChanges(projPath);
+          if (targetTask.worktreePath || (projPath && fs.existsSync(`${projPath.replace(/\/+$/, '')}.worktrees/${taskId}`))) {
+            removeTaskWorktree(projPath, taskId);
+            discardOutput = 'Worktree 隔離工作區與分支已成功清理移除';
+          } else {
+            discardOutput = discardGitChanges(projPath);
+          }
         }
 
         writeTasks(filtered);

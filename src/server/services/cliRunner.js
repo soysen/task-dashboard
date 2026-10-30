@@ -3,7 +3,43 @@
  * 封裝 CLI Agent 行程啟動、Pulse Quota 配額熔斷與進程樹安全清理
  */
 
-let cliRunsToday = { date: new Date().toISOString().slice(0, 10), count: 0 };
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+
+function getCliRunsFilePath() {
+  const dataDir = process.env.TASK_DASHBOARD_DATA_DIR || path.join(process.env.HOME || os.homedir(), 'Library/Application Support/TaskDashboard');
+  return path.join(dataDir, 'cli-runs.json');
+}
+
+function loadPersistedQuota() {
+  const today = new Date().toISOString().slice(0, 10);
+  const filePath = getCliRunsFilePath();
+  try {
+    if (fs.existsSync(filePath)) {
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      if (data && data.date === today && typeof data.count === 'number') {
+        return data;
+      }
+    }
+  } catch (e) {}
+  return { date: today, count: 0 };
+}
+
+function savePersistedQuota(quota) {
+  const filePath = getCliRunsFilePath();
+  try {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(filePath, JSON.stringify(quota, null, 2), 'utf8');
+  } catch (e) {
+    console.error('Error saving cli-runs.json:', e);
+  }
+}
+
+let cliRunsToday = loadPersistedQuota();
 
 function recordCliRun() {
   const today = new Date().toISOString().slice(0, 10);
@@ -11,12 +47,17 @@ function recordCliRun() {
     cliRunsToday = { date: today, count: 0 };
   }
   cliRunsToday.count++;
+  savePersistedQuota(cliRunsToday);
   return cliRunsToday.count;
 }
 
 function getCliRunsToday() {
   const today = new Date().toISOString().slice(0, 10);
-  if (cliRunsToday.date !== today) {
+  // 重新從磁碟讀取以確保跨進程或重啟後資料同步
+  const disk = loadPersistedQuota();
+  if (disk.date === today) {
+    cliRunsToday = disk;
+  } else if (cliRunsToday.date !== today) {
     cliRunsToday = { date: today, count: 0 };
   }
   return cliRunsToday.count;

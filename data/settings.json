@@ -3,6 +3,7 @@
   "cliCommand": "hermes",
   "defaultProject": "task-dashboard",
   "autoTriggerOnInProgress": true,
+  "cliIsolation": "none",
   "dataDirectoryPath": "",
   "fontSize": "small"
 }

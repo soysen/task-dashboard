@@ -43,7 +43,7 @@ function httpRequest(options, postData = null) {
 async function run() {
   console.log('🚀 開始進行「確認並執行」與「哨兵喚醒」端到端驗證流程...\n');
 
-  // 0. 若環境中已有殘留之 in_progress 任務，先將其標為 done 確保測試隔離性
+  // 0. 若環境中已有測試殘留之 in_progress 任務，先將其標為 done 確保測試隔離性
   const existingRes = await httpRequest({
     hostname: 'localhost',
     port: PORT,
@@ -52,7 +52,7 @@ async function run() {
   });
   if (existingRes.data && Array.isArray(existingRes.data)) {
     for (const t of existingRes.data) {
-      if (t.status === 'in_progress') {
+      if (t.status === 'in_progress' && (t.assignedAgent === 'test-flow-agent' || (t.title && t.title.includes('驗證確認並執行')))) {
         await httpRequest({
           hostname: 'localhost',
           port: PORT,
@@ -185,7 +185,77 @@ async function run() {
   assert(currentTask);
   console.log(`  ✅ 任務當前認領者: ${currentTask.claimedBy} (認領時間: ${currentTask.claimedAt})\n`);
 
-  console.log('🎉 全部步驟驗證成功！任務流轉、確認並執行、鎖定釋放與哨兵喚醒完全恢復正常！\n');
+  // 清理測試任務
+  await httpRequest({
+    hostname: '127.0.0.1',
+    port: PORT,
+    path: `/api/tasks/${taskId}`,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' }
+  }, { ...currentTask, status: 'done' });
+
+  // 7. TD-H1: 驗證 Subagent 風險分級路由 (micro/standard/heavy) 與哨兵開工指示
+  console.log('Step 7: 驗證 TD-H1 Subagent 風險分級路由與哨兵開工指示 (micro / standard / heavy)...');
+  const { determineTaskTier, formatWakeupBrief } = require('./watch-task-gate');
+  const { determineTaskTier: fmDetermineTier } = require('../src/server/feedbackManager');
+
+  // 案例 1: micro 任務（顯式指定、tags 或文案錯字關鍵字）
+  const microTaskExplicit = { id: 'TASK-M1', title: '修改文案錯字', tier: 'micro', project: 'task-dashboard' };
+  const microTaskKeyword = { id: 'TASK-M2', title: 'README 文案 typo 修正與註解補充', project: 'task-dashboard' };
+  const microTaskTag = { id: 'TASK-M3', title: '小幅調整按鈕樣式', tags: ['tier:micro'], project: 'task-dashboard' };
+
+  assert.equal(determineTaskTier(microTaskExplicit), 'micro', 'microTaskExplicit 應判定為 micro');
+  assert.equal(determineTaskTier(microTaskKeyword), 'micro', 'microTaskKeyword 應判定為 micro');
+  assert.equal(determineTaskTier(microTaskTag), 'micro', 'microTaskTag 應判定為 micro');
+  assert.equal(fmDetermineTier(microTaskExplicit), 'micro', 'feedbackManager determineTaskTier 應一致判定為 micro');
+
+  const microBrief = formatWakeupBrief(microTaskExplicit, 'WAKEUP_IMMEDIATE');
+  assert(microBrief.includes('Tier: micro 原地實作'), 'micro 任務應輸出原地實作策略指示');
+  assert(!/subagent/i.test(microBrief), '驗收標準嚴格要求：哨兵 micro 任務輸出絕不能包含 Subagent 字樣 (不分大小寫)');
+  assert(microBrief.includes('原地直接實作與驗證'), 'micro 任務應明確提示主 Agent 原地直接實作');
+  assert(microBrief.split('\n').length <= 15, `micro 哨兵輸出必須 ≤ 15 行，實際: ${microBrief.split('\n').length}`);
+  console.log(`  ✅ [Case 1 - micro] 通過：判定精確且輸出完全不含 Subagent 字樣 (行數: ${microBrief.split('\n').length} ≤ 15)`);
+
+  // 案例 2: standard 任務（一般功能開發，無特殊標籤）
+  const standardTaskDefault = { id: 'TASK-S1', title: '新增使用者設定匯出功能', description: '支援 JSON 格式匯出', project: 'task-dashboard' };
+  const standardTaskTag = { id: 'TASK-S2', title: '修復局部按鈕點擊事件', tags: ['tier:standard'], project: 'task-dashboard' };
+
+  assert.equal(determineTaskTier(standardTaskDefault), 'standard', '未指定且無關鍵字任務應預設為 standard');
+  assert.equal(determineTaskTier(standardTaskTag), 'standard', 'standardTaskTag 應判定為 standard');
+  assert.equal(fmDetermineTier(standardTaskDefault), 'standard', 'feedbackManager 應一致預設為 standard');
+
+  const standardBrief = formatWakeupBrief(standardTaskDefault, 'WAKEUP_IMMEDIATE');
+  assert(standardBrief.includes('Tier: standard 單階實作'), 'standard 任務應輸出單階實作指示');
+  assert(standardBrief.includes('flash Subagent'), 'standard 任務應提示使用單一 flash Subagent');
+  assert(!standardBrief.includes('pro 審核'), 'standard 任務不應要求 pro 雙階審核');
+  assert(standardBrief.split('\n').length <= 15, `standard 哨兵輸出必須 ≤ 15 行，實際: ${standardBrief.split('\n').length}`);
+  console.log(`  ✅ [Case 2 - standard] 通過：判定精確且僅啟動單一 flash Subagent (行數: ${standardBrief.split('\n').length} ≤ 15)`);
+
+  // 案例 3: heavy 任務（顯式指定、heavy tags 或重構關鍵字）
+  const heavyTaskExplicit = { id: 'TASK-H1', title: '核心資料庫遷移', tier: 'heavy', project: 'task-dashboard' };
+  const heavyTaskKeyword = { id: 'TASK-H2', title: '跨模組架構重構與 breaking 介面調整', project: 'task-dashboard' };
+  const heavyTaskTag = { id: 'TASK-H3', title: '全面演進狀態機架構', tags: ['heavy'], project: 'task-dashboard' };
+
+  assert.equal(determineTaskTier(heavyTaskExplicit), 'heavy', 'heavyTaskExplicit 應判定為 heavy');
+  assert.equal(determineTaskTier(heavyTaskKeyword), 'heavy', 'heavyTaskKeyword 應判定為 heavy');
+  assert.equal(determineTaskTier(heavyTaskTag), 'heavy', 'heavyTaskTag 應判定為 heavy');
+  assert.equal(fmDetermineTier(heavyTaskExplicit), 'heavy', 'feedbackManager 應一致判定為 heavy');
+
+  const heavyBrief = formatWakeupBrief(heavyTaskExplicit, 'WAKEUP_IMMEDIATE');
+  assert(heavyBrief.includes('Tier: heavy 雙階審核'), 'heavy 任務應輸出雙階審核指示');
+  assert(heavyBrief.includes('flash') && heavyBrief.includes('pro'), 'heavy 任務應同時提示 flash 實作與 pro 審核');
+  assert(heavyBrief.split('\n').length <= 15, `heavy 哨兵輸出必須 ≤ 15 行，實際: ${heavyBrief.split('\n').length}`);
+  console.log(`  ✅ [Case 3 - heavy] 通過：判定精確且完整配置雙階 Subagent 審查 (行數: ${heavyBrief.split('\n').length} ≤ 15)`);
+
+  // 案例 4: 優先序與 One-Way 門禁強制升級
+  const oneWayTask = { id: 'TASK-OW', title: '小幅 typo 修正', riskDoor: 'one-way', project: 'task-dashboard' };
+  const overrideTask = { id: 'TASK-OV', title: '核心架構重構', tier: 'micro', project: 'task-dashboard' };
+
+  assert.equal(determineTaskTier(oneWayTask), 'heavy', 'riskDoor 為 one-way 時應強制升級為 heavy');
+  assert.equal(determineTaskTier(overrideTask), 'micro', '顯式 tier 優先於標題關鍵字');
+  console.log('  ✅ [Case 4 - Priority & One-Way] 通過：門禁自動升級與顯式優先序完全合規\n');
+
+  console.log('🎉 全部步驟與 TD-H1 分級路由驗證成功！\n');
 }
 
 run().catch(err => {

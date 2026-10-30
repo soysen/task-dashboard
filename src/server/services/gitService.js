@@ -373,6 +373,89 @@ function parseAgentCommitOutput(rawOutput, fallbackObj) {
   return fallbackObj;
 }
 
+/**
+ * 為任務建立獨立的 Git Worktree 隔離工作區
+ * @param {string} repoPath 原始專案目錄
+ * @param {string} taskId 任務 ID (例如 TASK-166)
+ * @returns {{ worktreePath: string, branchName: string }}
+ */
+function createTaskWorktree(repoPath, taskId) {
+  if (!repoPath || !fs.existsSync(repoPath) || !fs.existsSync(path.join(repoPath, '.git'))) {
+    throw new Error('目標路徑非 Git 儲存庫，無法建立 Worktree: ' + repoPath);
+  }
+  const cleanRepo = repoPath.replace(/\/+$/, '');
+  const worktreePath = `${cleanRepo}.worktrees/${taskId}`;
+  const branchName = `td/${taskId}`;
+
+  // 1. 防禦性清理：prune 與刪除同名殘留分支/目錄
+  try { execSync('git -C "' + cleanRepo + '" worktree prune', { encoding: 'utf8', timeout: 5000, stdio: 'ignore' }); } catch (e) {}
+  try {
+    if (fs.existsSync(worktreePath)) {
+      execSync('git -C "' + cleanRepo + '" worktree remove --force "' + worktreePath + '"', { encoding: 'utf8', timeout: 8000, stdio: 'ignore' });
+    }
+  } catch (e) {
+    try { fs.rmSync(worktreePath, { recursive: true, force: true }); } catch (e2) {}
+  }
+  try { execSync('git -C "' + cleanRepo + '" branch -D "' + branchName + '"', { encoding: 'utf8', timeout: 5000, stdio: 'ignore' }); } catch (e) {}
+
+  // 2. 建立目錄並透過 git worktree add 開新分支
+  const parentDir = path.dirname(worktreePath);
+  if (!fs.existsSync(parentDir)) {
+    fs.mkdirSync(parentDir, { recursive: true });
+  }
+
+  execSync('git -C "' + cleanRepo + '" worktree add -b "' + branchName + '" "' + worktreePath + '"', {
+    encoding: 'utf8',
+    timeout: 15000,
+    stdio: 'ignore'
+  });
+
+  return { worktreePath, branchName };
+}
+
+/**
+ * 清理並移除任務關聯的 Git Worktree 隔離工作區與分支
+ * @param {string} repoPath 原始專案目錄
+ * @param {string} taskId 任務 ID
+ * @returns {boolean}
+ */
+function removeTaskWorktree(repoPath, taskId) {
+  if (!repoPath || !fs.existsSync(repoPath)) return false;
+  const cleanRepo = repoPath.replace(/\/+$/, '');
+  const worktreePath = `${cleanRepo}.worktrees/${taskId}`;
+  const branchName = `td/${taskId}`;
+
+  try {
+    execSync('git -C "' + cleanRepo + '" worktree remove --force "' + worktreePath + '"', {
+      encoding: 'utf8',
+      timeout: 10000,
+      stdio: 'ignore'
+    });
+  } catch (e) {}
+
+  try {
+    execSync('git -C "' + cleanRepo + '" branch -D "' + branchName + '"', {
+      encoding: 'utf8',
+      timeout: 5000,
+      stdio: 'ignore'
+    });
+  } catch (e) {}
+
+  try {
+    execSync('git -C "' + cleanRepo + '" worktree prune', {
+      encoding: 'utf8',
+      timeout: 5000,
+      stdio: 'ignore'
+    });
+  } catch (e) {}
+
+  if (fs.existsSync(worktreePath)) {
+    try { fs.rmSync(worktreePath, { recursive: true, force: true }); } catch (e) {}
+  }
+
+  return true;
+}
+
 module.exports = {
   collectGitDiff,
   discardGitChanges,
@@ -380,5 +463,7 @@ module.exports = {
   formatCommitMessageFromSkill,
   formatCommitMessage,
   buildCommitAgentPrompt,
-  parseAgentCommitOutput
+  parseAgentCommitOutput,
+  createTaskWorktree,
+  removeTaskWorktree
 };

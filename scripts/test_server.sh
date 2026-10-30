@@ -528,6 +528,80 @@ else
   exit 1
 fi
 
+echo "  [8.5/9] 測試 TD-H5 Worktree 隔離生命週期與配額持久化 ..."
+node -e '
+(async () => {
+const assert = require("assert");
+const fs = require("fs");
+const path = require("path");
+const os = require("os");
+const { execSync } = require("child_process");
+const { createTaskWorktree, removeTaskWorktree, collectGitDiff } = require("./src/server/services/gitService");
+const { recordCliRun, getCliRunsToday } = require("./src/server/services/cliRunner");
+
+// 1. 測試配額持久化跨重啟
+const initialQuota = getCliRunsToday();
+recordCliRun();
+const incrementedQuota = getCliRunsToday();
+assert.equal(incrementedQuota, initialQuota + 1, "配額必須累加");
+
+// 驗證磁碟持久化檔案
+const dataDir = process.env.TASK_DASHBOARD_DATA_DIR || path.join(os.homedir(), "Library/Application Support/TaskDashboard");
+const quotaFile = path.join(dataDir, "cli-runs.json");
+assert(fs.existsSync(quotaFile), "cli-runs.json 必須被持久化至磁碟");
+const diskQuota = JSON.parse(fs.readFileSync(quotaFile, "utf8"));
+assert.equal(diskQuota.count, incrementedQuota, "磁碟持久化配額數值必須與記憶體一致");
+console.log("    ✅ TD-H5 配額持久化跨重啟保留驗證通過");
+
+// 2. 測試 Git Worktree 隔離生命週期
+const tempRepo = fs.mkdtempSync(path.join(os.tmpdir(), "td-h5-worktree-test-"));
+try {
+  execSync("git init -q -b main", { cwd: tempRepo });
+  execSync("git config user.name \"Test\"", { cwd: tempRepo });
+  execSync("git config user.email \"test@example.com\"", { cwd: tempRepo });
+  fs.writeFileSync(path.join(tempRepo, "README.md"), "# Test Repo\n");
+  execSync("git add README.md && git commit -q -m \"init\"", { cwd: tempRepo });
+
+  const taskId = "TASK-TEST-WT";
+  const wt = createTaskWorktree(tempRepo, taskId);
+  assert(fs.existsSync(wt.worktreePath), "Worktree 目錄必須成功建立");
+  assert.equal(wt.branchName, "td/" + taskId);
+
+  // 在 worktree 目錄中修改檔案與新增檔案
+  fs.writeFileSync(path.join(wt.worktreePath, "feature.js"), "console.log(\"isolated\");\n");
+  fs.appendFileSync(path.join(wt.worktreePath, "README.md"), "Added in worktree\n");
+
+  // 驗證主儲存庫 git status 完全無變更！
+  const mainStatus = execSync("git status --porcelain", { cwd: tempRepo, encoding: "utf8" });
+  assert.equal(mainStatus.trim(), "", "Worktree 隔離環境下的修改，主工作區 git status 必須保持絕對乾淨！");
+
+  // 驗證 collectGitDiff 對 worktree 收集 (異步等待完成後再執行清理)
+  await new Promise((resolve, reject) => {
+    collectGitDiff(wt.worktreePath, process.env, (modified, diff) => {
+      try {
+        assert(modified.includes("feature.js") || modified.includes("README.md"), "Worktree diff 必須採集到異動檔案");
+        assert(diff.includes("Added in worktree"), "Worktree diff 內容必須包含變更細節");
+        resolve();
+      } catch (err) {
+        reject(err);
+      }
+    });
+  });
+
+  // 測試移除清理 worktree
+  removeTaskWorktree(tempRepo, taskId);
+  assert(!fs.existsSync(wt.worktreePath), "Worktree 目錄必須已被安全移除");
+
+  const branches = execSync("git branch", { cwd: tempRepo, encoding: "utf8" });
+  assert(!branches.includes("td/" + taskId), "Worktree 專屬分支必須已被刪除清理");
+
+  console.log("    ✅ TD-H5 Git Worktree 隔離生命週期與主工作區無污染驗證通過");
+} finally {
+  fs.rmSync(tempRepo, { recursive: true, force: true });
+}
+})();
+'
+
 echo "  [9/9] 測試 前端核心互動邏輯與狀態防線 ..."
 node "$PROJECT_DIR/scripts/test_ui_behavior.js"
 node "$PROJECT_DIR/scripts/test_confirmation_ux.js"

@@ -89,6 +89,7 @@ async function main() {
   await once(reservation, 'listening');
   const port = reservation.address().port;
   await new Promise(resolve => reservation.close(resolve));
+  await sleep(100);
   const server = spawn(process.execPath, [path.join(root, 'src/server/server.js')], {
     env: { ...process.env, HOME: temp, PORT: String(port), TASK_DASHBOARD_DATA_DIR: dataDir },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -278,6 +279,115 @@ async function main() {
     assert(autoUpdated.executionLog.includes('## 1. 任務目標與根因分析'));
     assert(autoUpdated.executionLog.includes('## 4. 品質驗證與交付證明'));
     console.log('PASS Slice 2: One-Way/Two-Way Door & Deterministic Report Assembly');
+
+    // TD-H2: 結構化 Payload 交付、keyChanges 優先、exitCode 非 0 被擋、舊字串格式相容
+    console.log('Testing TD-H2: Structured payload delivery & review gates...');
+
+    // 1. TD-H2 Case 1: 結構化 payload 交付自動組裝報告
+    const h2Task1Res = await request('/api/tasks', 'POST', {
+      title: 'TD-H2 結構化 payload 測試任務',
+      project: 'logs',
+      status: 'in_progress'
+    });
+    const h2Task1 = await h2Task1Res.json();
+    const h2DeliverRes1 = await fetch(base + `/api/tasks/${h2Task1.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: 'review',
+        objective: '驗證結構化 payload 交付',
+        rootCause: '消除手寫 4 章節報告的負擔',
+        resolution: '後端自動組裝報告骨架',
+        keyChanges: [
+          { path: 'src/server/server.js', description: '支援結構化 payload 門禁' },
+          { path: 'src/server/feedbackManager.js', description: '優化 keyChanges 優先順序' }
+        ],
+        feedbackAddressed: '無前次意見',
+        testCommand: 'npm test',
+        exitCode: 0,
+        testSummary: '27 passed'
+      })
+    });
+    assert.equal(h2DeliverRes1.status, 200, 'TD-H2 payload review promotion must return 200');
+    const h2Task1Updated = await h2DeliverRes1.json();
+    assert(h2Task1Updated.executionLog.includes('## 1. 任務目標與根因分析'));
+    assert(h2Task1Updated.executionLog.includes('支援結構化 payload 門禁'));
+    assert(h2Task1Updated.executionLog.includes('27 passed'));
+    assert(!h2Task1Updated.executionLog.includes('依據需求進行防禦實作與介面窄化'), '假防禦文案必須徹底移除');
+    console.log('  ✅ TD-H2 Case 1: 結構化 payload 自動組裝且無假文案驗證通過');
+
+    // 2. TD-H2 Case 2: keyChanges 優先於 modifiedFiles
+    const h2Task2Res = await request('/api/tasks', 'POST', {
+      title: 'TD-H2 keyChanges 優先級測試',
+      project: 'logs',
+      status: 'in_progress',
+      modifiedFiles: ['fallback/file.js']
+    });
+    const h2Task2 = await h2Task2Res.json();
+    const h2DeliverRes2 = await fetch(base + `/api/tasks/${h2Task2.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: 'review',
+        objective: '驗證 keyChanges 優先權',
+        rootCause: '避免 fallback 覆蓋精確自定義異動',
+        resolution: '優先讀取 payload.keyChanges',
+        keyChanges: [{ path: 'priority/file.js', description: '高優先級說明' }],
+        testCommand: 'npm test',
+        exitCode: 0
+      })
+    });
+    assert.equal(h2DeliverRes2.status, 200);
+    const h2Task2Updated = await h2DeliverRes2.json();
+    assert(h2Task2Updated.executionLog.includes('`priority/file.js`: 高優先級說明'));
+    assert(!h2Task2Updated.executionLog.includes('fallback/file.js'), 'keyChanges 存在時不應回退至 modifiedFiles');
+    console.log('  ✅ TD-H2 Case 2: keyChanges 優先於 modifiedFiles 驗證通過');
+
+    // 3. TD-H2 Case 3: exitCode 非 0 時禁止推進 review (回 400)
+    const h2Task3Res = await request('/api/tasks', 'POST', {
+      title: 'TD-H2 exitCode 非 0 阻擋測試',
+      project: 'logs',
+      status: 'in_progress'
+    });
+    const h2Task3 = await h2Task3Res.json();
+    const h2DeliverRes3 = await fetch(base + `/api/tasks/${h2Task3.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: 'review',
+        objective: '測試失敗攔截',
+        rootCause: '單元測試報錯',
+        resolution: '未修復完成',
+        testCommand: 'npm test',
+        exitCode: 1,
+        testSummary: '1 failed'
+      })
+    });
+    assert.equal(h2DeliverRes3.status, 400, 'Non-zero exitCode must be rejected with HTTP 400');
+    const h2Task3Err = await h2DeliverRes3.json();
+    assert(h2Task3Err.error.includes('exitCode'), 'Error must mention exitCode rejection');
+    console.log('  ✅ TD-H2 Case 3: exitCode 非 0 推進 review 被 400 攔截驗證通過');
+
+    // 4. TD-H2 Case 4: 舊字串格式 executionLog 向下相容
+    const h2Task4Res = await request('/api/tasks', 'POST', {
+      title: 'TD-H2 舊字串格式相容測試',
+      project: 'logs',
+      status: 'in_progress'
+    });
+    const h2Task4 = await h2Task4Res.json();
+    const legacyLog = '### Phase 1: Pre-Flight 舊版日誌\n### Phase 2: Impl 舊版實作\n### Phase 3: 驗證指令 npm test 通過，Exit Code: 0 (PASS)';
+    const h2DeliverRes4 = await fetch(base + `/api/tasks/${h2Task4.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: 'review',
+        executionLog: legacyLog
+      })
+    });
+    assert.equal(h2DeliverRes4.status, 200, 'Legacy executionLog string format must be accepted');
+    const h2Task4Updated = await h2DeliverRes4.json();
+    assert.equal(h2Task4Updated.executionLog, legacyLog, 'Legacy log string must be preserved verbatim');
+    console.log('  ✅ TD-H2 Case 4: 舊字串格式 executionLog 向下相容驗證通過');
   } finally {
     server.kill('SIGTERM');
     await serverClosed;

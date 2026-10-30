@@ -56,26 +56,32 @@ flowchart TD
     subgraph Phase3["Phase 3: Compliance Manifest & Review Promotion"]
         P3_1["1. 執行專案測試與 Harness 驗證 (取得 Exit Code 0)"] --> P3_2["2. 採集全量完整 Git Diff (含 untracked 檔案)"]
         P3_2 --> P3_3["3. 依任務核心主軸產出標準 Conventional Commit 訊息"]
-        P3_3 --> P3_4["4. 撰寫標準結構化『任務執行報告 (Task Execution Report)』"]
-        P3_4 --> P3_5["5. 恪遵對齊回報原則 (Chat-Report Symmetry)"]
+        P3_3 --> P3_4["4. 送出結構化 JSON Payload (由後端自動組裝執行報告)"]
+        P3_4 --> P3_5["5. Chat 精簡回報 (僅回覆摘要與任務卡連結)"]
         P3_5 --> P3_6["6. 呼叫 Task Dashboard API 推進至 review (清空 feedback)"]
     end
 
     Phase1 --> Phase2 --> Phase3
 ```
 
-### Subagent 雙階自動調度策略 (Flash 執行 + Pro 審核)
-當執行環境具備 Subagent 工具（如 `invoke_subagent`）時，為避免龐大程式碼檢索與終端輸出佔滿主視窗 Context，並落實客觀嚴格的代碼審查，平台制定**雙階自動調度策略**：
+### Subagent 風險分級調度規範 (3-Tier Risk Routing)
+為消除無差別啟動雙 Subagent 所產生的固定外殼稅與重複 Context 負擔，平台實施依據任務階層 (`tier`) 與單雙向門禁 (`riskDoor`) 的**動態分級路由策略**：
 
-- **觸發條件**：
-  當執行環境支援 Subagent 工具（如 `invoke_subagent`）且任務屬於正式實作、除錯或跨檔調查（**非**單純 `requestCommitGen: true` 亦**非**未填妥 `executionPlan` 之待確認狀態）時，主 Agent 應自動啟用 Subagent 執行。
-- **雙模型分工（Flash 執行 → Pro 審核）**：
-  1. **執行階段 (`Model: "flash"`)**：主 Agent 委派 `self` subagent（設定 `Model: "flash"`, `Workspace: "inherit"`）於獨立 Context 執行 Phase 1~2 程式碼實作、大檔切片檢索與單元測試。
-  2. **審核階段 (`Model: "pro"`)**：實作完成後，主 Agent 委派 `self` subagent（設定 `Model: "pro"`, `Workspace: "inherit"`）進行 Phase 3 嚴格審核（檢驗 Git Diff 完整性、無截斷、無副作用、測試與 Harness 通過、結構化任務執行報告合規），審核通過後方推進至 `review`。
-- **三大安全守則**：
-  1. **強制繼承工作區 (`Workspace: "inherit"`)**：Subagent 必須設定 `Workspace: "inherit"`，確保所有 Git Diff 與檔案異動直接落於原專案工作區，嚴禁隔離導致 Diff 脫鉤。
-  2. **完整任務上下文注入**：委派時必須注入完整任務上下文（包含 `taskId`, `projPath`, `description`, `feedback`, `harnessCmd`, 以及 API 交付格式）。
-  3. **防搶單時序 (Race Condition Prevention)**：主 Agent 在 `flash` 執行與 `pro` 審核皆完成並將任務正式推入 `review` 後，才可重新掛載 `watch-task-gate.js` 進入背景待命。**嚴禁於 Subagent 運行期間提前重啟哨兵**，避免重複認領與衝突。
+| 階層 (Tier) | 適用場景 / 判定規則 | 執行方式 | 審核方式 |
+| :--- | :--- | :--- | :--- |
+| **`micro`** | 文案錯字、註解微調、格式化、純小範圍樣式，或標註 `tier:micro` | 主 Agent **原地實作，不啟動 Subagent** | 本地全套測試 + `harness:check` exit 0 |
+| **`standard`** | 一般功能開發、局部 Bug 修復、單元測試補齊，或推斷不出之預設 | 單一 `flash` Subagent (`Workspace: "inherit"`) | 主 Agent 執行確定性驗證與品質門禁 |
+| **`heavy`** | 跨模組重構、破壞性變更、資料庫遷移，或 `riskDoor === "one-way"` | `flash` 實作 (`Workspace: "inherit"`) | `pro` 獨立審核代碼與報告後推進至 review |
+
+- **階層推斷優先序**：
+  1. 顯式指定：`task.tier` 為 `micro`、`standard`、`heavy` 之一時直接採用。
+  2. 標籤標註：`task.tags` 包含 `tier:micro`、`micro`、`tier:heavy`、`heavy` 等。
+  3. 門禁升級：若 `riskDoor === "one-way"`，強制升級為 `heavy`。
+  4. 關鍵字推斷：標題與描述包含重構、架構、破壞性變更等推為 `heavy`；包含文案、錯字、註解微調等推為 `micro`；其餘預設為 `standard`。
+- **門禁與三大安全守則**：
+  1. **確認門禁聯鎖**：若任務標註 `requiresConfirmation === true` 且未具備執行計劃，無論何種 Tier 均禁止直接進入實作，必須先完成計劃供確認。
+  2. **強制繼承工作區 (`Workspace: "inherit"`)**：Subagent 必須設定 `Workspace: "inherit"`，確保所有 Git Diff 與檔案異動直接落於原專案工作區，嚴禁隔離導致 Diff 脫鉤。
+  3. **防搶單時序 (Race Condition Prevention)**：主 Agent 在所有執行與審核皆完成並將任務正式推入 `review` 後，才可重新掛載 `watch-task-gate.js` 進入背景待命。**嚴禁於 Subagent 運行期間提前重啟哨兵**，避免重複認領與衝突。
 
 ### Phase 1: Pre-Flight & Review Feedback Ingestion (審查回饋與前置檢閱)
 1. **最高優先級門禁（Review Feedback 檢查）**：
@@ -86,8 +92,8 @@ flowchart TD
 3. **執行前置診斷或 Harness 指令**：
    - 執行專案的診斷指令（如 `npm run harness:check` 或單元測試），確認基底狀態健康。
 4. **大檔掃描與 Token 節約鐵律 (Targeted Inspection & Anti-Loop Gate)**：
-   - **禁止大檔整檔盲讀**：目標檔案若超過 500 行，嚴禁無上限全覽。一律先以 `grep -n` 定位關鍵函式、變數或行號，再以切片閱讀前後 30-50 行。
-   - **單點檢索上限 (Max 2 Inspections)**：同一檔案相同區塊最多檢索 2 次；確定關鍵邏輯後立即進入修改與驗證，嚴禁原地循環重複呼叫。
+   - **禁止大檔整檔盲讀 [SHIM-001]**：目標檔案若超過 500 行，嚴禁無上限全覽。一律先以 `grep -n` 定位關鍵函式、變數或行號，再以切片閱讀前後 30-50 行。
+   - **單點檢索上限 [SHIM-002] (Max 2 Inspections)**：同一檔案相同區塊最多檢索 2 次；確定關鍵邏輯後立即進入修改與驗證，嚴禁原地循環重複呼叫。
    - **Fast-Track 輕量分流**：單一變數/邏輯修正優先進行精準微調與單元測試，避免發散式跨組件多輪思維。
 5. **GitNexus 風險評估與切片規劃門禁 (GitNexus Risk Assessment & Slicing Gate)**：
    - 若專案具備 GitNexus 索引：異動關鍵函式/模組前，**必須使用 GitNexus 進行影響分析 (`impact`) 評估風險**。
@@ -113,8 +119,9 @@ flowchart TD
 3. **依據任務核心主軸產出標準 Commit 訊息 (`commitMessage`)**：
    - 結構化 Commit 格式：`task.commitMessage = { "subject": "<type>(<scope>): <clean_subject>", "body": "- <重點 1>\n- <重點 2>" }`。
    - **【核心主軸原則】**：即使任務歷經多次 Feedback 修訂，Commit 主旨 (subject) 必須嚴格鎖定任務原始核心主軸，內文 (body) 則綜合全量實際異動項目與歷次 Feedback 修訂重點，嚴禁將主旨退化為最後單一一次 Feedback 的局部微調。
-4. **撰寫標準結構化『任務執行報告 (Task Execution Report)』**：
-   - 格式必須包含以下四大核心章節與折疊原生輸出：
+4. **交付報告結構化組裝與二元驗收門禁 [GATE-001]**：
+   - Agent 交付傳送結構化 JSON Payload，由後端依據標準規格自動組裝任務執行報告。二元門禁嚴格檢驗 `executionLog` 客觀證據與要求 `exitCode === 0`，未達標準一律阻擋推進（HTTP 400）。
+   - 格式包含以下四大核心章節與折疊原生輸出：
      ```markdown
      # 📋 任務執行報告 (Task Execution Report)
 
@@ -143,11 +150,12 @@ flowchart TD
      ```
      </details>
      ```
-5. **對齊回報原則 (Chat-Report Symmetry)**：
-   - AI 在 chat 視窗回報給使用者的「實作變更」與「測試驗證」核心內容，**必須 100% 同步寫入 `task.executionLog` 的核心章節**。
-   - 嚴禁在 chat 中輸出詳盡分析但在 `executionLog` 只寫單行狀態戳記。若日誌未包含具體邏輯更動與測試指令結果，視為品質門禁未通過。
-6. **推進狀態至 Review**：
+5. **Chat 精簡回報原則 (Chat-Report Symmetry 升級)**：
+   - AI 在完成交付後，於 Chat 視窗中**僅需提供簡潔摘要（1~2 行）與任務卡連結**，宣告實作結論與測試通過。
+   - 完整 4 章節任務執行報告統一由後端依據 JSON payload 結構化自動組裝至 `task.executionLog`，**嚴禁在 Chat 視窗全量重複傾倒整份 Markdown 報告**，徹底消除 Output Token 雙重收稅。
+6. **推進狀態至 Review 與 Feedback 歸檔自癒 [GATE-002]**：
    - 將 feedback 內容附加寫入 `task.description` 尾端（保留原始需求，以 `\n\n--- 【歷次審查意見 / Feedback 記錄】 ---\n[Timestamp]\n- <feedback>` 區隔），並清空 `task.feedback`。
+   - 系統若於 review/done 狀態偵測到殘留未清空之 feedback，自動觸發自癒清理歸檔並記錄 `GATE-002` 事件。
    - 將任務狀態更新為 `status: "review"`，重置 `requestCommitGen: false`。
 
 ---
@@ -156,14 +164,23 @@ flowchart TD
 
 為避免 Agent 在受管專案中透過原生腳本硬編碼讀寫底層資料庫，Task Dashboard 提供標準 REST API 進行任務生命週期管理：
 
-### 推薦：透過 REST API 推進 Review
-當 Agent 完成 Phase 1~3 實作與驗證後，直接呼叫本機 Task Dashboard API：
+### 推薦：透過 REST API 以結構化 Payload 推進 Review
+當 Agent 完成 Phase 1~3 實作與驗證後，直接呼叫本機 Task Dashboard API 傳送結構化 Payload（由後端確定性程式碼自動組裝報告，舊版 `executionLog` 字串仍向下相容支援）：
 ```bash
 curl -X PUT "http://localhost:3030/api/tasks/<task_id>" \
   -H "Content-Type: application/json" \
   -d '{
     "status": "review",
-    "executionLog": "<結構化任務執行報告內容>"
+    "objective": "完成功能實作與防禦強化",
+    "rootCause": "原先機制未具備結構化防禦",
+    "resolution": "遵循最小範圍原則實作並通過驗證",
+    "keyChanges": [
+      { "path": "src/module.js", "description": "實作核心邏輯" }
+    ],
+    "feedbackAddressed": "已修復先前審查指出的邊界問題",
+    "testCommand": "npm test",
+    "exitCode": 0,
+    "testSummary": "所有整合測試 100% 通過"
   }'
 ```
 > [!NOTE]
