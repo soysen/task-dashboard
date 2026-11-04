@@ -595,7 +595,7 @@ function parseBuildPlanContent(content, filePath, fallbackRoute, targetTaskId) {
   };
 }
 
-function scanProjectWorklogAndPlan(projPath, taskId) {
+function scanProjectWorklogAndPlan(projPath, taskId, preloadedTasks = null) {
   if (!projPath || !fs.existsSync(projPath)) return null;
 
   const statusPath = path.join(projPath, '.github', 'worklog', 'agent-status.md');
@@ -684,7 +684,7 @@ function scanProjectWorklogAndPlan(projPath, taskId) {
 
   if (!hasWorklog && !activeBuildPlan) {
     // 即使專案無現成 worklog，若有指定任務或當前任務亦即時合成切片資訊，提供切片評估
-    const allTasks = getTasksSafe();
+    const allTasks = Array.isArray(preloadedTasks) ? preloadedTasks : getTasksSafe();
     const currentTask = taskId ? allTasks.find(t => t.id.toLowerCase() === taskId.toLowerCase()) : null;
     const taskTitle = currentTask ? currentTask.title : (taskId || '進行中任務');
     const goalText = currentTask
@@ -728,7 +728,7 @@ function scanProjectWorklogAndPlan(projPath, taskId) {
   }
 
   // 讀取當前任務資訊，進行精準的 Task ID 對應與及時資料合成
-  const allTasks = getTasksSafe();
+  const allTasks = Array.isArray(preloadedTasks) ? preloadedTasks : getTasksSafe();
   const currentTask = taskId ? allTasks.find(t => t.id.toLowerCase() === taskId.toLowerCase()) : null;
 
   const isTargetActiveTask = activeTask && activeTask.id !== 'none' && (!taskId || activeTask.id.toLowerCase() === taskId.toLowerCase());

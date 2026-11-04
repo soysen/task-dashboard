@@ -1,6 +1,6 @@
 import { KANBAN_STATUSES } from "./constants.js";
 import { tasks, projects, currentProject, settings, projectGitStatus } from "./state.js";
-import { escapeHtml, formatDuration, showToast, copyPrompt, copySessionId } from "./utils.js";
+import { escapeHtml, formatDuration, showToast, copyPrompt, copySessionId, normalizeLogText } from "./utils.js";
 import {
   openModal, openModalForEdit, updateModalButtonState, quickApproveDone,
   commitTaskFromCard, archiveTaskFromCard, closeArchiveModal, promptTaskDeleteOrAbandon,
@@ -67,8 +67,10 @@ import {
         const currentNum = activeIdx !== -1 ? activeIdx + 1 : Math.min(completed + 1, total);
         return { currentNum, total, completed };
       }
-      if (t.executionPlan) {
-        const matches = [...t.executionPlan.matchAll(/(?:^|\n)\s*[-*]\s*(?:\[([ xX-])\]\s*)?Slice\s*(\d+)/gi)];
+      const safeNormalize = (typeof normalizeLogText === 'function') ? normalizeLogText : (v => typeof v === 'string' ? v : (v ? JSON.stringify(v) : ''));
+      const planText = safeNormalize(t.executionPlan);
+      if (planText) {
+        const matches = [...planText.matchAll(/(?:^|\n)\s*[-*]\s*(?:\[([ xX-])\]\s*)?Slice\s*(\d+)/gi)];
         if (matches.length > 0) {
           const total = matches.length;
           const completed = matches.filter(m => m[1] && m[1].toLowerCase() === 'x').length;
@@ -215,7 +217,7 @@ import {
                     <span class="text-[9px] px-1.5 py-0.5 rounded font-mono font-normal whitespace-nowrap flex-shrink-0 ${hasGrillMe ? 'bg-orange-100 dark:bg-orange-900/50 text-orange-800 dark:text-orange-300' : 'bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300'}">點擊審閱計劃</span>
                   </div>
                   <p class="text-[10px] text-slate-600 dark:text-slate-300 line-clamp-2 leading-relaxed font-mono">
-                    ${escapeHtml(t.executionPlan ? t.executionPlan.replace(/^#+\s+/gm, '').trim() : (hasGrillMe ? '此專案具備 Grill-Me 機制，等待邊界確認與執行計劃...' : '等待擬定執行計劃...'))}
+                    ${escapeHtml(t.executionPlan ? normalizeLogText(t.executionPlan).replace(/^#+\s+/gm, '').trim() : (hasGrillMe ? '此專案具備 Grill-Me 機制，等待邊界確認與執行計劃...' : '等待擬定執行計劃...'))}
                   </p>
                 </div>
               ` : ''}

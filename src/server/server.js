@@ -8,6 +8,7 @@ const os = require('os');
 const {
   consumeTaskFeedback,
   healTasksFeedback,
+  normalizeLogText,
   formatStructuredExecutionLog,
   extractCoverageSummary,
   validateExecutionLog,
@@ -242,6 +243,10 @@ function resolveDataDir() {
 
 function getTasksFilePath() {
   return path.join(resolveDataDir(), 'tasks.json');
+}
+
+function getArchivedTasksFilePath() {
+  return path.join(resolveDataDir(), 'tasks-archived.json');
 }
 
 function getProjectsFilePath() {
@@ -648,6 +653,10 @@ function scanLocalProjects() {
 
 let lastValidProjects = [];
 let lastValidTasks = [];
+let projectsCache = { mtimeMs: 0, path: '', timestamp: 0, data: [] };
+let tasksCache = { mtimeMs: 0, path: '', data: [] };
+let archivedTasksCache = { mtimeMs: 0, path: '', data: [] };
+let gitProjectsStatusCache = { timestamp: 0, data: null };
 
 function safeAtomicWriteJson(filePath, data) {
   const tmpFile = `${filePath}.${process.pid}.${Date.now()}.tmp`;
@@ -660,11 +669,111 @@ function safeAtomicWriteJson(filePath, data) {
   }
 }
 
+function cleanTaskForArchive(task) {
+  if (!task || typeof task !== 'object') return task;
+  const { projectPath, projectDocs, projectSkills, projectHarness, sliceInfo, liveStatus, ...rest } = task;
+  const stringFields = ['executionLog', 'executionPlan', 'description', 'feedback'];
+  stringFields.forEach(field => {
+    if (rest[field] !== undefined && rest[field] !== null && typeof rest[field] !== 'string') {
+      rest[field] = normalizeLogText(rest[field]);
+    }
+  });
+  const baseDir = resolveDataDir();
+  const diffDir = path.join(baseDir, 'diffs');
+
+  if (rest.diff && typeof rest.diff === 'string' && rest.diff.length > 2048 && !rest.diffPath) {
+    try {
+      if (!fs.existsSync(diffDir)) {
+        fs.mkdirSync(diffDir, { recursive: true });
+      }
+      const diffFile = path.join(diffDir, `${rest.id}.diff`);
+      fs.writeFileSync(diffFile, rest.diff, 'utf8');
+      rest.diffPath = `diffs/${rest.id}.diff`;
+      rest.diff = rest.diff.slice(0, 1500) + '\n\n... (全量完整 Diff 已抽離至 ' + rest.diffPath + ' 檔案保存)';
+    } catch (err) {
+      console.error(`Error saving diff for archived task ${rest.id}:`, err);
+    }
+  }
+  return rest;
+}
+
+function readArchivedTasks() {
+  try {
+    const file = getArchivedTasksFilePath();
+    if (fs.existsSync(file)) {
+      const stat = fs.statSync(file);
+      if (archivedTasksCache.path === file && archivedTasksCache.mtimeMs === stat.mtimeMs && Array.isArray(archivedTasksCache.data)) {
+        return archivedTasksCache.data.map(t => ({ ...t }));
+      }
+      const raw = fs.readFileSync(file, 'utf8');
+      const data = JSON.parse(raw);
+      if (Array.isArray(data)) {
+        const hasChanges = healTasksFeedback(data);
+        if (hasChanges) {
+          try {
+            safeAtomicWriteJson(file, data);
+          } catch (e) {}
+        }
+        archivedTasksCache = { mtimeMs: stat.mtimeMs, path: file, data };
+        return data.map(t => ({ ...t }));
+      }
+    }
+  } catch (err) {
+    console.error('Error reading tasks-archived.json:', err);
+    if (Array.isArray(archivedTasksCache.data) && archivedTasksCache.data.length > 0) {
+      return archivedTasksCache.data.map(t => ({ ...t }));
+    }
+  }
+  return Array.isArray(archivedTasksCache.data) ? archivedTasksCache.data.map(t => ({ ...t })) : [];
+}
+
+function writeArchivedTasks(archivedList) {
+  try {
+    const file = getArchivedTasksFilePath();
+    const list = Array.isArray(archivedList) ? archivedList : [];
+    const cleanedList = list.map(t => cleanTaskForArchive(t));
+    cleanedList.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+    safeAtomicWriteJson(file, cleanedList);
+    try {
+      const stat = fs.statSync(file);
+      archivedTasksCache = { mtimeMs: stat.mtimeMs, path: file, data: cleanedList };
+    } catch (e) {
+      archivedTasksCache = { mtimeMs: Date.now(), path: file, data: cleanedList };
+    }
+  } catch (err) {
+    console.error('Error writing tasks-archived.json:', err);
+  }
+}
+
+function archiveTasksAndFilter(tasks) {
+  if (!Array.isArray(tasks)) return [];
+  const toArchive = tasks.filter(t => t.status === 'archived');
+  const activeTasks = tasks.filter(t => t.status !== 'archived');
+  if (toArchive.length > 0) {
+    const existingArchived = readArchivedTasks();
+    const map = new Map();
+    existingArchived.forEach(t => map.set(t.id, t));
+    toArchive.forEach(t => {
+      const cleaned = cleanTaskForArchive(t);
+      map.set(cleaned.id, cleaned);
+    });
+    const merged = Array.from(map.values());
+    writeArchivedTasks(merged);
+  }
+  return activeTasks;
+}
+
 function readProjects() {
   try {
     const file = getProjectsFilePath();
     if (fs.existsSync(file)) {
-      const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const now = Date.now();
+      const stat = fs.statSync(file);
+      if (projectsCache.path === file && projectsCache.mtimeMs === stat.mtimeMs && (now - projectsCache.timestamp < 5000) && Array.isArray(projectsCache.data) && projectsCache.data.length > 0) {
+        return projectsCache.data;
+      }
+      const raw = fs.readFileSync(file, 'utf8');
+      const saved = JSON.parse(raw);
       if (Array.isArray(saved)) {
         let hasRedundantKeys = false;
         const cleaned = saved.map(p => {
@@ -702,6 +811,12 @@ function readProjects() {
         if (cleaned.length > 0) {
           lastValidProjects = cleaned;
         }
+        try {
+          const newStat = fs.statSync(file);
+          projectsCache = { mtimeMs: newStat.mtimeMs, path: file, timestamp: Date.now(), data: cleaned };
+        } catch (e) {
+          projectsCache = { mtimeMs: stat.mtimeMs, path: file, timestamp: Date.now(), data: cleaned };
+        }
         return cleaned;
       }
     }
@@ -722,6 +837,7 @@ function writeProjects(projects) {
       lastValidProjects = projects;
     }
     safeAtomicWriteJson(file, projects);
+    projectsCache = { mtimeMs: 0, path: '', timestamp: 0, data: [] };
   } catch (err) {
     console.error('Error writing projects.json:', err);
   }
@@ -731,45 +847,72 @@ function readTasks() {
   try {
     const file = getTasksFilePath();
     if (fs.existsSync(file)) {
-      const tasks = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const stat = fs.statSync(file);
+      if (tasksCache.path === file && tasksCache.mtimeMs === stat.mtimeMs && Array.isArray(tasksCache.data)) {
+        return tasksCache.data.map(t => ({ ...t }));
+      }
+      const raw = fs.readFileSync(file, 'utf8');
+      const tasks = JSON.parse(raw);
       if (Array.isArray(tasks)) {
-        const hasChanges = healTasksFeedback(tasks, (t) => {
+        const hasArchived = tasks.some(t => t.status === 'archived');
+        let activeTasks = tasks;
+        if (hasArchived) {
+          activeTasks = archiveTasksAndFilter(tasks);
+        }
+        const hasChanges = healTasksFeedback(activeTasks, (t) => {
           appendTaskEvent({ taskId: t.id, type: 'shim_triggered', shimId: 'GATE-002', action: 'healTasksFeedback' });
         });
-        if (hasChanges) {
+        if (hasArchived || hasChanges) {
           try {
-            safeAtomicWriteJson(file, tasks);
-            syncToMarkdown(tasks);
+            safeAtomicWriteJson(file, activeTasks);
+            syncToMarkdown(activeTasks);
           } catch (e) {}
         }
-        if (tasks.length > 0) {
-          lastValidTasks = tasks;
+        try {
+          const newStat = fs.statSync(file);
+          tasksCache = { mtimeMs: newStat.mtimeMs, path: file, data: activeTasks };
+        } catch (e) {
+          tasksCache = { mtimeMs: stat.mtimeMs, path: file, data: activeTasks };
         }
-        return tasks;
+        if (activeTasks.length > 0) {
+          lastValidTasks = activeTasks;
+        }
+        return activeTasks.map(t => ({ ...t }));
       }
     }
   } catch (err) {
     console.error('Error reading tasks.json:', err);
     if (lastValidTasks.length > 0) {
       console.warn(' [SafeGuard] tasks.json 讀取暫態異常，使用上一輪有效快取 (' + lastValidTasks.length + ' 個任務)');
-      return lastValidTasks;
+      return lastValidTasks.map(t => ({ ...t }));
     }
   }
-  return lastValidTasks.length > 0 ? lastValidTasks : [];
+  return lastValidTasks.length > 0 ? lastValidTasks.map(t => ({ ...t })) : [];
 }
 setReadTasksProvider(readTasks);
 
 function writeTasks(tasks) {
   try {
     const file = getTasksFilePath();
-    healTasksFeedback(tasks, (t) => {
+    let listToWrite = Array.isArray(tasks) ? tasks : [];
+    const hasArchived = listToWrite.some(t => t.status === 'archived');
+    if (hasArchived) {
+      listToWrite = archiveTasksAndFilter(listToWrite);
+    }
+    healTasksFeedback(listToWrite, (t) => {
       appendTaskEvent({ taskId: t.id, type: 'shim_triggered', shimId: 'GATE-002', action: 'healTasksFeedback' });
     });
-    if (Array.isArray(tasks) && tasks.length > 0) {
-      lastValidTasks = tasks;
+    if (listToWrite.length > 0) {
+      lastValidTasks = listToWrite;
     }
-    safeAtomicWriteJson(file, tasks);
-    syncToMarkdown(tasks);
+    safeAtomicWriteJson(file, listToWrite);
+    try {
+      const stat = fs.statSync(file);
+      tasksCache = { mtimeMs: stat.mtimeMs, path: file, data: listToWrite };
+    } catch (e) {
+      tasksCache = { mtimeMs: Date.now(), path: file, data: listToWrite };
+    }
+    syncToMarkdown(listToWrite);
   } catch (err) {
     console.error('Error writing tasks.json:', err);
   }
@@ -1736,15 +1879,20 @@ setInterval(reconcileTasks, 30000).unref();
 
 function getNextTaskId(tasks) {
   let maxId = 0;
-  tasks.forEach(t => {
-    if (t.id && typeof t.id === 'string') {
-      const match = t.id.match(/\d+/);
-      if (match) {
-        const num = parseInt(match[0], 10);
-        if (num > maxId) maxId = num;
+  const inspectList = (list) => {
+    if (!Array.isArray(list)) return;
+    list.forEach(t => {
+      if (t && t.id && typeof t.id === 'string') {
+        const match = t.id.match(/\d+/);
+        if (match) {
+          const num = parseInt(match[0], 10);
+          if (num > maxId) maxId = num;
+        }
       }
-    }
-  });
+    });
+  };
+  inspectList(tasks);
+  inspectList(readArchivedTasks());
   return `TASK-${String(maxId + 1).padStart(3, '0')}`;
 }
 
@@ -1906,6 +2054,7 @@ const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Expose-Headers', 'X-Archived-Count');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -2301,7 +2450,10 @@ function runNativeFolderPicker(promptText, callback) {
   // 任務列表
   if (pathname === '/api/tasks' && req.method === 'GET') {
     try {
-      const tasks = readTasks();
+      const includeArchived = query.includeArchived === '1' || query.includeArchived === 'true';
+      const activeTasks = readTasks();
+      const archivedTasks = readArchivedTasks();
+      const tasks = includeArchived ? [...activeTasks, ...archivedTasks] : activeTasks;
       const projects = readProjects();
       const enriched = tasks.map(t => {
         try {
@@ -2310,7 +2462,9 @@ function runNativeFolderPicker(promptText, callback) {
           const docs = proj ? (proj.docs || []) : scanProjectGithubInfo(projPath).docs;
           const skills = proj ? (proj.skills || []) : scanProjectGithubInfo(projPath).skills;
           const harness = proj ? (proj.harness || {}) : scanProjectGithubInfo(projPath).harness;
-          const sliceInfo = scanProjectWorklogAndPlan(projPath, t.id);
+          const sliceInfo = (t.status === 'archived' || t.status === 'done')
+            ? (t.sliceInfo || undefined)
+            : scanProjectWorklogAndPlan(projPath, t.id, tasks);
 
           let item = {
             ...t,
@@ -2357,7 +2511,11 @@ function runNativeFolderPicker(promptText, callback) {
           return t;
         }
       });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'X-Archived-Count': String(archivedTasks.length),
+        'Access-Control-Expose-Headers': 'X-Archived-Count'
+      });
       res.end(JSON.stringify(enriched));
     } catch (routeErr) {
       console.error('Error in GET /api/tasks route:', routeErr);
@@ -2367,12 +2525,76 @@ function runNativeFolderPicker(promptText, callback) {
     return;
   }
 
+  // 封存任務列表 (按需載入)
+  if (pathname === '/api/tasks/archived' && req.method === 'GET') {
+    try {
+      const archived = readArchivedTasks();
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'X-Archived-Count': String(archived.length),
+        'Access-Control-Expose-Headers': 'X-Archived-Count'
+      });
+      res.end(JSON.stringify(archived));
+    } catch (routeErr) {
+      console.error('Error in GET /api/tasks/archived route:', routeErr);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Internal Server Error' }));
+    }
+    return;
+  }
+
+  // 查詢單一任務完整 Diff (支援封存任務已抽離之 diffPath)
+  if (pathname.match(/^\/api\/tasks\/([^/]+)\/diff$/) && req.method === 'GET') {
+    const taskId = decodeURIComponent(pathname.split('/')[3] || '').trim();
+    const tasks = readTasks();
+    const archived = readArchivedTasks();
+    const task = tasks.find(t => t.id === taskId) || archived.find(t => t.id === taskId);
+    if (!task) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Task not found: ' + taskId }));
+      return;
+    }
+    let diffContent = task.diff || '';
+    if (task.diffPath) {
+      const fullDiffFile = path.join(resolveDataDir(), task.diffPath);
+      if (fs.existsSync(fullDiffFile)) {
+        try {
+          diffContent = fs.readFileSync(fullDiffFile, 'utf8');
+        } catch (e) {}
+      }
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ id: taskId, diff: diffContent, diffPath: task.diffPath || '' }));
+    return;
+  }
+
+  // 查詢單一任務詳情 (支援 tasks.json 與 tasks-archived.json)
+  if (pathname.match(/^\/api\/tasks\/([^/]+)$/) && req.method === 'GET') {
+    const taskId = decodeURIComponent(pathname.split('/')[3] || '').trim();
+    const tasks = readTasks();
+    const archived = readArchivedTasks();
+    const task = tasks.find(t => t.id === taskId) || archived.find(t => t.id === taskId);
+    if (!task) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Task not found: ' + taskId }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(task));
+    return;
+  }
+
   if (pathname === '/api/tasks' && req.method === 'POST') {
     let body = '';
     req.on('data', chunk => (body += chunk));
     req.on('end', () => {
       try {
         const data = JSON.parse(body);
+        ['executionLog', 'executionPlan', 'description', 'feedback'].forEach(field => {
+          if (data[field] !== undefined && data[field] !== null && typeof data[field] !== 'string') {
+            data[field] = normalizeLogText(data[field]);
+          }
+        });
         const tasks = readTasks();
         const newId = getNextTaskId(tasks);
         const newTask = {
@@ -2428,8 +2650,26 @@ function runNativeFolderPicker(promptText, callback) {
     req.on('end', () => {
       try {
         const data = JSON.parse(body);
+        ['executionLog', 'executionPlan', 'description', 'feedback'].forEach(field => {
+          if (data[field] !== undefined && data[field] !== null && typeof data[field] !== 'string') {
+            data[field] = normalizeLogText(data[field]);
+          }
+        });
         const tasks = readTasks();
-        const index = tasks.findIndex(t => t.id === taskId);
+        let index = tasks.findIndex(t => t.id === taskId);
+        let fromArchived = false;
+        let archivedList = null;
+        if (index === -1) {
+          archivedList = readArchivedTasks();
+          const archIdx = archivedList.findIndex(t => t.id === taskId);
+          if (archIdx !== -1) {
+            fromArchived = true;
+            const archTask = { ...archivedList[archIdx] };
+            archivedList.splice(archIdx, 1);
+            tasks.push(archTask);
+            index = tasks.length - 1;
+          }
+        }
         if (index === -1) {
           res.writeHead(404, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Task not found' }));
@@ -2529,6 +2769,9 @@ function runNativeFolderPicker(promptText, callback) {
               tasks[index].executionLog = formatStructuredExecutionLog(tasks[index].executionLog, { phase3: phase3Option });
             }
           }
+        }
+        if (fromArchived && archivedList) {
+          writeArchivedTasks(archivedList);
         }
         writeTasks(tasks);
 
@@ -2675,7 +2918,7 @@ function runNativeFolderPicker(promptText, callback) {
   if (pathname.match(/^\/api\/tasks\/([^/]+)\/slice-info$/) && req.method === 'GET') {
     const taskId = decodeURIComponent(pathname.split('/')[3] || '').trim();
     const tasks = readTasks();
-    const task = tasks.find(t => t.id === taskId);
+    const task = tasks.find(t => t.id === taskId) || readArchivedTasks().find(t => t.id === taskId);
     if (!task) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Task not found: ' + taskId }));
@@ -2963,8 +3206,14 @@ function runNativeFolderPicker(promptText, callback) {
     return;
   }
 
-  // 查詢所有專案的 Git Diff 狀態 (是否有未提交異動)
+  // 查詢所有專案的 Git Diff 狀態 (是否有未提交異動，快取 10 秒)
   if (pathname === '/api/git/projects-status' && req.method === 'GET') {
+    const now = Date.now();
+    if (gitProjectsStatusCache.data && (now - gitProjectsStatusCache.timestamp < 10000)) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(gitProjectsStatusCache.data));
+      return;
+    }
     const projects = readProjects();
     const result = {};
     projects.forEach(p => {
@@ -2983,6 +3232,7 @@ function runNativeFolderPicker(promptText, callback) {
         result[p.id] = { hasDiff: false, summary: err.message };
       }
     });
+    gitProjectsStatusCache = { timestamp: Date.now(), data: result };
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(result));
     return;
@@ -3038,18 +3288,23 @@ function runNativeFolderPicker(promptText, callback) {
       try {
         const data = JSON.parse(body || '{}');
         const tasks = readTasks();
-        let filtered;
+        const archived = readArchivedTasks();
+        let deletedCount = 0;
         if (data.allArchived) {
-          filtered = tasks.filter(t => t.status !== 'archived');
+          deletedCount = archived.length + tasks.filter(t => t.status === 'archived').length;
+          writeArchivedTasks([]);
+          const cleanTasks = tasks.filter(t => t.status !== 'archived');
+          writeTasks(cleanTasks);
         } else if (Array.isArray(data.taskIds)) {
           const idsSet = new Set(data.taskIds);
-          filtered = tasks.filter(t => !idsSet.has(t.id));
-        } else {
-          filtered = tasks;
+          const filteredTasks = tasks.filter(t => !idsSet.has(t.id));
+          const filteredArchived = archived.filter(t => !idsSet.has(t.id));
+          deletedCount = (tasks.length - filteredTasks.length) + (archived.length - filteredArchived.length);
+          writeTasks(filteredTasks);
+          writeArchivedTasks(filteredArchived);
         }
-        writeTasks(filtered);
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, count: tasks.length - filtered.length }));
+        res.end(JSON.stringify({ success: true, count: deletedCount }));
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: err.message }));
@@ -3066,10 +3321,25 @@ function runNativeFolderPicker(promptText, callback) {
       try {
         const data = JSON.parse(body || '{}');
         const tasks = readTasks();
+        const archived = readArchivedTasks();
         const nowIso = new Date().toISOString();
         let restoredCount = 0;
         if (Array.isArray(data.taskIds)) {
           const idsSet = new Set(data.taskIds);
+          const remainingArchived = [];
+          const restoredTasks = [];
+
+          archived.forEach(t => {
+            if (idsSet.has(t.id)) {
+              t.status = 'done';
+              t.updatedAt = nowIso;
+              restoredTasks.push(t);
+              restoredCount++;
+            } else {
+              remainingArchived.push(t);
+            }
+          });
+
           tasks.forEach(t => {
             if (idsSet.has(t.id) && t.status === 'archived') {
               t.status = 'done';
@@ -3077,8 +3347,11 @@ function runNativeFolderPicker(promptText, callback) {
               restoredCount++;
             }
           });
+
+          const newActiveTasks = [...tasks, ...restoredTasks];
+          writeArchivedTasks(remainingArchived);
+          writeTasks(newActiveTasks);
         }
-        writeTasks(tasks);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, count: restoredCount }));
       } catch (err) {
@@ -3093,7 +3366,8 @@ function runNativeFolderPicker(promptText, callback) {
   if (pathname.match(/^\/api\/tasks\/([^/]+)\/git-status$/) && req.method === 'GET') {
     const taskId = decodeURIComponent(pathname.split('/')[3] || '').trim();
     const tasks = readTasks();
-    const task = tasks.find(t => t.id === taskId);
+    const archived = readArchivedTasks();
+    const task = tasks.find(t => t.id === taskId) || archived.find(t => t.id === taskId);
     if (!task) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Task not found: ' + taskId }));
@@ -3223,9 +3497,14 @@ function runNativeFolderPicker(promptText, callback) {
         const shouldDiscard = (reqData.discardChanges === true) || (query.discardChanges === 'true') || (query.discardChanges === '1');
 
         const tasks = readTasks();
-        const targetTask = tasks.find(t => t.id === taskId);
-        const filtered = tasks.filter(t => t.id !== taskId);
-        if (tasks.length === filtered.length) {
+        const archived = readArchivedTasks();
+        let targetTask = tasks.find(t => t.id === taskId);
+        let inArchived = false;
+        if (!targetTask) {
+          targetTask = archived.find(t => t.id === taskId);
+          if (targetTask) inArchived = true;
+        }
+        if (!targetTask) {
           res.writeHead(404, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Task not found' }));
           return;
@@ -3257,7 +3536,21 @@ function runNativeFolderPicker(promptText, callback) {
           }
         }
 
-        writeTasks(filtered);
+        if (inArchived) {
+          const filteredArchived = archived.filter(t => t.id !== taskId);
+          writeArchivedTasks(filteredArchived);
+        } else {
+          const filtered = tasks.filter(t => t.id !== taskId);
+          writeTasks(filtered);
+        }
+
+        if (targetTask.diffPath) {
+          try {
+            const df = path.join(resolveDataDir(), targetTask.diffPath);
+            if (fs.existsSync(df)) fs.unlinkSync(df);
+          } catch (e) {}
+        }
+
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, deleted: taskId, discardOutput }));
       } catch (err) {

@@ -1,4 +1,4 @@
-import { escapeHtml } from "./utils.js";
+import { escapeHtml, normalizeLogText } from "./utils.js";
 
     function switchLogViewTab(tab) {
       const visualBtn = document.getElementById('btnLogTabVisual');
@@ -22,7 +22,26 @@ import { escapeHtml } from "./utils.js";
     function renderExecutionReport(task) {
       const reportEl = document.getElementById('formReportVisual');
       if (!reportEl) return;
-      const raw = (task && task.executionLog) ? task.executionLog.trim() : '';
+      const safeNormalize = (typeof normalizeLogText === 'function') ? normalizeLogText : (v => {
+        if (v === null || v === undefined) return '';
+        if (typeof v === 'string') return v;
+        if (Array.isArray(v)) {
+          return v.map(item => {
+            if (item === null || item === undefined) return '';
+            if (typeof item === 'string') return item;
+            if (typeof item === 'object') {
+              const parts = [];
+              if (item.timestamp) parts.push(`[${item.timestamp}]`);
+              if (item.stage) parts.push(`[${item.stage}]`);
+              parts.push(item.message || JSON.stringify(item));
+              return parts.join(' ');
+            }
+            return String(item);
+          }).join('\n');
+        }
+        return typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v);
+      });
+      const raw = safeNormalize(task && task.executionLog).trim();
       if (!raw) {
         reportEl.innerHTML = '';
         return;
@@ -34,11 +53,12 @@ import { escapeHtml } from "./utils.js";
 
       // 智慧自癒回退 (Smart Fallback & Synthesis)：
       // 若日誌缺乏結構化內容但任務具備執行計劃、工作切片或異動檔案，自動合成完整的結構化執行內容報告
-      if (!isStructured && ((task && task.executionPlan && task.executionPlan.trim()) || (task && task.sliceInfo && task.sliceInfo.slices && task.sliceInfo.slices.length > 0) || (task && task.modifiedFiles && task.modifiedFiles.length > 0))) {
+      const planRaw = safeNormalize(task && task.executionPlan).trim();
+      if (!isStructured && (planRaw || (task && task.sliceInfo && task.sliceInfo.slices && task.sliceInfo.slices.length > 0) || (task && task.modifiedFiles && task.modifiedFiles.length > 0))) {
         const slices = (task.sliceInfo && Array.isArray(task.sliceInfo.slices)) ? task.sliceInfo.slices : [];
         const slicesMd = slices.map(s => `  - **${s.title}** (${s.status || '已完成'})`).join('\n');
         const filesMd = (task.modifiedFiles || []).map(f => `  - \`${typeof f === 'string' ? f : (f.path || f)}\``).join('\n');
-        const planText = task.executionPlan ? task.executionPlan.replace(/^##\s*執行計劃[^\n]*\n+/i, '').trim() : '';
+        const planText = planRaw ? planRaw.replace(/^##\s*執行計劃[^\n]*\n+/i, '').trim() : '';
 
         effectiveLog = `# 📋 任務執行報告 (Task Execution Report)\n\n## 1. 任務目標與執行計劃 (Objective & Plan)\n${planText ? planText.split('\n').map(l => l.startsWith('#') ? `- **${l.replace(/^#+\s*/, '')}**` : l).join('\n') : `- **核心目標**：${task.title || '完成任務需求'}`}\n\n## 2. 解決方案與核心異動 (Resolution & Key Changes)\n- **已完成工作切片 (Slices Completed)**：\n${slicesMd || '  - 依執行計劃完成所有實作與驗證'}\n- **檔案異動明細**：\n${filesMd || '  - 詳見 Git Diff'}\n\n## 3. 品質驗證與交付證明 (Verification & Test Evidence)\n- **狀態**：任務驗收通過 (目前狀態: ${task.status})\n${task.commitMessage ? `- **Commit 主旨**：\`${task.commitMessage.subject || ''}\`\n${task.commitMessage.body ? task.commitMessage.body.split('\n').map(b => '  ' + b).join('\n') : ''}` : ''}\n\n<details>\n<summary>點擊展開門禁與執行歷史記錄 (Gate History)</summary>\n\n\`\`\`text\n${raw}\n\`\`\`\n</details>`;
         isStructured = true;
@@ -241,9 +261,10 @@ import { escapeHtml } from "./utils.js";
     function renderExecutionPlan(taskOrText) {
       const planEl = document.getElementById('formPlanVisual');
       if (!planEl) return;
+      const safeNormalize = (typeof normalizeLogText === 'function') ? normalizeLogText : (v => typeof v === 'string' ? v : (v ? JSON.stringify(v) : ''));
       const raw = typeof taskOrText === 'string'
         ? taskOrText
-        : ((taskOrText && taskOrText.executionPlan) ? taskOrText.executionPlan.trim() : '');
+        : safeNormalize(taskOrText && taskOrText.executionPlan).trim();
 
       if (!raw) {
         planEl.innerHTML = `

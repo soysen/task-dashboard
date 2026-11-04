@@ -169,7 +169,43 @@ ${subagentNotice}
     }
 
 
+    function normalizeLogText(val) {
+      if (val === null || val === undefined) return '';
+      if (typeof val === 'string') return val;
+      if (Array.isArray(val)) {
+        return val.map(item => {
+          if (item === null || item === undefined) return '';
+          if (typeof item === 'string') return item;
+          if (typeof item === 'object') {
+            const parts = [];
+            if (item.timestamp) parts.push(`[${item.timestamp}]`);
+            if (item.stage) parts.push(`[${item.stage}]`);
+            if (item.message) {
+              parts.push(item.message);
+            } else {
+              try {
+                parts.push(JSON.stringify(item));
+              } catch (_) {
+                parts.push(String(item));
+              }
+            }
+            return parts.join(' ');
+          }
+          return String(item);
+        }).join('\n');
+      }
+      if (typeof val === 'object') {
+        try {
+          return JSON.stringify(val, null, 2);
+        } catch (_) {
+          return String(val);
+        }
+      }
+      return String(val);
+    }
+
 export {
+  normalizeLogText,
   withButtonLoading,
   autoResizeTextarea,
   resetTextareaHeight,
@@ -183,6 +219,7 @@ export {
 };
 
 if (typeof window !== "undefined") {
+  window.normalizeLogText = normalizeLogText;
   window.withButtonLoading = withButtonLoading;
   window.autoResizeTextarea = autoResizeTextarea;
   window.resetTextareaHeight = resetTextareaHeight;

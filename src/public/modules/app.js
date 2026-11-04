@@ -1,8 +1,8 @@
 import { KANBAN_STATUSES } from "./constants.js";
 import {
-  projects, tasks, settings, projectGitStatus, currentProject, currentActiveTaskDiff,
+  projects, tasks, archivedTasks, archivedTasksCount, settings, projectGitStatus, currentProject, currentActiveTaskDiff,
   currentTaskDependencies, currentModalEditingTask, selectedFirstLaunchPath,
-  setProjects, setTasks, setSettings, setProjectGitStatus, setCurrentProject,
+  setProjects, setTasks, setArchivedTasks, setArchivedTasksCount, setSettings, setProjectGitStatus, setCurrentProject,
   setCurrentActiveTaskDiff, setCurrentTaskDependencies, setCurrentModalEditingTask,
   setSelectedFirstLaunchPath
 } from "./state.js";
@@ -141,43 +141,62 @@ import {
     }
 
     let apiFailStreak = 0;
+    let isLoadingData = false;
+    let loadDataPollCount = 0;
 
-    async function loadData() {
+    async function loadData(forceFull = false) {
+      if (typeof isLoadingData !== 'undefined' && isLoadingData) return;
+      if (typeof isLoadingData !== 'undefined') isLoadingData = true;
       try {
+        const pollCount = (typeof loadDataPollCount !== 'undefined') ? (++loadDataPollCount) : 1;
+        const isFullFetch = forceFull === true || (pollCount % 5 === 1);
         const cacheBuster = '?t=' + Date.now();
-        const [projRes, taskRes, setRes, gitRes] = await Promise.all([
-          fetch('/api/projects' + cacheBuster, { cache: 'no-store' }),
-          fetch('/api/tasks' + cacheBuster, { cache: 'no-store' }),
-          fetch('/api/settings' + cacheBuster, { cache: 'no-store' }),
-          fetch('/api/git/projects-status' + cacheBuster, { cache: 'no-store' }).catch(() => ({ json: () => ({}) }))
-        ]);
-        if (!projRes.ok || !taskRes.ok) {
+
+        let projRes, taskRes, setRes, gitRes;
+        if (isFullFetch) {
+          [projRes, taskRes, setRes, gitRes] = await Promise.all([
+            fetch('/api/projects' + cacheBuster, { cache: 'no-store' }),
+            fetch('/api/tasks' + cacheBuster, { cache: 'no-store' }),
+            fetch('/api/settings' + cacheBuster, { cache: 'no-store' }),
+            fetch('/api/git/projects-status' + cacheBuster, { cache: 'no-store' }).catch(() => ({ json: () => ({}) }))
+          ]);
+        } else {
+          taskRes = await fetch('/api/tasks' + cacheBuster, { cache: 'no-store' });
+        }
+
+        if (!taskRes || !taskRes.ok || (projRes && !projRes.ok)) {
           apiFailStreak++;
           renderCliAgentBadge();
           console.warn('API returned non-OK status, skipping data refresh');
           return;
         }
         apiFailStreak = 0;
-        const newProjects = await projRes.json();
-        const newTasks = await taskRes.json();
-        const newSettings = await setRes.json();
 
-        if (Array.isArray(newProjects) && (newProjects.length > 0 || projects.length === 0)) {
-          setProjects(newProjects);
-        }
+        const newTasks = await taskRes.json();
         if (Array.isArray(newTasks) && (newTasks.length > 0 || tasks.length === 0)) {
           setTasks(newTasks);
         }
-        if (newSettings && typeof newSettings === 'object') {
-          setSettings(newSettings);
-          const effectiveFontSize = newSettings.fontSize || localStorage.getItem('fontSize') || 'small';
-          localStorage.setItem('fontSize', effectiveFontSize);
-          applyFontSize(effectiveFontSize);
-        }
-        try {
-          setProjectGitStatus(await gitRes.json());
-        } catch (e) {
-          setProjectGitStatus({});
+
+        if (isFullFetch && projRes && setRes) {
+          const newProjects = await projRes.json();
+          const newSettings = await setRes.json();
+
+          if (Array.isArray(newProjects) && (newProjects.length > 0 || projects.length === 0)) {
+            setProjects(newProjects);
+          }
+          if (newSettings && typeof newSettings === 'object') {
+            setSettings(newSettings);
+            const effectiveFontSize = newSettings.fontSize || localStorage.getItem('fontSize') || 'small';
+            localStorage.setItem('fontSize', effectiveFontSize);
+            applyFontSize(effectiveFontSize);
+          }
+          try {
+            if (gitRes && typeof gitRes.json === 'function') {
+              setProjectGitStatus(await gitRes.json());
+            }
+          } catch (e) {
+            setProjectGitStatus({});
+          }
         }
         
         const cliEl = document.getElementById('settingEnableCliAgent');
@@ -201,8 +220,19 @@ import {
           openFirstLaunchModal();
         }
 
-        // 更新封存庫徽章數量
-        const archivedCount = tasks.filter(t => t.status === 'archived').length;
+        // 更新封存庫徽章數量 (優先從 X-Archived-Count 回應標頭讀取)
+        const archivedHeader = (taskRes.headers && typeof taskRes.headers.get === 'function')
+          ? taskRes.headers.get('X-Archived-Count')
+          : null;
+        let archivedCount = (archivedHeader !== null && archivedHeader !== '') ? parseInt(archivedHeader, 10) : NaN;
+        if (isNaN(archivedCount)) {
+          archivedCount = (typeof archivedTasks !== 'undefined' && archivedTasks.length)
+            ? archivedTasks.length
+            : (Array.isArray(tasks) ? tasks.filter(t => t.status === 'archived').length : 0);
+        }
+        if (typeof setArchivedTasksCount === 'function') {
+          setArchivedTasksCount(archivedCount);
+        }
         const archiveBadge = document.getElementById('headerArchiveCountBadge');
         if (archiveBadge) archiveBadge.innerText = archivedCount;
 
@@ -226,6 +256,10 @@ import {
         apiFailStreak++;
         renderCliAgentBadge();
         console.error('Failed to load dashboard data:', err);
+      } finally {
+        if (typeof isLoadingData !== 'undefined') {
+          isLoadingData = false;
+        }
       }
     }
 

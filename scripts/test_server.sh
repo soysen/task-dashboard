@@ -210,7 +210,7 @@ else
   exit 1
 fi
 
-ALL_TASKS_CHECK_AFTER=$(curl -s -f "http://localhost:$TEST_PORT/api/tasks")
+ALL_TASKS_CHECK_AFTER=$(curl -s -f "http://localhost:$TEST_PORT/api/tasks/archived")
 PC_TASK_STATUS_AFTER=$(node -e 'const tasks = JSON.parse(process.argv[1]); const t = tasks.find(x => x.id === process.argv[2]); console.log(t ? t.status : "");' "$ALL_TASKS_CHECK_AFTER" "$PC_TASK_ID")
 if [ "$PC_TASK_STATUS_AFTER" = "archived" ]; then
   echo "    ✅ commit 成功後任務正確變更為 archived 封存狀態"

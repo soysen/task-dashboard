@@ -30,21 +30,74 @@ function consumeTaskFeedback(task) {
 }
 
 /**
+ * 將日誌、計劃或描述等可能為 Array 或 Object 的欄位正規化為標準字串
+ * @param {*} val
+ * @returns {string}
+ */
+function normalizeLogText(val) {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'string') return val;
+  if (Array.isArray(val)) {
+    return val.map(item => {
+      if (item === null || item === undefined) return '';
+      if (typeof item === 'string') return item;
+      if (typeof item === 'object') {
+        const parts = [];
+        if (item.timestamp) parts.push(`[${item.timestamp}]`);
+        if (item.stage) parts.push(`[${item.stage}]`);
+        if (item.message) {
+          parts.push(item.message);
+        } else {
+          try {
+            parts.push(JSON.stringify(item));
+          } catch (_) {
+            parts.push(String(item));
+          }
+        }
+        return parts.join(' ');
+      }
+      return String(item);
+    }).join('\n');
+  }
+  if (typeof val === 'object') {
+    try {
+      return JSON.stringify(val, null, 2);
+    } catch (_) {
+      return String(val);
+    }
+  }
+  return String(val);
+}
+
+/**
  * 針對多個任務陣列進行全域自癒檢查
- * 若 review / done / archived 任務殘留 feedback，自動歸檔並清空
+ * 1. 若 executionLog / executionPlan / description / feedback 非字串，自動正規化為乾淨字串
+ * 2. 若 review / done / archived 任務殘留 feedback，自動歸檔並清空
  * @param {Array} tasks
  * @returns {boolean} 是否有產生異動
  */
 function healTasksFeedback(tasks, onHeal) {
   if (!Array.isArray(tasks)) return false;
   let hasChanges = false;
+  const stringFields = ['executionLog', 'executionPlan', 'description', 'feedback'];
   tasks.forEach(t => {
-    if (t && (t.status === 'review' || t.status === 'done' || t.status === 'archived')) {
-      if (t.feedback && typeof t.feedback === 'string' && t.feedback.trim().length > 0) {
-        consumeTaskFeedback(t);
-        hasChanges = true;
-        if (typeof onHeal === 'function') {
-          try { onHeal(t); } catch (e) {}
+    if (t && typeof t === 'object') {
+      stringFields.forEach(field => {
+        if (t[field] !== undefined && t[field] !== null && typeof t[field] !== 'string') {
+          t[field] = normalizeLogText(t[field]);
+          hasChanges = true;
+          if (typeof onHeal === 'function') {
+            try { onHeal(t, field); } catch (e) {}
+          }
+        }
+      });
+      if (t.status === 'review' || t.status === 'done' || t.status === 'archived') {
+        if (t.feedback && typeof t.feedback === 'string' && t.feedback.trim().length > 0) {
+          consumeTaskFeedback(t);
+          hasChanges = true;
+          if (typeof onHeal === 'function') {
+            try { onHeal(t); } catch (e) {}
+          }
         }
       }
     }
@@ -60,7 +113,7 @@ function healTasksFeedback(tasks, onHeal) {
  * @returns {string} 結構化日誌
  */
 function formatStructuredExecutionLog(rawLog = '', options = {}) {
-  const content = rawLog || '';
+  const content = normalizeLogText(rawLog);
   if ((content.includes('### Phase 1') && content.includes('### Phase 2') && content.includes('### Phase 3')) ||
       content.includes('📋 任務執行報告')) {
     return content;
@@ -118,9 +171,10 @@ function buildTaskExecutionReport(reportInfo = {}) {
   }
   lines.push('');
 
-  if (feedbackAddressed && feedbackAddressed.trim().length > 0) {
+  const normalizedFeedbackAddressed = normalizeLogText(feedbackAddressed);
+  if (normalizedFeedbackAddressed.trim().length > 0) {
     lines.push('## 3. 歷次審查因應 (Feedback Addressed)');
-    lines.push(`- ${feedbackAddressed.trim()}`);
+    lines.push(`- ${normalizedFeedbackAddressed.trim()}`);
     lines.push('');
   }
 
@@ -137,11 +191,12 @@ function buildTaskExecutionReport(reportInfo = {}) {
   }
   lines.push('');
 
-  if (rawLog && rawLog.trim().length > 0) {
+  const normalizedRawLog = normalizeLogText(rawLog);
+  if (normalizedRawLog.trim().length > 0) {
     lines.push('<details>');
     lines.push('<summary>點擊展開原生終端與 Harness 輸出記錄 (Raw Terminal Output)</summary>\n');
     lines.push('```text');
-    lines.push(rawLog.trim());
+    lines.push(normalizedRawLog.trim());
     lines.push('```');
     lines.push('</details>');
   }
@@ -177,11 +232,12 @@ function extractCoverageSummary(projPath) {
  * @returns {{ valid: boolean, reason?: string }}
  */
 function validateExecutionLog(log = '', options = {}) {
-  if (!log || typeof log !== 'string' || log.trim().length === 0) {
+  const normalized = normalizeLogText(log);
+  if (!normalized || normalized.trim().length === 0) {
     return { valid: false, reason: '執行日誌 (executionLog) 不得為空，必須包含目標根因、實作說明與驗證證據。' };
   }
 
-  const trimmed = log.trim();
+  const trimmed = normalized.trim();
 
   // 長度門檻防線
   if (trimmed.length < 30) {
@@ -357,6 +413,7 @@ function determineTaskTier(task) {
 }
 
 module.exports = {
+  normalizeLogText,
   consumeTaskFeedback,
   healTasksFeedback,
   formatStructuredExecutionLog,

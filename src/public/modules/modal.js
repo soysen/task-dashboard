@@ -1,5 +1,5 @@
-import { projects, tasks, settings, projectGitStatus, currentProject, currentTaskDependencies, currentActiveTaskDiff, currentModalEditingTask, selectedArchivedTaskIds, isOpenedFromArchive, setTasks, setCurrentModalEditingTask, setCurrentTaskDependencies, setCurrentActiveTaskDiff, setIsOpenedFromArchive } from "./state.js";
-import { escapeHtml, autoResizeTextarea, resetTextareaHeight, formatDuration, showToast, withButtonLoading, copyPrompt, copySessionId, copyToClipboard } from "./utils.js";
+import { projects, tasks, archivedTasks, archivedTasksCount, settings, projectGitStatus, currentProject, currentTaskDependencies, currentActiveTaskDiff, currentModalEditingTask, selectedArchivedTaskIds, isOpenedFromArchive, setTasks, setArchivedTasks, setArchivedTasksCount, setCurrentModalEditingTask, setCurrentTaskDependencies, setCurrentActiveTaskDiff, setIsOpenedFromArchive } from "./state.js";
+import { escapeHtml, autoResizeTextarea, resetTextareaHeight, formatDuration, showToast, withButtonLoading, copyPrompt, copySessionId, copyToClipboard, normalizeLogText } from "./utils.js";
 import { renderKanban, renderMetrics } from "./kanban.js";
 import { renderDiffViewer, parseDiffStats, filterDiffForFile, showAllDiffs } from "./diffViewer.js";
 import { renderExecutionReport, renderExecutionPlan, switchPlanViewTab } from "./executionReport.js";
@@ -795,13 +795,41 @@ import { loadData } from "./app.js";
     function shouldShowReviewWorkspace(task) {
       if (!task) return false;
       if (task.status !== 'todo') return true;
-      return !!((task.executionLog || '').trim() || (task.feedback || '').trim() || (task.executionPlan || '').trim());
+      const safeNormalize = (typeof normalizeLogText === 'function') ? normalizeLogText : (v => typeof v === 'string' ? v : (v ? JSON.stringify(v) : ''));
+      return !!(safeNormalize(task.executionLog).trim() || safeNormalize(task.feedback).trim() || safeNormalize(task.executionPlan).trim());
     }
 
     function openModalForEdit(id, options = {}) {
-      const task = tasks.find(t => t.id === id);
+      const task = tasks.find(t => t.id === id) || archivedTasks.find(t => t.id === id);
       if (!task) return;
+      if (task.executionLog && typeof task.executionLog !== 'string') {
+        task.executionLog = normalizeLogText(task.executionLog);
+      }
+      if (task.executionPlan && typeof task.executionPlan !== 'string') {
+        task.executionPlan = normalizeLogText(task.executionPlan);
+      }
+      if (task.feedback && typeof task.feedback !== 'string') {
+        task.feedback = normalizeLogText(task.feedback);
+      }
+      if (task.description && typeof task.description !== 'string') {
+        task.description = normalizeLogText(task.description);
+      }
       setCurrentModalEditingTask(task);
+
+      if (task.diffPath) {
+        fetch(`/api/tasks/${task.id}/diff?t=${Date.now()}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data && data.diff) {
+              task.diff = data.diff;
+              if (currentModalEditingTask && currentModalEditingTask.id === task.id) {
+                setCurrentActiveTaskDiff(data.diff);
+                renderDiffViewer(data.diff);
+              }
+            }
+          })
+          .catch(() => {});
+      }
 
       const fromArchive = Boolean(options && options.fromArchive);
       setIsOpenedFromArchive(fromArchive);
@@ -862,17 +890,19 @@ import { loadData } from "./app.js";
       document.getElementById('formStatus').value = task.status || 'todo';
       document.getElementById('formAssignee').value = task.assignee || (settings.enableCliAgent ? 'CLI' : 'Antigravity');
       document.getElementById('formDescription').value = task.description || '';
+      const normalizedFeedback = normalizeLogText(task.feedback);
       if (task.status === 'review' || task.status === 'done' || task.status === 'archived') {
         document.getElementById('formFeedback').value = '';
       } else {
-        document.getElementById('formFeedback').value = task.feedback || '';
+        document.getElementById('formFeedback').value = normalizedFeedback;
       }
 
       const reqConfirmEl = document.getElementById('formRequiresConfirmation');
       if (reqConfirmEl) reqConfirmEl.checked = !!task.requiresConfirmation;
       const execPlanEl = document.getElementById('formExecutionPlan');
-      if (execPlanEl) execPlanEl.value = task.executionPlan || '';
-      if (typeof renderExecutionPlan === 'function') renderExecutionPlan(task.executionPlan || '', task);
+      const normalizedPlan = normalizeLogText(task.executionPlan);
+      if (execPlanEl) execPlanEl.value = normalizedPlan;
+      if (typeof renderExecutionPlan === 'function') renderExecutionPlan(normalizedPlan, task);
       if (typeof switchPlanViewTab === 'function') switchPlanViewTab('visual');
       toggleFormRequiresConfirmation(!!task.requiresConfirmation);
 
@@ -1008,7 +1038,7 @@ import { loadData } from "./app.js";
       } else {
         const reviewDot = document.getElementById('modalTabReviewStatusDot');
         if (reviewDot) {
-          const needsReviewAttention = task.status === 'review' || (task.status === 'in_progress' && !!task.requiresConfirmation && !!(task.executionPlan || '').trim());
+          const needsReviewAttention = task.status === 'review' || (task.status === 'in_progress' && !!task.requiresConfirmation && !!normalizeLogText(task.executionPlan).trim());
           reviewDot.classList.toggle('hidden', !needsReviewAttention);
         }
         switchModalWorkspaceTab('review');
@@ -1018,7 +1048,7 @@ import { loadData } from "./app.js";
 
       const btnRetro = document.getElementById('btnExtractRetro');
       if (btnRetro) {
-        const hasFeedbackHistory = (task.description || '').includes('--- 【歷次審查意見 / Feedback 記錄】 ---');
+        const hasFeedbackHistory = normalizeLogText(task.description).includes('--- 【歷次審查意見 / Feedback 記錄】 ---');
         btnRetro.classList.toggle('hidden', !hasFeedbackHistory);
         btnRetro.classList.toggle('inline-flex', hasFeedbackHistory);
       }
@@ -1629,9 +1659,10 @@ import { loadData } from "./app.js";
           const formFeedback = (document.getElementById('formFeedback')?.value || '').trim();
           const feedbackMsg = formFeedback ? `\n💬 [審閱意見] ${formFeedback}\n` : '';
           const confirmLog = '\n[' + nowIso + '] ✅ [Confirmation Gate] 使用者已審閱並確認執行計劃，正式授權進入實作階段！' + feedbackMsg + '----------------------------------------\n';
-          const newExecutionLog = (task.executionLog || '') + confirmLog;
+          const toText = (typeof normalizeLogText === 'function') ? normalizeLogText : (v => typeof v === 'string' ? v : (v ? JSON.stringify(v) : ''));
+          const newExecutionLog = (toText(task.executionLog) || '') + confirmLog;
           const formExecPlan = (document.getElementById('formExecutionPlan')?.value || '').trim();
-          const currentPlan = formExecPlan || task.executionPlan || '';
+          const currentPlan = formExecPlan || toText(task.executionPlan) || '';
           const res = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -2017,8 +2048,35 @@ import { loadData } from "./app.js";
 
     // ===== 封存任務管理 (Archive Modal) =====
     let selectedArchiveTaskIds = new Set();
+    let archiveLoadSeq = 0;
+    let isLoadingArchivedTasks = false;
 
-    function openArchiveModal() {
+    async function loadArchivedTasks() {
+      const reqId = ++archiveLoadSeq;
+      isLoadingArchivedTasks = true;
+      try {
+        const res = await fetch('/api/tasks/archived?t=' + Date.now(), { cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          if (reqId === archiveLoadSeq && Array.isArray(data)) {
+            setArchivedTasks(data);
+            setArchivedTasksCount(data.length);
+            const archiveBadge = document.getElementById('headerArchiveCountBadge');
+            if (archiveBadge) archiveBadge.innerText = data.length;
+            return data;
+          }
+        }
+      } catch (err) {
+        console.error('Error loading archived tasks:', err);
+      } finally {
+        if (reqId === archiveLoadSeq) {
+          isLoadingArchivedTasks = false;
+        }
+      }
+      return archivedTasks;
+    }
+
+    async function openArchiveModal() {
       selectedArchiveTaskIds.clear();
       const selectAllCb = document.getElementById('archiveSelectAllCheckbox');
       if (selectAllCb) selectAllCb.checked = false;
@@ -2031,9 +2089,19 @@ import { loadData } from "./app.js";
         projFilter.value = currentVal;
       }
 
-      renderArchiveTasksList();
-      document.getElementById('archiveModal').classList.remove('hidden');
-      if (window.lucide) lucide.createIcons();
+      const modalEl = document.getElementById('archiveModal');
+      if (modalEl) modalEl.classList.remove('hidden');
+      const listEl = document.getElementById('archiveTasksList');
+      if (listEl && archivedTasks.length === 0) {
+        listEl.innerHTML = '<div class="h-48 flex items-center justify-center text-xs text-slate-400">載入封存任務中...</div>';
+      }
+
+      const reqIdBefore = archiveLoadSeq + 1;
+      await loadArchivedTasks();
+      if (reqIdBefore === archiveLoadSeq) {
+        renderArchiveTasksList();
+        if (window.lucide) lucide.createIcons();
+      }
     }
 
     function closeArchiveModal() {
@@ -2046,7 +2114,7 @@ import { loadData } from "./app.js";
       const selectedCountLabel = document.getElementById('archiveSelectedCountLabel');
       const filterProj = document.getElementById('archiveProjectFilter') ? document.getElementById('archiveProjectFilter').value : 'ALL';
 
-      let archived = tasks.filter(t => t.status === 'archived');
+      let archived = [...archivedTasks];
       if (filterProj !== 'ALL') {
         archived = archived.filter(t => t.project === filterProj);
       }
@@ -2129,7 +2197,7 @@ import { loadData } from "./app.js";
 
     function toggleArchiveSelectAll(checked) {
       const filterProj = document.getElementById('archiveProjectFilter') ? document.getElementById('archiveProjectFilter').value : 'ALL';
-      let archived = tasks.filter(t => t.status === 'archived');
+      let archived = [...archivedTasks];
       if (filterProj !== 'ALL') {
         archived = archived.filter(t => t.project === filterProj);
       }
@@ -2164,7 +2232,10 @@ import { loadData } from "./app.js";
           showToast(`已成功刪除 ${count} 筆封存任務！`);
           selectedArchiveTaskIds.clear();
           await loadData();
-          renderArchiveTasksList();
+          if (!document.getElementById('archiveModal').classList.contains('hidden')) {
+            await loadArchivedTasks();
+            renderArchiveTasksList();
+          }
         } catch (err) {
           showToast(`刪除失敗: ${err.message}`);
         }
@@ -2172,7 +2243,7 @@ import { loadData } from "./app.js";
     }
 
     async function deleteAllArchivedTasks(event) {
-      const archivedCount = tasks.filter(t => t.status === 'archived').length;
+      const archivedCount = archivedTasks.length;
       if (archivedCount === 0) {
         showToast('目前沒有任何封存任務需要清空。');
         return;
@@ -2193,7 +2264,10 @@ import { loadData } from "./app.js";
           showToast(`已清空所有封存任務 (${archivedCount} 筆)！`);
           selectedArchiveTaskIds.clear();
           await loadData();
-          renderArchiveTasksList();
+          if (!document.getElementById('archiveModal').classList.contains('hidden')) {
+            await loadArchivedTasks();
+            renderArchiveTasksList();
+          }
         } catch (err) {
           showToast(`清空失敗: ${err.message}`);
         }
@@ -2219,7 +2293,10 @@ import { loadData } from "./app.js";
           showToast(`已成功還原 ${count} 筆任務至「已完成」欄位！`);
           selectedArchiveTaskIds.clear();
           await loadData();
-          renderArchiveTasksList();
+          if (!document.getElementById('archiveModal').classList.contains('hidden')) {
+            await loadArchivedTasks();
+            renderArchiveTasksList();
+          }
         } catch (err) {
           showToast(`還原失敗: ${err.message}`);
         }
@@ -2238,7 +2315,10 @@ import { loadData } from "./app.js";
           showToast(`已還原任務 ${id} 至「已完成」！`);
           selectedArchiveTaskIds.delete(id);
           await loadData();
-          renderArchiveTasksList();
+          if (!document.getElementById('archiveModal').classList.contains('hidden')) {
+            await loadArchivedTasks();
+            renderArchiveTasksList();
+          }
         } catch (err) {
           showToast(`還原失敗: ${err.message}`);
         }
@@ -2256,7 +2336,7 @@ import { loadData } from "./app.js";
         event.stopPropagation();
       }
       if (!id) return;
-      const task = tasks.find(t => t.id === id);
+      const task = tasks.find(t => t.id === id) || archivedTasks.find(t => t.id === id);
       if (!task) return;
 
       currentPendingAction = {
@@ -2375,6 +2455,7 @@ import { loadData } from "./app.js";
           selectedArchiveTaskIds.delete(taskId);
           await loadData();
           if (!document.getElementById('archiveModal').classList.contains('hidden')) {
+            await loadArchivedTasks();
             renderArchiveTasksList();
           }
         } catch (err) {
@@ -2512,6 +2593,7 @@ export {
   commitTaskFromCard,
   archiveTaskFromCard,
   archiveCurrentTaskFromModal,
+  loadArchivedTasks,
   openArchiveModal,
   closeArchiveModal,
   renderArchiveTasksList,
@@ -2580,6 +2662,7 @@ if (typeof window !== "undefined") {
   window.commitTaskFromCard = commitTaskFromCard;
   window.archiveTaskFromCard = archiveTaskFromCard;
   window.archiveCurrentTaskFromModal = archiveCurrentTaskFromModal;
+  window.loadArchivedTasks = loadArchivedTasks;
   window.openArchiveModal = openArchiveModal;
   window.closeArchiveModal = closeArchiveModal;
   window.renderArchiveTasksList = renderArchiveTasksList;
