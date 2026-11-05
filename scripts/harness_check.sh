@@ -61,7 +61,7 @@ fi
 echo "    ✅ node $(node --version)"
 
 # 5. 驗證 tasks.json 的 Diff 完整性與 3-Phase Gate / executionPlan 合規門禁
-echo "  [5/6] 檢驗 Task Diff 完整性與 3-Phase Gate / executionPlan 合規度..."
+echo "  [5/8] 檢驗 Task Diff 完整性與 3-Phase Gate / executionPlan 合規度..."
 node -e '
 const fs = require("fs");
 const path = require("path");
@@ -112,12 +112,12 @@ for (const task of tasks) {
 echo "    ✅ 所有已交付任務之 git diff 與 executionPlan 均符合全量完整度與同步門禁規範"
 
 # 6. 驗證現代化 Skills 規範與目錄完整性
-echo "  [6/7] 檢驗 .github/skills 現代化架構與規範門禁..."
+echo "  [6/8] 檢驗 .github/skills 現代化架構與規範門禁..."
 node "$PROJECT_DIR/.github/scripts/validate-skills.js"
 echo "    ✅ 所有核心 Skills 符合現代化規格 (TOC、Must 前置、Freedom 分級與檢核清單)"
 
 # 7. 驗證 Context 減稅規範門禁 (AGENTS.md < 60 行，CLAUDE.md < 15 行)
-echo "  [7/7] 檢驗 Context 減稅規範門禁 (AGENTS.md < 60 行，CLAUDE.md < 15 行)..."
+echo "  [7/8] 檢驗 Context 減稅規範門禁 (AGENTS.md < 60 行，CLAUDE.md < 15 行)..."
 AGENTS_LINES=$(wc -l < "$PROJECT_DIR/AGENTS.md" | tr -d ' ')
 CLAUDE_LINES=$(wc -l < "$PROJECT_DIR/CLAUDE.md" | tr -d ' ')
 
@@ -131,5 +131,14 @@ if [ "$CLAUDE_LINES" -ge 15 ]; then
   exit 1
 fi
 echo "    ✅ AGENTS.md ($AGENTS_LINES 行) 與 CLAUDE.md ($CLAUDE_LINES 行) 符合 Context 減稅標準"
+
+# 8. 檢驗 Skill Router 模式合規門禁（防舊版強制雙階字眼回歸）
+echo "  [8/8] 檢驗 Skill Router 模式合規門禁（防舊版強制雙階字眼回歸）..."
+if grep -rnE "再以 pro 審核把關|再用 pro 審核把關|回寫 tasks\.json 推入 review" "$PROJECT_DIR/src/public/modules/app.js" "$PROJECT_DIR/.github/skills/" > /dev/null 2>&1; then
+  echo "❌ 發現舊版強制雙階字眼殘留！必須全面遵循 Skill Router 調度模式："
+  grep -rnE "再以 pro 審核把關|再用 pro 審核把關|回寫 tasks\.json 推入 review" "$PROJECT_DIR/src/public/modules/app.js" "$PROJECT_DIR/.github/skills/"
+  exit 1
+fi
+echo "    ✅ Skill Router 提示與 Context Engineering 規範無舊版雙階殘留"
 
 echo "🎉 Harness Check 通過！專案處於健康且合規狀態。"

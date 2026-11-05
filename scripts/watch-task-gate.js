@@ -74,6 +74,24 @@ function resolveDataDir() {
 const DATA_DIR = resolveDataDir();
 const TASKS_FILE = path.join(DATA_DIR, 'tasks.json');
 
+function resolveStandardDoc() {
+  if (process.env.TASK_DASHBOARD_STANDARD_DOC && process.env.TASK_DASHBOARD_STANDARD_DOC.trim()) {
+    return process.env.TASK_DASHBOARD_STANDARD_DOC.trim();
+  }
+  const candidates = [
+    path.resolve(__dirname, '../docs/AUTOMATION_STANDARD.md'),
+    path.join(DATA_DIR, 'AUTOMATION_STANDARD.md'),
+    path.join(DATA_DIR, 'docs/AUTOMATION_STANDARD.md'),
+    path.join(USER_HOME, 'projects/task-dashboard/docs/AUTOMATION_STANDARD.md')
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return path.resolve(__dirname, '../docs/AUTOMATION_STANDARD.md');
+}
+
+const STANDARD_DOC = resolveStandardDoc();
+
 function isPidAlive(pid) {
   try {
     process.kill(Number(pid), 0);
@@ -173,13 +191,17 @@ function determineTaskTier(task) {
   return 'standard';
 }
 
+const VERIFY_SKILL_IDS = ['code-review-and-quality', 'cross-model-review', 'write-tests'];
+const IGNORE_SKILL_IDS = ['retrospective-and-learnings', 'git-commit', 'git-workflow-and-versioning', 'dev-server'];
+
 function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
   let projPath = '';
+  let p = null;
   try {
     const projFile = path.join(DATA_DIR, 'projects.json');
     if (fs.existsSync(projFile)) {
       const projs = JSON.parse(fs.readFileSync(projFile, 'utf8'));
-      const p = projs.find(item => item.id === task.project);
+      p = projs.find(item => item.id === task.project);
       if (p && p.path) projPath = p.path;
     }
   } catch (e) {}
@@ -189,61 +211,61 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
       `請檢閱當前專案 Git Diff，依據 Conventional Commit 規範產出結構化 commitMessage: { subject, body } 並推進。`;
   }
 
-  const feedbackText = task.feedback ? `\n• 【最高優先 Feedback】: ${task.feedback}` : '';
+  const cleanDesc = (task.description || '無').replace(/\r?\n/g, ' ').trim();
+  const feedbackText = task.feedback ? `\n• 【最高優先 Feedback】: ${task.feedback.replace(/\r?\n/g, ' ').trim()}` : '';
 
-  let skillsText = '';
-  try {
-    const projFile = path.join(DATA_DIR, 'projects.json');
-    if (fs.existsSync(projFile)) {
-      const projs = JSON.parse(fs.readFileSync(projFile, 'utf8'));
-      const p = projs.find(item => item.id === task.project);
-      if (p && Array.isArray(p.skills) && p.skills.length > 0) {
-        let selected = [];
-        if (Array.isArray(task.tags) && task.tags.length > 0) {
-          selected = p.skills.filter(s => {
-            return task.tags.some(t => {
-              const cleanTag = String(t).trim().toLowerCase();
-              return cleanTag === (s.id || '').toLowerCase() || cleanTag === (s.label || '').toLowerCase();
-            });
-          });
-        }
+  let prioritySkillText = '';
+  let implSkillsText = '';
+  let verifySkillsText = '';
 
-        if (selected.length > 0) {
-          skillsText = `\n• 【任務指定專案 Skills (必須優先載入遵循)】: ${selected.map(m => `${m.label} (${m.path || m.id})`).join('、')}`;
-        } else {
-          const fullText = `${task.title} ${task.description || ''} ${(task.tags || []).join(' ')}`.toLowerCase();
-          const matched = p.skills.filter(s => {
-            const l = (s.label || s.id || '').toLowerCase();
-            const d = (s.desc || '').toLowerCase();
-            if (fullText.includes('ui') || fullText.includes('切版') || fullText.includes('css')) return l.includes('web') || l.includes('ui') || d.includes('ui');
-            if (fullText.includes('test') || fullText.includes('測試')) return l.includes('test') || d.includes('test');
-            if (fullText.includes('api') || fullText.includes('後端') || fullText.includes('server')) return l.includes('api') || d.includes('api');
-            return false;
-          }).slice(0, 2);
-          if (matched.length > 0) {
-            skillsText = `\n• 【推薦動態 Skills】: ${matched.map(m => `${m.label} (${m.path || m.id})`).join('、')}`;
-          }
-        }
+  if (p && Array.isArray(p.skills) && p.skills.length > 0) {
+    // 1. 若 task.tags 有明確命中專案 skill
+    if (Array.isArray(task.tags) && task.tags.length > 0) {
+      const matched = p.skills.filter(s =>
+        task.tags.some(t => {
+          const cleanTag = String(t).trim().toLowerCase();
+          return cleanTag === (s.id || '').toLowerCase() || cleanTag === (s.label || '').toLowerCase();
+        })
+      );
+      if (matched.length > 0) {
+        prioritySkillText = `\n• 【指定專案 Skills (優先必載)】: ${matched.map(s => `${s.label || s.id} (${s.path || s.id})`).join('、')}`;
       }
     }
-  } catch (e) {}
+
+    // 2. 實作 Skills
+    const implSkills = p.skills.filter(s => !VERIFY_SKILL_IDS.includes(s.id) && !IGNORE_SKILL_IDS.includes(s.id));
+    if (implSkills.length > 0) {
+      implSkillsText = `\n• 【專案實作 Skills】: ${implSkills.map(s => `${s.label || s.id} (${s.path || s.id})`).join('、')}`;
+    }
+
+    // 3. 驗證 Skills 與 Harness
+    const verifySkills = p.skills.filter(s => VERIFY_SKILL_IDS.includes(s.id));
+    const harnessCmd = (p.harness && p.harness.command) ? p.harness.command : 'npm test';
+    const verifyParts = [];
+    if (verifySkills.length > 0) {
+      verifyParts.push(verifySkills.map(s => `${s.label || s.id} (${s.path || s.id})`).join('、'));
+    }
+    verifyParts.push(`Harness: ${harnessCmd}`);
+    verifySkillsText = `\n• 【專案驗證 Skills & Harness】: ${verifyParts.join(' | ')}`;
+  }
 
   const tier = determineTaskTier(task);
   let strategyText = '';
   if (tier === 'micro') {
     strategyText = `• 執行策略 (Tier: micro 原地實作): 由主 Agent 原地直接實作與驗證，不啟動額外附屬代理。`;
   } else if (tier === 'heavy') {
-    strategyText = `• 執行策略 (Tier: heavy 雙階審核): 若環境支援 Subagent 啟用 flash 實作 + pro 審核雙階模式。`;
+    strategyText = `• 執行策略 (Tier: heavy 雙階審核): 指派 flash Subagent (Workspace: "inherit") 載入專案實作 Skill 實作，再指派 pro Subagent 載入專案驗證 Skill 雙階審核。`;
   } else {
-    strategyText = `• 執行策略 (Tier: standard 單階實作): 若環境支援 Subagent 啟用單一 flash Subagent 實作，主 Agent 跑確定性驗證。`;
+    strategyText = `• 執行策略 (Tier: standard 單階實作): 指派單一 flash Subagent (Workspace: "inherit") 載入專案實作 Skill 實作，按需才啟用驗證代理。`;
   }
 
   return `================================================================================\n` +
     `[${triggerType}] 任務開工通知：[${task.id}] ${task.title}\n` +
     `• 專案: ${task.project || '預設'}${projPath ? ` (${projPath})` : ''}\n` +
-    `• 需求: ${task.description || '無'}${feedbackText}${skillsText}\n` +
+    `• 需求: ${cleanDesc}${feedbackText}${prioritySkillText}${implSkillsText}${verifySkillsText}\n` +
     `${strategyText}\n` +
-    `• 執行規範: 遵循 docs/AUTOMATION_STANDARD.md 3-Phase Gate；完成後以結構化 JSON 呼叫 PUT /api/tasks/${task.id} 推進 review (勿手寫報告)。\n` +
+    `• 執行規範: 遵循 ${STANDARD_DOC} 3-Phase Gate；Router 不預讀原始碼/歷史 plan；僅跑受影響測試 + 專案 harness（無關基線紅燈僅註記）。\n` +
+    `• 交付方式: 完成後以結構化 JSON 呼叫 PUT http://localhost:3030/api/tasks/${task.id} 推進 review (勿手寫報告)。\n` +
     `================================================================================`;
 }
 

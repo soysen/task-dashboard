@@ -19,7 +19,7 @@ Task Dashboard 支援 **Desktop AI 哨兵待命 (Reactive Wakeup)** 與 **獨立
 - **工作原理**：
   腳本利用 macOS 原生 FSEvents 在背景靜默監聽資料庫 `tasks.json`。一旦任務變更為 `in_progress` 或請求依據 Diff 生成 Commit 訊息 (`requestCommitGen: true`)，哨兵立即輸出完整開工上下文並以 `exit(0)` 正常退出，觸發外部 IDE 的 **Reactive Wakeup** 喚醒機制。
 - **Agent 接續開工**：
-  AI 被喚醒後，根據哨兵輸出的開工指示執行 **3-Phase Execution Gate**。若執行環境支援 Subagent 工具，應依據雙階自動調度策略委派執行與審核。執行完畢將任務推進至 `review` 後，主 Agent 再次在背景掛載哨兵，進入下一輪無縫待命。
+  AI 被喚醒後，根據哨兵輸出的開工指示執行 **3-Phase Execution Gate**。若執行環境支援 Subagent 工具，應依據 3-Tier 風險分級與專案 Skill 路由策略委派執行與按需驗證。執行完畢將任務推進至 `review` 後，主 Agent 再次在背景掛載哨兵，進入下一輪無縫待命。
 
 ### 模式 B：本機 CLI Agent 自動即時觸發
 - 若使用者在 Dashboard 設定中啟用了 **「CLI Agent 模式」**（支援 `agy`、`claude`、`hermes` 或自訂指令）：
@@ -64,14 +64,14 @@ flowchart TD
     Phase1 --> Phase2 --> Phase3
 ```
 
-### Subagent 風險分級調度規範 (3-Tier Risk Routing)
-為消除無差別啟動雙 Subagent 所產生的固定外殼稅與重複 Context 負擔，平台實施依據任務階層 (`tier`) 與單雙向門禁 (`riskDoor`) 的**動態分級路由策略**：
+### Subagent 風險分級與專案 Skill 路由規範 (Skill Router & 3-Tier Risk Routing)
+為消除無差別啟動雙 Subagent 所產生的固定外殼稅與重複 Context 負擔，主 Agent 扮演純 **Skill Router**（零讀碼調度，不預讀業務原始碼與歷史 plan），依據任務階層 (`tier`)、單雙向門禁 (`riskDoor`) 與專案 Skills 進行動態分流指派：
 
-| 階層 (Tier) | 適用場景 / 判定規則 | 執行方式 | 審核方式 |
+| 階層 (Tier) | 適用場景 / 判定規則 | 執行方式 (Worker Subagent) | 審核方式 (Verifier Subagent) |
 | :--- | :--- | :--- | :--- |
 | **`micro`** | 文案錯字、註解微調、格式化、純小範圍樣式，或標註 `tier:micro` | 主 Agent **原地實作，不啟動 Subagent** | 本地全套測試 + `harness:check` exit 0 |
-| **`standard`** | 一般功能開發、局部 Bug 修復、單元測試補齊，或推斷不出之預設 | 單一 `flash` Subagent (`Workspace: "inherit"`) | 主 Agent 執行確定性驗證與品質門禁 |
-| **`heavy`** | 跨模組重構、破壞性變更、資料庫遷移，或 `riskDoor === "one-way"` | `flash` 實作 (`Workspace: "inherit"`) | `pro` 獨立審核代碼與報告後推進至 review |
+| **`standard`** | 一般功能開發、局部 Bug 修復、單元測試補齊，或推斷不出之預設 | 指派單一 `flash` Worker Subagent (`Workspace: "inherit"`) 載入專案實作 Skill 完成實作 | 主 Agent 執行確定性驗證；僅跨多檔、具 feedback 或需補驗時按需指派 Verifier Subagent |
+| **`heavy`** | 跨模組重構、破壞性變更、資料庫遷移，或 `riskDoor === "one-way"` | 指派 `flash` Worker Subagent (`Workspace: "inherit"`) 載入專案實作 Skill 實作 | 指派 `pro` Verifier Subagent (`Workspace: "inherit"`) 載入專案驗證 Skill 獨立審核代碼與報告後推進至 review |
 
 - **階層推斷優先序**：
   1. 顯式指定：`task.tier` 為 `micro`、`standard`、`heavy` 之一時直接採用。
