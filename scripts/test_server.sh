@@ -156,6 +156,7 @@ git -C "$PRECOMMIT_REPO" commit --allow-empty -m "initial commit" > /dev/null 2>
 # 建立會攔截並報錯的 pre-commit hook
 cat << 'HOOK_EOF' > "$PRECOMMIT_REPO/.git/hooks/pre-commit"
 #!/bin/sh
+echo "1 file changed, 1 insertion(+)"
 echo "Pre-commit check failed: linter reported errors in auth.js" >&2
 exit 1
 HOOK_EOF

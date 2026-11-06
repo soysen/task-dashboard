@@ -1923,6 +1923,18 @@ function executeProjectCommit(projPath, task, customData = {}) {
     ...buildCustomEnv(),
     TASK_ID: task.id || ''
   };
+  const getHeadCommit = () => {
+    try {
+      return execSync('git rev-parse --verify HEAD', { cwd: projPath, encoding: 'utf8', timeout: 3000, env: commitEnv }).trim();
+    } catch (e) {
+      return '';
+    }
+  };
+  const initialHead = getHeadCommit();
+  const hasNewCommit = () => {
+    const currentHead = getHeadCommit();
+    return !!currentHead && currentHead !== initialHead;
+  };
 
   // 1. Step 1: 環境確認 & Staging
   try { execSync('git add -A', { cwd: projPath, timeout: 10000, env: commitEnv }); } catch (e) {}
@@ -1983,10 +1995,10 @@ function executeProjectCommit(projPath, task, customData = {}) {
         } catch (npmErr) {
           const npmOut = (npmErr.stdout || '').toString().trim();
           const npmErrStr = (npmErr.stderr || '').toString().trim();
-          if (npmOut.includes('file changed') || npmOut.includes('insertion') || npmOut.includes('deletion')) {
-            return { output: `[Commit Skill: npm run commit]\n${npmOut}`, isCommitted: true, hasError: false };
-          }
           const fullErr = [npmErrStr, npmOut, npmErr.message].filter(Boolean).join('\n\n');
+          if (hasNewCommit()) {
+            return { output: `[Commit Skill: npm run commit]\n${fullErr || npmOut || 'Commit 已建立'}`, isCommitted: true, hasError: false };
+          }
           return { output: fullErr || 'npm run commit 執行失敗', isCommitted: false, hasError: true };
         }
       }
@@ -2007,10 +2019,10 @@ function executeProjectCommit(projPath, task, customData = {}) {
     } catch (scriptErr) {
       const sOut = (scriptErr.stdout || '').toString().trim();
       const sErr = (scriptErr.stderr || '').toString().trim();
-      if (sOut.includes('file changed') || sOut.includes('insertion') || sOut.includes('deletion')) {
-        return { output: `[Commit Skill: scripts/commit.sh]\n${sOut}`, isCommitted: true, hasError: false };
-      }
       const fullErr = [sErr, sOut, scriptErr.message].filter(Boolean).join('\n\n');
+      if (hasNewCommit()) {
+        return { output: `[Commit Skill: scripts/commit.sh]\n${fullErr || 'Commit 已建立'}`, isCommitted: true, hasError: false };
+      }
       return { output: fullErr || 'scripts/commit.sh 執行失敗', isCommitted: false, hasError: true };
     }
   }
@@ -2042,7 +2054,7 @@ function executeProjectCommit(projPath, task, customData = {}) {
   } catch (commitErr) {
     const stdout = commitErr.stdout ? commitErr.stdout.toString().trim() : '';
     const stderr = commitErr.stderr ? commitErr.stderr.toString().trim() : '';
-    const isCommitted = stdout.includes('file changed') || stdout.includes('insertion') || stdout.includes('deletion');
+    const isCommitted = hasNewCommit();
     if (isCommitted) {
       return { output: stdout || 'Commit 成功', isCommitted: true, hasError: false };
     }
