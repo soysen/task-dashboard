@@ -225,13 +225,14 @@ async function run() {
   assert.equal(fmDetermineTier(standardTaskDefault), 'standard', 'feedbackManager 應一致預設為 standard');
 
   const standardBrief = formatWakeupBrief(standardTaskDefault, 'WAKEUP_IMMEDIATE');
-  assert(standardBrief.includes('Tier: standard 單階實作'), 'standard 任務應輸出單階實作指示');
+  assert(standardBrief.includes('Tier: standard Planner→Executor'), 'standard 任務應輸出 Planner→Executor 策略指示');
   assert(standardBrief.includes('flash Subagent'), 'standard 任務應提示使用單一 flash Subagent');
   assert(!standardBrief.includes('pro 審核'), 'standard 任務不應要求 pro 雙階審核');
+  assert(standardBrief.includes('Handoff Contract'), 'standard 任務輸出應包含 Handoff Contract 指示');
   assert(standardBrief.includes('/api/tasks/'), 'standard 任務輸出應包含 API 交付路徑 /api/tasks/');
   assert(standardBrief.includes('/AUTOMATION_STANDARD.md'), 'standard 任務輸出應包含標準文件絕對路徑 /AUTOMATION_STANDARD.md');
   assert(standardBrief.split('\n').length <= 15, `standard 哨兵輸出必須 ≤ 15 行，實際: ${standardBrief.split('\n').length}`);
-  console.log(`  ✅ [Case 2 - standard] 通過：判定精確且僅啟動單一 flash Subagent (行數: ${standardBrief.split('\n').length} ≤ 15)`);
+  console.log(`  ✅ [Case 2 - standard] 通過：判定精確且配置 Planner→Executor 實作 (行數: ${standardBrief.split('\n').length} ≤ 15)`);
 
   // 案例 3: heavy 任務（顯式指定、heavy tags 或重構關鍵字）
   const heavyTaskExplicit = { id: 'TASK-H1', title: '核心資料庫遷移', tier: 'heavy', project: 'task-dashboard' };
@@ -244,10 +245,11 @@ async function run() {
   assert.equal(fmDetermineTier(heavyTaskExplicit), 'heavy', 'feedbackManager 應一致判定為 heavy');
 
   const heavyBrief = formatWakeupBrief(heavyTaskExplicit, 'WAKEUP_IMMEDIATE');
-  assert(heavyBrief.includes('Tier: heavy 雙階審核'), 'heavy 任務應輸出雙階審核指示');
-  assert(heavyBrief.includes('flash') && heavyBrief.includes('pro'), 'heavy 任務應同時提示 flash 實作與 pro 審核');
+  assert(heavyBrief.includes('Tier: heavy Planner→Executor'), 'heavy 任務應輸出 Planner→Executor 切片策略指示');
+  assert(heavyBrief.includes('flash Subagent'), 'heavy 任務應提示使用 flash Subagent');
+  assert(heavyBrief.includes('Handoff Contract'), 'heavy 任務輸出應包含 Handoff Contract 指示');
   assert(heavyBrief.split('\n').length <= 15, `heavy 哨兵輸出必須 ≤ 15 行，實際: ${heavyBrief.split('\n').length}`);
-  console.log(`  ✅ [Case 3 - heavy] 通過：判定精確且完整配置雙階 Subagent 審查 (行數: ${heavyBrief.split('\n').length} ≤ 15)`);
+  console.log(`  ✅ [Case 3 - heavy] 通過：判定精確且配置 Planner→Executor 切片實作 (行數: ${heavyBrief.split('\n').length} ≤ 15)`);
 
   // 案例 4: 優先序與 One-Way 門禁強制升級
   const oneWayTask = { id: 'TASK-OW', title: '小幅 typo 修正', riskDoor: 'one-way', project: 'task-dashboard' };

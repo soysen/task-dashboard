@@ -322,6 +322,72 @@ assert(!fs.existsSync(path.join(tempProj2, "HARNESS.md")), "任務開工絕不�
 assert(!fs.existsSync(path.join(tempProj2, "scripts", "harness_check.sh")), "任務開工絕不得隱式建立 harness 腳本");
 fs.rmSync(tempProj2, { recursive: true, force: true });
 
+// 驗證 Handoff Contract 與 ## Delegation 於 syncProjectWorklogForActiveTask 後完好保留且不被追加通用切片
+const tempHandoffProj = fs.mkdtempSync(path.join(os.tmpdir(), "task-dashboard-handoff-"));
+const handoffWorklogDir = path.join(tempHandoffProj, ".github", "worklog");
+const handoffPlanDir = path.join(tempHandoffProj, ".github", "harness", "plan");
+fs.mkdirSync(handoffWorklogDir, { recursive: true });
+fs.mkdirSync(handoffPlanDir, { recursive: true });
+
+// (a) agent-status 含 ## Delegation 自訂區段
+const initialStatus = `# Agent Status
+
+## Active Task
+- ID: TASK-100
+- Title: 測試交接任務
+- Status: in_progress
+
+## Execution Tracking
+- CurrentStep: 規劃完成
+
+## Delegation
+- Executor: flash Subagent (Workspace: inherit)
+- Contract: .github/harness/plan/task-100-build-plan.md
+- CurrentSlice: Slice 1
+`;
+fs.writeFileSync(path.join(handoffWorklogDir, "agent-status.md"), initialStatus, "utf8");
+
+// (b) task-100-build-plan.md 含 ## Handoff Contract
+const initialPlan = `# Build Plan: Task 100
+- Feature name: Task 100
+- 日期: 2026-11-06
+- Status: in_progress
+
+## 任務卡
+- 目前任務 ID: TASK-100
+- 目標: 測試交接契約防護
+
+## Handoff Contract
+- Baseline: main / abc1234
+- Impact: none
+- Edit Targets:
+  1. src/test.js:L1-L10
+- Read Allowlist: src/test.js:L1-L20
+- Do-Not-Read: README.md
+- Constraints: no 3rd party
+- Escalation: max 2 inspections
+- Return Format: modifiedFiles[], command/cwd/exitCode/rawLog
+
+## Slices
+- [-] Slice 1: 完成實作與單元測試，驗收：npm test
+`;
+fs.writeFileSync(path.join(handoffPlanDir, "task-100-build-plan.md"), initialPlan, "utf8");
+
+syncProjectWorklogForActiveTask(tempHandoffProj, { id: "TASK-100", title: "測試交接任務", description: "測試交接契約防護" });
+
+const syncedStatus = fs.readFileSync(path.join(handoffWorklogDir, "agent-status.md"), "utf8");
+assert(syncedStatus.includes("## Delegation"), "呼叫 sync 後 agent-status 的 ## Delegation 自訂區段仍應保留");
+assert(syncedStatus.includes("Executor: flash Subagent"), "## Delegation 內容應完好保留");
+
+const syncedPlan = fs.readFileSync(path.join(handoffPlanDir, "task-100-build-plan.md"), "utf8");
+assert(syncedPlan.includes("## Handoff Contract"), "呼叫 sync 後 ## Handoff Contract 應完好保留");
+assert(syncedPlan.includes("Baseline: main / abc1234"), "Handoff Contract 內文應原封不動");
+assert(!syncedPlan.includes("Slice 2:"), "含 ## Handoff Contract 之 Plan 不應被自動追加通用切片");
+const sliceCount = (syncedPlan.match(/^-\s*\[([ xX\-~])\]\s*Slice\s*\d+/gmi) || []).length;
+assert.strictEqual(sliceCount, 1, "Slices 數量應維持原本的 1 個切片");
+
+fs.rmSync(tempHandoffProj, { recursive: true, force: true });
+
 // 驗證原本已有自身 test/harness 之專案，開工時絕不被自動植入 task-dashboard 的 harness
 const tempProjExisting = fs.mkdtempSync(path.join(os.tmpdir(), "task-dashboard-existing-harness-"));
 fs.writeFileSync(path.join(tempProjExisting, "package.json"), JSON.stringify({ name: "my-existing-app", scripts: { test: "jest" } }, null, 2), "utf8");

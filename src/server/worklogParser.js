@@ -1032,7 +1032,7 @@ function syncProjectWorklogForActiveTask(projPath, task) {
             const sliceMatch = planContent.match(/(## Slices[\s\S]*?)(## |$)/);
             if (sliceMatch) {
               const slicesSection = sliceMatch[1];
-              const hasTaskSlice = slicesSection.includes(`[${task.id}]`) || (isRedo && slicesSection.includes(feedbackText));
+              const hasTaskSlice = planContent.includes('## Handoff Contract') || slicesSection.includes(`[${task.id}]`) || (isRedo && slicesSection.includes(feedbackText));
               if (!hasTaskSlice) {
                 const lines = slicesSection.split('\n');
                 const sliceLines = lines.filter(l => l.trim().match(/^-\s*\[([ xX\-~])\]\s*(.*)$/));

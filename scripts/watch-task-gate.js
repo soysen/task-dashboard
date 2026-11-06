@@ -254,14 +254,14 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
   if (tier === 'micro') {
     strategyText = `• 執行策略 (Tier: micro 原地實作): 由主 Agent 原地直接實作與驗證，不啟動額外附屬代理。`;
   } else if (tier === 'heavy') {
-    strategyText = `• 執行策略 (Tier: heavy 雙階審核): 指派 flash Subagent (Workspace: "inherit") 載入專案實作 Skill 實作，再指派 pro Subagent 載入專案驗證 Skill 雙階審核。`;
+    strategyText = `• 執行策略 (Tier: heavy Planner→Executor 切片): 主 Agent 規劃並切片寫入 Handoff Contract，指派 flash Subagent (Workspace: "inherit") 逐片實作，由主 Agent 審查 diff；riskDoor one-way 才另開獨立 Verifier。`;
   } else {
-    strategyText = `• 執行策略 (Tier: standard 單階實作): 指派單一 flash Subagent (Workspace: "inherit") 載入專案實作 Skill 實作，按需才啟用驗證代理。`;
+    strategyText = `• 執行策略 (Tier: standard Planner→Executor): 主 Agent 執行一次 Phase 1，寫入 build-plan「Handoff Contract」後，指派單一 flash Subagent (Workspace: "inherit") 僅依契約實作；主 Agent 依契約驗收。`;
   }
 
   const isPendingPlanCreation = Boolean(task.requiresConfirmation && (!task.executionPlan || !task.executionPlan.trim()));
   const confirmationText = isPendingPlanCreation
-    ? `\n• 【需確認後執行門禁 (Confirmation Gate)】: 本任務勾選「需確認後再執行」（requiresConfirmation: true），目前處於待擬定計劃階段！請僅進行需求分析與擬定具體可行的執行計劃 (executionPlan)，並呼叫 PUT http://localhost:3030/api/tasks/${task.id} 回寫 executionPlan（維持 status: in_progress），嚴禁未獲使用者授權前直接實作代碼或推進 review！請於回覆中提示使用者於儀表板審閱並點選「確認並執行」。`
+    ? `\n• 【需確認後執行門禁 (Confirmation Gate)】: 本任務勾選「需確認後再執行」（requiresConfirmation: true），目前處於待擬定計劃階段！請僅進行需求分析與擬定具體可行的執行計劃 (executionPlan)，並呼叫 PUT http://localhost:3030/api/tasks/${task.id} 回寫 executionPlan（維持 status: in_progress），嚴禁未獲使用者授權前直接實作代碼或推進 review！計劃同時寫入 build-plan Handoff Contract；確認後階段二直接依契約委派，不重新分析。請於回覆中提示使用者於儀表板審閱並點選「確認並執行」。`
     : '';
 
   const deliveryText = isPendingPlanCreation
@@ -273,7 +273,7 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
     `• 專案: ${task.project || '預設'}${projPath ? ` (${projPath})` : ''}\n` +
     `• 需求: ${cleanDesc}${feedbackText}${confirmationText}${prioritySkillText}${implSkillsText}${verifySkillsText}\n` +
     `${strategyText}\n` +
-    `• 執行規範: 遵循 ${STANDARD_DOC} 3-Phase Gate；Router 不預讀原始碼/歷史 plan；僅跑受影響測試 + 專案 harness（無關基線紅燈僅註記）。\n` +
+    `• 執行規範: 遵循 ${STANDARD_DOC} 3-Phase Gate；Phase 1 僅由主 Agent 執行一次；Executor 只讀 Handoff Contract，禁止重讀專案文件；僅跑受影響測試 + 專案 harness（無關基線紅燈僅註記）。\n` +
     `• 交付方式: ${deliveryText}\n` +
     `================================================================================`;
 }

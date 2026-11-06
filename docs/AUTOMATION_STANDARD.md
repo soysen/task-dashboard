@@ -19,7 +19,7 @@ Task Dashboard 支援 **Desktop AI 哨兵待命 (Reactive Wakeup)** 與 **獨立
 - **工作原理**：
   腳本利用 macOS 原生 FSEvents 在背景靜默監聽資料庫 `tasks.json`。一旦任務變更為 `in_progress` 或請求依據 Diff 生成 Commit 訊息 (`requestCommitGen: true`)，哨兵立即輸出完整開工上下文並以 `exit(0)` 正常退出，觸發外部 IDE 的 **Reactive Wakeup** 喚醒機制。
 - **Agent 接續開工**：
-  AI 被喚醒後，根據哨兵輸出的開工指示執行 **3-Phase Execution Gate**。若執行環境支援 Subagent 工具，應依據 3-Tier 風險分級與專案 Skill 路由策略委派執行與按需驗證。執行完畢將任務推進至 `review` 後，主 Agent 再次在背景掛載哨兵，進入下一輪無縫待命。
+  AI 被喚醒後，根據哨兵輸出的開工指示執行 **3-Phase Execution Gate**。主 Agent 作為高階 Planner 執行 Phase 1 規劃並擬定 Handoff Contract，依 3-Tier 風險分級與專案 Skill 路由指派 flash Executor（或 micro 原地實作），由主 Agent 於 Phase 3 依契約驗收並推進至 `review`（僅 `riskDoor === "one-way"` 另開獨立 Verifier）。任務推進至 `review` 後，主 Agent 再次在背景掛載哨兵，進入下一輪無縫待命。
 
 ### 模式 B：本機 CLI Agent 自動即時觸發
 - 若使用者在 Dashboard 設定中啟用了 **「CLI Agent 模式」**（支援 `agy`、`claude`、`hermes` 或自訂指令）：
@@ -65,13 +65,13 @@ flowchart TD
 ```
 
 ### Subagent 風險分級與專案 Skill 路由規範 (Skill Router & 3-Tier Risk Routing)
-為消除無差別啟動雙 Subagent 所產生的固定外殼稅與重複 Context 負擔，主 Agent 扮演純 **Skill Router**（零讀碼調度，不預讀業務原始碼與歷史 plan），依據任務階層 (`tier`)、單雙向門禁 (`riskDoor`) 與專案 Skills 進行動態分流指派：
+為消除無差別啟動雙 Subagent 所產生的固定外殼稅與重複 Context 負擔，主 Agent 扮演高階 **Planner**（執行 Phase 1 分析並擬定 Handoff Contract），依據任務階層 (`tier`)、單雙向門禁 (`riskDoor`) 與專案 Skills 進行動態分流指派：
 
-| 階層 (Tier) | 適用場景 / 判定規則 | 執行方式 (Worker Subagent) | 審核方式 (Verifier Subagent) |
-| :--- | :--- | :--- | :--- |
-| **`micro`** | 文案錯字、註解微調、格式化、純小範圍樣式，或標註 `tier:micro` | 主 Agent **原地實作，不啟動 Subagent** | 本地全套測試 + `harness:check` exit 0 |
-| **`standard`** | 一般功能開發、局部 Bug 修復、單元測試補齊，或推斷不出之預設 | 指派單一 `flash` Worker Subagent (`Workspace: "inherit"`) 載入專案實作 Skill 完成實作 | 主 Agent 執行確定性驗證；僅跨多檔、具 feedback 或需補驗時按需指派 Verifier Subagent |
-| **`heavy`** | 跨模組重構、破壞性變更、資料庫遷移，或 `riskDoor === "one-way"` | 指派 `flash` Worker Subagent (`Workspace: "inherit"`) 載入專案實作 Skill 實作 | 指派 `pro` Verifier Subagent (`Workspace: "inherit"`) 載入專案驗證 Skill 獨立審核代碼與報告後推進至 review |
+| 階層 (Tier) | 適用場景 / 判定規則 | Phase 1 規劃 | Phase 2 實作 | Phase 3 驗收 |
+| :--- | :--- | :--- | :--- | :--- |
+| **`micro`** | 文案錯字、註解微調、格式化、純小範圍樣式，或標註 `tier:micro` | 主 Agent 評估改動範圍 | 主 Agent **原地實作，不啟動 Subagent** | 主 Agent 本地測試 + `harness:check` exit 0 |
+| **`standard`** | 一般功能開發、局部 Bug 修復、單元測試補齊，或推斷不出之預設 | 主 Agent 執行一次 Phase 1，擬定 `Handoff Contract` 寫入 build-plan，更新 agent-status `## Delegation` | 指派單一 `flash` Executor Subagent (`Workspace: "inherit"`) 僅依契約實作 | 主 Agent 依契約驗收標準審查 diff，執行 harness 後送出 payload 推進 review |
+| **`heavy`** | 跨模組重構、破壞性變更、資料庫遷移，或 `riskDoor === "one-way"` | 主 Agent 規劃切片並擬定 `Handoff Contract` 寫入 build-plan，更新 agent-status `## Delegation` | 指派單一 `flash` Executor Subagent (`Workspace: "inherit"`) 逐片實作 | 主 Agent 審查 diff 並驗收推進 review；僅 `riskDoor === "one-way"` 另開獨立 `pro` Verifier 審核 |
 
 - **階層推斷優先序**：
   1. 顯式指定：`task.tier` 為 `micro`、`standard`、`heavy` 之一時直接採用。
@@ -82,6 +82,33 @@ flowchart TD
   1. **確認門禁聯鎖**：若任務標註 `requiresConfirmation === true` 且未具備執行計劃，無論何種 Tier 均禁止直接進入實作，必須先完成計劃供確認。
   2. **強制繼承工作區 (`Workspace: "inherit"`)**：Subagent 必須設定 `Workspace: "inherit"`，確保所有 Git Diff 與檔案異動直接落於原專案工作區，嚴禁隔離導致 Diff 脫鉤。
   3. **防搶單時序 (Race Condition Prevention)**：主 Agent 在所有執行與審核皆完成並將任務正式推入 `review` 後，才可重新掛載 `watch-task-gate.js` 進入背景待命。**嚴禁於 Subagent 運行期間提前重啟哨兵**，避免重複認領與衝突。
+
+### Handoff Contract 規格與 Executor 禁讀守則
+為達成精準交接並徹底杜絕 Token 浪費，Planner 與 Executor 之間以 Handoff Contract 嚴格隔離上下文：
+
+- **Handoff Contract 欄位規格**：
+  寫入 `.github/harness/plan/<task-id>-build-plan.md`，必須包含以下欄位：
+  - **Baseline**：當前 git 分支與 HEAD commit hash。
+  - **Impact**：GitNexus upstream 影響分析結果與風險等級。
+  - **Edit Targets**：修改目標檔案與行號區間（`file:Lstart-Lend`）及具體改動說明。
+  - **Read Allowlist**：明確允許 Executor 讀取的檔案與行範圍（以 Edit Targets 與必要 context 為限）。
+  - **Do-Not-Read**：禁讀清單，嚴禁讀取專案架構文件（README、HARNESS、CLAUDE、docs/、skills/）與其他 build plan。
+  - **Constraints**：最小範圍實作、零依賴、嚴禁寫入 `data/` 範本、不得 commit、不得呼叫 Task Dashboard API。
+  - **Escalation**：資訊不足時最多允許額外讀取 2 次，仍不足即停止並向主 Agent 回報缺口。
+  - **Slices**：切片清單，每行必須帶 `[TASK-ID]` 與明確的驗收指令。
+  - **Return Format**：規範 Executor 回傳格式（`modifiedFiles` 清單與每個切片的 `{command, cwd, exitCode, rawLog}`）。
+
+- **Executor 禁讀守則與執行邊界**：
+  1. **只讀契約與 Allowlist**：Executor 僅能讀取 Handoff Contract 與 Read Allowlist 內檔案與行範圍；**嚴禁執行 Phase 1 前置診斷、harness 基線或 GitNexus，嚴禁讀取 README/HARNESS/docs/skills 等重複文件**。
+  2. **單點檢索上限與回報**：資訊不足時最多額外讀取 2 次（>500 行檔案必須先 `grep -n` 再切片）；仍不足時立即停止並回報 Planner。
+  3. **不推進狀態與不提交**：Executor 僅負責依切片實作與執行驗收指令，不得推進任務狀態，不得執行 git commit。
+  4. **嚴格依 Return Format 回報**：實作完成後向主 Agent 回報 modifiedFiles 與切片驗收日誌。
+
+- **需確認任務 (requiresConfirmation) 之交接原則**：
+  - 階段一由 Planner 擬定 `executionPlan` 與 Handoff Contract；使用者確認後進入階段二，主 Agent **只讀 Handoff Contract 就委派 Executor，不重新進行分析**。
+
+- **狀態檔職責分工**：
+  - `.github/worklog/agent-status.md` 的 `## Active Task` 與 `## Execution Tracking` 由 Task Dashboard 伺服器負責維護；Agent 僅在 `## Delegation` 區段記錄指派資訊（Executor、契約路徑、目前切片），嚴禁覆寫交接內容。
 
 ### Phase 1: Pre-Flight & Review Feedback Ingestion (審查回饋與前置檢閱)
 1. **最高優先級門禁（Review Feedback 檢查）**：

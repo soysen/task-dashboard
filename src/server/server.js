@@ -1454,11 +1454,11 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
   const tier = determineTaskTier(task);
   let subagentGuidance = '';
   if (tier === 'micro') {
-    subagentGuidance = '• 本任務為 micro 級別，由主 Agent 原地直接實作與驗證，不啟動額外附屬代理。\n';
+    subagentGuidance = '• 執行策略 (Tier: micro 原地實作): 由主 Agent 原地直接實作與驗證，不啟動額外附屬代理。\n';
   } else if (tier === 'heavy') {
-    subagentGuidance = '• 本任務為 heavy 級別 (或 One-Way 門禁)，若環境支援 Subagent，自動啟用 Subagent (Workspace: "inherit")：以 flash 負責實作、再由 pro 進行審核。\n';
+    subagentGuidance = '• 執行策略 (Tier: heavy Planner→Executor 切片): 主 Agent 規劃並切片寫入 Handoff Contract，指派 flash Subagent (Workspace: "inherit") 逐片實作，由主 Agent 審查 diff；riskDoor one-way 才另開獨立 Verifier。\n';
   } else {
-    subagentGuidance = '• 本任務為 standard 級別，若環境支援 Subagent，啟用單一 flash Subagent (Workspace: "inherit") 進行實作與測試，由主進程進行確定性驗證。\n';
+    subagentGuidance = '• 執行策略 (Tier: standard Planner→Executor): 主 Agent 執行一次 Phase 1，寫入 build-plan「Handoff Contract」後，指派單一 flash Subagent (Workspace: "inherit") 僅依契約實作；主 Agent 依契約驗收。\n';
   }
 
   const isPendingPlanCreation = Boolean(task.requiresConfirmation && (!task.executionPlan || !task.executionPlan.trim()));
