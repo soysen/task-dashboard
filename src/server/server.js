@@ -2479,6 +2479,9 @@ function runNativeFolderPicker(promptText, callback) {
               try { executionLog = fs.readFileSync(logFile, 'utf8'); } catch (e) {}
             }
           }
+          if (executionLog && (executionLog.includes('未提供前置檢閱細節') || executionLog.includes('未提供實作步驟細節'))) {
+            executionLog = formatStructuredExecutionLog(executionLog, { task: t, sliceInfo, projPath });
+          }
 
           let item = {
             ...t,
@@ -2651,6 +2654,10 @@ function runNativeFolderPicker(promptText, callback) {
         try { executionLog = fs.readFileSync(logFile, 'utf8'); } catch (e) {}
       }
     }
+    if (executionLog && (executionLog.includes('未提供前置檢閱細節') || executionLog.includes('未提供實作步驟細節'))) {
+      const sliceInfo = scanProjectWorklogAndPlan(projPath, task.id);
+      executionLog = formatStructuredExecutionLog(executionLog, { task, sliceInfo, projPath });
+    }
     const enriched = {
       ...task,
       diff: diffContent,
@@ -2760,9 +2767,28 @@ function runNativeFolderPicker(promptText, callback) {
         const prevStatus = tasks[index].status;
         const prevFeedback = tasks[index].feedback;
 
-        // [Code over LLM] 確定性程式碼自動組裝標準 4 章節任務執行報告
-        if (data.autoAssembleReport || (data.rootCause && data.resolution) || (data.objective && (data.keyChanges || data.testCommand))) {
-          data.executionLog = autoAssembleExecutionReport(tasks[index], data);
+        // [Code over LLM] 確定性程式碼自動組裝標準 4 章節任務執行報告 (支援別名欄位與 Harness 智慧提取)
+        const hasStructuredReportFields = Boolean(
+          data.autoAssembleReport ||
+          (data.rootCause && data.resolution) ||
+          (data.objective && (data.keyChanges || data.testCommand)) ||
+          data.summary ||
+          data.impactAnalysis ||
+          data.verifyResult ||
+          data.preFlightSummary ||
+          data.implementation
+        );
+        if (hasStructuredReportFields) {
+          const projects = readProjects();
+          const proj = projects.find(p => p.id === tasks[index].project);
+          const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, tasks[index].project || '');
+          const sliceInfo = scanProjectWorklogAndPlan(projPath, taskId);
+          const coverageStr = extractCoverageSummary(projPath);
+          data.executionLog = autoAssembleExecutionReport(tasks[index], data, {
+            sliceInfo,
+            projPath,
+            coverage: coverageStr
+          });
         }
 
         // [Slice Judge Gate] 若將狀態推進至 review，非手動強制推進 (forceReview !== true) 時強制檢驗 executionLog
@@ -2862,8 +2888,16 @@ function runNativeFolderPicker(promptText, callback) {
             if (coverageStr) {
               phase3Option += `\n- 單元測試覆蓋率: ${coverageStr}`;
             }
+            const sliceInfo = scanProjectWorklogAndPlan(projPath, taskId);
             if (tasks[index].executionLog) {
-              tasks[index].executionLog = formatStructuredExecutionLog(tasks[index].executionLog, { phase3: phase3Option });
+              tasks[index].executionLog = formatStructuredExecutionLog(tasks[index].executionLog, {
+                phase3: phase3Option,
+                task: tasks[index],
+                payload: data,
+                sliceInfo,
+                projPath,
+                coverage: coverageStr
+              });
             }
           }
         }

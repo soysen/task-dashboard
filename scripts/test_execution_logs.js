@@ -388,6 +388,55 @@ async function main() {
     const h2Task4Updated = await h2DeliverRes4.json();
     assert.equal(h2Task4Updated.executionLog, legacyLog, 'Legacy log string must be preserved verbatim');
     console.log('  ✅ TD-H2 Case 4: 舊字串格式 executionLog 向下相容驗證通過');
+
+    // 5. TD-H2 Case 5 (TASK-181): 別名欄位 (summary, impactAnalysis, verifyResult) 智慧映射
+    const h2Task5Res = await request('/api/tasks', 'POST', {
+      title: 'TD-H2 別名欄位智慧映射測試',
+      project: 'logs',
+      status: 'in_progress'
+    });
+    const h2Task5 = await h2Task5Res.json();
+    const h2DeliverRes5 = await fetch(base + `/api/tasks/${h2Task5.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: 'review',
+        impactAnalysis: '修正別名欄位遺失問題',
+        summary: '自動提取 summary 與 impactAnalysis 填入章節',
+        verifyResult: '全數單元測試綠燈 (Exit Code: 0)',
+        exitCode: 0
+      })
+    });
+    assert.equal(h2DeliverRes5.status, 200);
+    const h2Task5Updated = await h2DeliverRes5.json();
+    assert(h2Task5Updated.executionLog.includes('修正別名欄位遺失問題'), '必須包含 impactAnalysis 內容');
+    assert(h2Task5Updated.executionLog.includes('自動提取 summary 與 impactAnalysis'), '必須包含 summary 內容');
+    assert(!h2Task5Updated.executionLog.includes('未提供前置檢閱細節'), '絕不可包含 dummy 假文案');
+    console.log('  ✅ TD-H2 Case 5: 別名欄位智慧映射與報告自動組裝驗證通過');
+
+    // 6. TD-H2 Case 6 (TASK-181): Markdown ### 1. / ### 2. / ### 3. 智慧段落提取
+    const h2Task6Res = await request('/api/tasks', 'POST', {
+      title: 'TD-H2 Markdown 段落智慧提取測試',
+      project: 'logs',
+      status: 'in_progress'
+    });
+    const h2Task6 = await h2Task6Res.json();
+    const rawMarkdownSections = `### 1. 目標根因分析\n- 深入排查 Phase 1~3 遺失細節之斷層\n### 2. 實作說明\n- 升級 feedbackManager 智慧解析函式\n### 3. 驗證證據\n- npm test 通過 (exit code 0)`;
+    const h2DeliverRes6 = await fetch(base + `/api/tasks/${h2Task6.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: 'review',
+        executionLog: rawMarkdownSections
+      })
+    });
+    assert.equal(h2DeliverRes6.status, 200);
+    const h2Task6Updated = await h2DeliverRes6.json();
+    assert(h2Task6Updated.executionLog.includes('深入排查 Phase 1~3 遺失細節之斷層'), 'Phase 1 必須包含真實根因');
+    assert(h2Task6Updated.executionLog.includes('升級 feedbackManager 智慧解析函式'), 'Phase 2 必須包含真實實作');
+    assert(h2Task6Updated.executionLog.includes('npm test 通過'), 'Phase 3 必須包含真實驗證');
+    assert(!h2Task6Updated.executionLog.includes('未提供前置檢閱細節'), '絕對不可出現未提供假字眼');
+    console.log('  ✅ TD-H2 Case 6: Markdown 段落智慧提取 Phase 1~3 驗證通過');
   } finally {
     server.kill('SIGTERM');
     await serverClosed;

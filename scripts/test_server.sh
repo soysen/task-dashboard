@@ -704,6 +704,48 @@ TEST_PORT=$TEST_PORT node -e '
 })();
 '
 
+echo "  [8.8/9] 測試 TASK-181: Phase 1~3 智慧提取、別名欄位映射與舊日誌自癒..."
+TEST_PORT=$TEST_PORT node -e '
+(async () => {
+  const assert = require("node:assert/strict");
+  const testPort = process.env.TEST_PORT || "3031";
+  const base = `http://localhost:${testPort}`;
+
+  // 1. 測試建立含舊版 dummy 字眼之任務，透過 GET /api/tasks/:id 讀取時自動自癒
+  const createOldRes = await fetch(`${base}/api/tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: "舊版日誌任務",
+      project: "task-dashboard",
+      status: "in_progress",
+      executionLog: "### Phase 1: Pre-Flight & Review Feedback Ingestion\n- 說明: 未提供前置檢閱細節；請以實際執行記錄為準。\n\n### Phase 2: Rule-Compliant Implementation\n- 說明: 未提供實作步驟細節；請以實際執行記錄為準。\n\n### Phase 3: Compliance Manifest & Review Promotion\n- 驗證說明: 未提供驗證命令與結果\n\n--- 執行詳細記錄 / 原生驗證輸出 ---\n### 1. 目標根因分析\n- 根因：排查 Phase 1~3 斷層\n### 2. 實作說明\n- 實作：feedbackManager 升級\n### 3. 驗證證據\n- npm test 通過"
+    })
+  });
+  assert.equal(createOldRes.status, 201);
+  const oldTask = await createOldRes.json();
+
+  // 查詢單一任務 API 必須自動自癒修復
+  const healedRes = await fetch(`${base}/api/tasks/${oldTask.id}`);
+  assert.equal(healedRes.status, 200);
+  const healedTask = await healedRes.json();
+  assert(!healedTask.executionLog.includes("未提供前置檢閱細節"), "API 回傳時必須自動清除 dummy 假字眼");
+  assert(healedTask.executionLog.includes("排查 Phase 1~3 斷層"), "Phase 1 必須成功提取真實根因細節");
+  assert(healedTask.executionLog.includes("feedbackManager 升級"), "Phase 2 必須成功提取真實實作細節");
+  assert(healedTask.executionLog.includes("npm test 通過"), "Phase 3 必須成功提取真實驗證證據");
+
+  // 清理測試產生的 build-plan 暫存檔案 (避免污染 git 工作區)
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const testPlanPath = path.join(process.cwd(), ".github", "harness", "plan", `${oldTask.id.toLowerCase()}-build-plan.md`);
+  if (fs.existsSync(testPlanPath)) {
+    fs.unlinkSync(testPlanPath);
+  }
+
+  console.log("    ✅ TASK-181 Phase 1~3 智慧提取與日誌自動自癒驗證通過");
+})();
+'
+
 echo "  [9/9] 測試 前端核心互動邏輯與狀態防線 ..."
 node "$PROJECT_DIR/scripts/test_ui_behavior.js"
 node "$PROJECT_DIR/scripts/test_confirmation_ux.js"

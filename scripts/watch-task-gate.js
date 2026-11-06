@@ -266,7 +266,7 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
 
   const deliveryText = isPendingPlanCreation
     ? `擬定執行計劃並以 PUT http://localhost:3030/api/tasks/${task.id} 回寫 executionPlan (維持 in_progress 待使用者審閱確認)，請勿直接實作代碼或推進 review。`
-    : `完成後以結構化 JSON 呼叫 PUT http://localhost:3030/api/tasks/${task.id} 推進 review (勿手寫報告)。`;
+    : `完成後以結構化 JSON 呼叫 PUT http://localhost:3030/api/tasks/${task.id} 推進 review（推薦欄位：objective, rootCause, resolution, keyChanges, testCommand, exitCode, testSummary, executionLog；後端支援各別名欄位智慧提取與自動組裝）。`;
 
   return `================================================================================\n` +
     `[${triggerType}] 任務開工通知${isPendingPlanCreation ? '（待擬定執行計劃）' : ''}：[${task.id}] ${task.title}\n` +
