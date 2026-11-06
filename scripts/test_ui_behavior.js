@@ -515,6 +515,13 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
   assert(allUiContent.includes("errorBox.classList.add('hidden')"), 'openCommitModal 與 closeCommitModal 必須重置隱藏 #commitErrorBox');
   console.log('  ✅ TASK-156 Commit Modal Pre-commit 錯誤展示與攔截防禦驗證通過');
 
+  // 20. 驗證 TASK-187 Commit 成功後立即將結束的 task 導入 archived 並即時更新畫面無須 reload
+  assert(allUiContent.includes('setTasks(tasks.filter(t => !arcSet.has(t.id)))'), 'confirmCommitTask 必須即時將已封存任務過濾移出 tasks 陣列');
+  assert(allUiContent.includes('renderKanban()') && allUiContent.includes('renderMetrics()'), 'confirmCommitTask 必須即時重新渲染看板與計量');
+  assert(allUiContent.includes('loadData(true)'), 'confirmCommitTask 必須呼叫 loadData(true) 進行全量同步');
+  assert(allUiContent.includes('if (Array.isArray(newTasks)) {\n          setTasks(newTasks);\n        }'), 'loadData 必須於 newTasks 為空陣列時也能即時清空 tasks 避免殘留舊任務');
+  console.log('  ✅ TASK-187 Commit 即時封存與前端畫面同步防禦驗證通過');
+
   console.log('🎉 所有前端核心互動邏輯與防禦機制測試通過！\n');
 })().catch(err => {
   console.error(err);

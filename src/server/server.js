@@ -1943,7 +1943,7 @@ function executeProjectCommit(projPath, task, customData = {}) {
   try { statusOutput = execSync('git status --short', { cwd: projPath, encoding: 'utf8', timeout: 5000, env: commitEnv }).trim(); } catch (e) {}
   
   if (!statusOutput) {
-    return { output: '無新異動需要 commit (Working tree clean)', isCommitted: false, hasError: false };
+    return { output: '無新異動需要 commit (Working tree clean)', isCommitted: true, hasError: false };
   }
 
   let diffStat = '';
@@ -3155,6 +3155,7 @@ function runNativeFolderPicker(promptText, callback) {
         }
       });
       writeTasks(tasks);
+      gitProjectsStatusCache = { timestamp: 0, data: null };
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: true, isCommitted: true, message: commitOutput, output: commitOutput, archivedTaskIds: archivedIds }));

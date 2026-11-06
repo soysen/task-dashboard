@@ -2072,13 +2072,28 @@ import { loadData } from "./app.js";
             return;
           }
 
-          const arcMsg = result.archivedTaskIds && result.archivedTaskIds.length > 0
-            ? `，已將 ${result.archivedTaskIds.length} 個已完成任務移入封存庫 `
+          const arcIds = (result.archivedTaskIds && result.archivedTaskIds.length > 0)
+            ? result.archivedTaskIds
+            : [taskId];
+          const arcMsg = arcIds.length > 0
+            ? `，已將 ${arcIds.length} 個已完成任務移入封存庫 `
             : '';
           showToast(`[${taskId}] Commit 成功！${result.message || ''}${arcMsg}`);
+
+          // 立即更新前端任務狀態 (將封存任務移出看板)，畫面即時同步無需等待手動 reload
+          const arcSet = new Set(arcIds);
+          setTasks(tasks.filter(t => !arcSet.has(t.id)));
+          if (typeof setArchivedTasksCount === 'function') {
+            setArchivedTasksCount((archivedTasksCount || 0) + arcIds.length);
+          }
+          const archiveBadge = document.getElementById('headerArchiveCountBadge');
+          if (archiveBadge) archiveBadge.innerText = (archivedTasksCount || 0);
+
           closeCommitModal();
           closeModal();
-          await loadData();
+          renderKanban();
+          renderMetrics();
+          await loadData(true);
         } catch (err) {
           if (errorText) errorText.textContent = err.message;
           if (errorBox) {

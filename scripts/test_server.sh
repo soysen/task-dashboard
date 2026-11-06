@@ -220,6 +220,25 @@ else
   exit 1
 fi
 
+# 驗證 TASK-187: 當工作區無新異動 (Working tree clean / 已經 commit 過)，按下 commit 仍直接觸發 API 200 並將結束的 task 導入 archived
+CLEAN_TASK=$(curl -s -f -X POST "http://localhost:$TEST_PORT/api/tasks" -H "Content-Type: application/json" -d "{\"title\":\"測試 clean working tree commit\",\"project\":\"test-precommit-proj\",\"status\":\"done\"}")
+CLEAN_TASK_ID=$(echo "$CLEAN_TASK" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)
+CLEAN_CODE=$(curl -s -o "$COMMIT_RESP_FILE" -w "%{http_code}" -X POST "http://localhost:$TEST_PORT/api/tasks/$CLEAN_TASK_ID/commit" -H "Content-Type: application/json" -d '{"customSubject":"feat(auth): clean commit"}')
+if [ "$CLEAN_CODE" = "200" ]; then
+  echo "    ✅ TASK-187: clean working tree (已 commit) 時 API 正確回傳 200 並順利封存"
+else
+  echo "    ❌ TASK-187: clean working tree 時 API 未回傳 200: $CLEAN_CODE"
+  cat "$COMMIT_RESP_FILE"
+  exit 1
+fi
+CLEAN_STATUS=$(node -e 'const tasks = JSON.parse(process.argv[1]); const t = tasks.find(x => x.id === process.argv[2]); console.log(t ? t.status : "");' "$(curl -s -f "http://localhost:$TEST_PORT/api/tasks/archived")" "$CLEAN_TASK_ID")
+if [ "$CLEAN_STATUS" = "archived" ]; then
+  echo "    ✅ TASK-187: clean working tree commit 後任務正確導入 archived"
+else
+  echo "    ❌ TASK-187: clean working tree commit 後任務狀態異常: $CLEAN_STATUS"
+  exit 1
+fi
+
 rm -rf "$PRECOMMIT_REPO" "$COMMIT_RESP_FILE"
 
 echo "  [7/7] 測試 多任務 agent-status 與切片隔離單元測試 ..."

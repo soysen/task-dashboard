@@ -145,7 +145,13 @@ import {
     let loadDataPollCount = 0;
 
     async function loadData(forceFull = false) {
-      if (typeof isLoadingData !== 'undefined' && isLoadingData) return;
+      if (typeof isLoadingData !== 'undefined' && isLoadingData) {
+        if (forceFull) {
+          await new Promise(r => setTimeout(r, 100));
+          return loadData(true);
+        }
+        return;
+      }
       if (typeof isLoadingData !== 'undefined') isLoadingData = true;
       try {
         const pollCount = (typeof loadDataPollCount !== 'undefined') ? (++loadDataPollCount) : 1;
@@ -173,7 +179,7 @@ import {
         apiFailStreak = 0;
 
         const newTasks = await taskRes.json();
-        if (Array.isArray(newTasks) && (newTasks.length > 0 || tasks.length === 0)) {
+        if (Array.isArray(newTasks)) {
           setTasks(newTasks);
         }
 
@@ -181,7 +187,7 @@ import {
           const newProjects = await projRes.json();
           const newSettings = await setRes.json();
 
-          if (Array.isArray(newProjects) && (newProjects.length > 0 || projects.length === 0)) {
+          if (Array.isArray(newProjects)) {
             setProjects(newProjects);
           }
           if (newSettings && typeof newSettings === 'object') {
