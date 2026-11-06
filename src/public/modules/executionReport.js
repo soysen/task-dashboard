@@ -69,12 +69,12 @@ import { escapeHtml, normalizeLogText } from "./utils.js";
         let mainReport = effectiveLog;
         let rawTerminalDump = '';
 
-        if (raw.includes('<details>')) {
-          const parts = raw.split('<details>');
+        if (effectiveLog.includes('<details>')) {
+          const parts = effectiveLog.split('<details>');
           mainReport = parts[0].trim();
           rawTerminalDump = parts.slice(1).join('<details>').replace(/<\/details>/g, '').trim();
-        } else if (raw.includes('--- 執行詳細記錄 / 原生驗證輸出 ---')) {
-          const parts = raw.split('--- 執行詳細記錄 / 原生驗證輸出 ---');
+        } else if (effectiveLog.includes('--- 執行詳細記錄 / 原生驗證輸出 ---')) {
+          const parts = effectiveLog.split('--- 執行詳細記錄 / 原生驗證輸出 ---');
           mainReport = parts[0].trim();
           rawTerminalDump = parts.slice(1).join('').trim();
         }
@@ -180,10 +180,15 @@ import { escapeHtml, normalizeLogText } from "./utils.js";
 
         let terminalCollapseHtml = '';
         if (rawTerminalDump) {
-          const cleanDump = rawTerminalDump.replace(/```text/g, '').replace(/```/g, '').replace(/<summary>.*?<\/summary>/s, '').trim();
-          terminalCollapseHtml = `
+          const cleanDump = rawTerminalDump
+            .replace(/<summary>.*?<\/summary>/s, '')
+            .replace(/```text/g, '')
+            .replace(/```/g, '')
+            .trim();
+          if (cleanDump) {
+            terminalCollapseHtml = `
             <div class="pt-3 border-t border-slate-300 dark:border-slate-500">
-              <details class="group rounded-lg overflow-hidden bg-slate-950">
+              <details class="group rounded-lg overflow-hidden bg-slate-950" open>
                 <summary class="px-3 py-2 bg-slate-900 text-slate-300 text-xs font-mono font-semibold flex items-center justify-between gap-2 cursor-pointer select-none hover:bg-slate-800 transition">
                   <span class="flex items-center gap-1.5 min-w-0">
                     <i data-lucide="terminal" class="w-3.5 h-3.5 text-emerald-400 flex-shrink-0"></i>
@@ -195,6 +200,7 @@ import { escapeHtml, normalizeLogText } from "./utils.js";
               </details>
             </div>
           `;
+          }
         }
 
         reportEl.innerHTML = `

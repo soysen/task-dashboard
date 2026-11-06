@@ -360,7 +360,19 @@ function autoAssembleExecutionReport(task = {}, payload = {}, options = {}) {
     });
   }
 
-  const rawLog = payload.rawLog || payload.rawOutput || payload.terminalOutput || '';
+  let rawLog = payload.rawLog || payload.rawOutput || payload.terminalOutput || payload.harnessLog || payload.testOutput || '';
+  if (!rawLog) {
+    const candidate = payload.executionLog || task.executionLog || '';
+    if (candidate && typeof candidate === 'string') {
+      if (candidate.includes('<details>')) {
+        const parts = candidate.split('<details>');
+        const tail = parts.slice(1).join('<details>').replace(/<\/details>/g, '');
+        rawLog = tail.replace(/<summary>.*?<\/summary>/s, '').replace(/```text/g, '').replace(/```/g, '').trim();
+      } else if (!candidate.includes('# 📋 任務執行報告') && !candidate.includes('### Phase 1')) {
+        rawLog = candidate.trim();
+      }
+    }
+  }
 
   return buildTaskExecutionReport({
     objective,

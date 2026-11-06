@@ -174,7 +174,11 @@ import {
                     <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100/90 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 font-mono flex items-center gap-0.5 whitespace-nowrap flex-shrink-0">
                       待確認
                     </span>
-                  `) : ''}
+                  `) : (t.status === "in_progress" && t.requiresConfirmation) ? `
+                    <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-100/90 dark:bg-sky-500/20 text-sky-800 dark:text-sky-300 font-mono flex items-center gap-0.5 whitespace-nowrap flex-shrink-0" title="此任務需確認後再執行，目前等待擬定執行計劃">
+                      待擬定計劃
+                    </span>
+                  ` : ''}
                   <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-200 font-mono truncate max-w-[115px] whitespace-nowrap" title="${escapeHtml(projName)}">
                      ${escapeHtml(projName)}
                   </span>
@@ -296,7 +300,7 @@ import {
               ${t.dependencies && t.dependencies.length > 0 ? `
                 <div class="flex flex-wrap gap-1">
                   ${t.dependencies.map(dep => `
-                    <span onclick="event.stopPropagation(); openModalForEdit('${dep}')" class="text-[9px] bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-200 px-1.5 py-0.5 rounded font-mono hover:underline whitespace-nowrap flex-shrink-0" title="點擊檢視前置任務 ${dep}"> 依賴 ${escapeHtml(dep)}
+                    <span onclick="event.stopPropagation(); openModalForEdit('${dep}')" class="text-[9px] bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-200 px-1.5 py-0.5 rounded font-mono hover:underline whitespace-nowrap flex-shrink-0 cursor-pointer" title="點擊檢視前置任務 ${dep}"> 依賴 ${escapeHtml(dep)}
                     </span>
                   `).join('')}
                 </div>
@@ -370,7 +374,7 @@ import {
                     </span>
                   ` : ''}
                 </div>
-                <span class="text-slate-600 dark:text-slate-300 font-medium group-hover:text-sky-600 dark:group-hover:text-sky-400 transition whitespace-nowrap flex-shrink-0">${isReviewStatus ? '審閱驗收 →' : isPendingConfirm ? '審閱計劃 →' : '開啟詳情'}</span>
+                <span class="text-slate-600 dark:text-slate-300 font-medium group-hover:text-sky-600 dark:group-hover:text-sky-400 transition whitespace-nowrap flex-shrink-0">${isReviewStatus ? '審閱驗收 →' : isPendingConfirm ? (t.executionPlan && t.executionPlan.trim() ? '審閱計劃 →' : '擬定計劃 →') : '開啟詳情'}</span>
               </div>
             </div>
           `;

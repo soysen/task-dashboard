@@ -602,6 +602,108 @@ try {
 })();
 '
 
+echo "  [8.7/9] 測試 TASK-179: Confirmation Gate, Harness Log 保留與關聯任務摘要 API ..."
+TEST_PORT=$TEST_PORT node -e '
+(async () => {
+  const assert = require("node:assert/strict");
+  const testPort = process.env.TEST_PORT || "3031";
+  const base = `http://localhost:${testPort}`;
+
+  // 1. 測試建立 requiresConfirmation: true 任務
+  const createRes = await fetch(`${base}/api/tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: "TASK-179 門禁測試",
+      project: "task-dashboard",
+      status: "in_progress",
+      requiresConfirmation: true,
+      executionPlan: ""
+    })
+  });
+  assert.equal(createRes.status, 201);
+  const task = await createRes.json();
+  assert.equal(task.requiresConfirmation, true);
+
+  // 2. 測試未經確認直接推進 review 被 HTTP 400 攔截
+  const unconfirmedReviewRes = await fetch(`${base}/api/tasks/${task.id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      status: "review",
+      executionLog: "未經確認就嘗試推進 review 的日誌，這是一段超過三十個字的說明，已執行 npm test 通過驗證。"
+    })
+  });
+  assert.equal(unconfirmedReviewRes.status, 400, "未經確認之 requiresConfirmation 任務推進 review 必須被 HTTP 400 攔截");
+  const unconfirmedErr = await unconfirmedReviewRes.json();
+  assert(unconfirmedErr.error.includes("Confirmation gate failed"), "報錯訊息必須指涉 Confirmation gate 門禁阻擋");
+
+  // 3. 測試確認並執行：confirmExecution: true 且 requiresConfirmation: false
+  const confirmRes = await fetch(`${base}/api/tasks/${task.id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...task,
+      requiresConfirmation: false,
+      confirmExecution: true,
+      executionPlan: "1. 擬定詳細計劃\n2. 執行實作\n3. 驗證通過"
+    })
+  });
+  assert.equal(confirmRes.status, 200, "確認執行必須成功更新任務");
+  const confirmedTask = await confirmRes.json();
+  assert.equal(confirmedTask.requiresConfirmation, false);
+
+  // 4. 測試 autoAssembleExecutionReport 保留 harness log
+  const harnessOutput = "PASS test/api.test.js\n  ✔ 15 passed\n  ✔ Harness Check 100% compliant";
+  const reportRes = await fetch(`${base}/api/tasks/${task.id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      status: "review",
+      objective: "完成 TASK-179 實作與驗證",
+      rootCause: "autoAssembleExecutionReport 遺漏 payload.executionLog",
+      resolution: "自動提取 executionLog 填入 rawLog 終端記錄",
+      executionLog: harnessOutput,
+      testCommand: "npm test",
+      exitCode: 0,
+      testSummary: "All tests green"
+    })
+  });
+  assert.equal(reportRes.status, 200);
+  const reportTask = await reportRes.json();
+  assert(reportTask.executionLog.includes(harnessOutput), "產出的執行報告必須完整保留 harness log 原始終端輸出");
+  assert(reportTask.executionLog.includes("## 1. 任務目標與根因分析"));
+
+  // 5. 測試 GET /api/tasks/dependencies-summary
+  const depSummaryRes = await fetch(`${base}/api/tasks/dependencies-summary?project=task-dashboard`);
+  assert.equal(depSummaryRes.status, 200);
+  const summaryList = await depSummaryRes.json();
+  assert(Array.isArray(summaryList), "關聯任務清單必須為陣列");
+  assert(summaryList.length > 0, "清單不可為空");
+  const foundTask = summaryList.find(t => t.id === task.id);
+  assert(foundTask, "清單必須包含剛建立之任務");
+  assert.equal(foundTask.title, "TASK-179 門禁測試");
+  assert.equal(foundTask.diff, undefined, "輕量摘要不得包含 heavy diff 欄位 (符合 Context Engineering)");
+
+  // 6. 測試 GET /api/tasks/:id 查詢單一任務完整資訊
+  const singleTaskRes = await fetch(`${base}/api/tasks/${task.id}`);
+  assert.equal(singleTaskRes.status, 200);
+  const singleTask = await singleTaskRes.json();
+  assert.equal(singleTask.id, task.id);
+  assert(singleTask.projectPath, "單一任務必須包含 enriched projectPath");
+
+  // 清理測試產生的 build-plan 暫存檔案 (避免污染 git 工作區)
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const testPlanPath = path.join(process.cwd(), ".github", "harness", "plan", `${task.id.toLowerCase()}-build-plan.md`);
+  if (fs.existsSync(testPlanPath)) {
+    fs.unlinkSync(testPlanPath);
+  }
+
+  console.log("    ✅ TASK-179 Confirmation Gate、Harness Log 保留與關聯任務摘要 API 驗證通過");
+})();
+'
+
 echo "  [9/9] 測試 前端核心互動邏輯與狀態防線 ..."
 node "$PROJECT_DIR/scripts/test_ui_behavior.js"
 node "$PROJECT_DIR/scripts/test_confirmation_ux.js"

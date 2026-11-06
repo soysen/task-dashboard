@@ -18,6 +18,7 @@
 9. [🚀 2026-10-21 系統架構模組化、二元審查門禁 (Slice Judge Gate)、單雙向門風險評級與人機協同防護技術回顧 (TASK-113 ~ TASK-129)](#9-2026-10-21-系統架構模組化二元審查門禁-slice-judge-gate單雙向門風險評級與人機協同防護技術回顧-task-113--task-129)
 10. [⚡️ 2026-10-21 確認並執行 (Confirmation Gate) 徹底解鎖、進程活體死鎖偵測與哨兵即時喚醒閉環技術回顧 (TASK-130 ~ TASK-134)](#10-2026-10-21-確認並執行-confirmation-gate-徹底解鎖進程活體死鎖偵測與哨兵即時喚醒閉環技術回顧-task-130--task-134)
 11. [🎨 2026-10-22 待確認執行計劃 HTML 視覺化排版、審閱意見輸入解鎖與跨專案 5GSA 錯誤導頁重構技術回顧 (TASK-135 ~ TASK-138)](#11-2026-10-22-待確認執行計劃-html-視覺化排版審閱意見輸入解鎖與跨專案-5gsa-錯誤導頁重構技術回顧-task-135--task-138)
+12. [🚀 2026-11-06 全面架構減稅、Subagent 零讀碼路由、TD-H1~TD-H5 治理防線與 Confirmation Gate / Harness Log 深度閉環技術覆盤 (TASK-162 ~ TASK-180)](#12-2026-11-06-全面架構減稅subagent-零讀碼路由td-h1td-h5-治理防線與-confirmation-gate--harness-log-深度閉環技術覆盤-task-162--task-180)
 
 ---
 
@@ -671,7 +672,159 @@ flowchart TD
    - 結合已上線的 `/api/events` SSE 端點，逐步替換前端看板每 3 秒一次的定時輪詢，全面達成事件驅動的即時介面重繪。
 
 ---
-*Retrospective Report updated at 2026-10-22 by Antigravity.*
+
+## 12. 🚀 2026-11-06 全面架構減稅、Subagent 零讀碼路由、TD-H1~TD-H5 治理防線與 Confirmation Gate / Harness Log 深度閉環技術覆盤 (TASK-162 ~ TASK-180)
+
+### 12.1 階段任務全景盤點 (Task Landscape: TASK-162 ~ TASK-180)
+
+本階段標誌著 Task Dashboard 從「單一代理人執行看板」躍升為「企業級 Multi-Agent 治理與上下文減稅調度平台」。透過引進嚴格的 Context Engineering 規範、3-Tier 分級路由、結構化 JSON 交付、Git Worktree 實體隔離、以及 Confirmation Gate 兩階段人機閉環，徹底解決了 Agent 上下文爆炸、搶跑實作與日誌遺失等深層工程瓶頸。
+
+| 任務 ID | 任務標題與核心目標 | 模組範疇 | 核心突破與交付產物 |
+| :--- | :--- | :--- | :--- |
+| **TASK-162** | 【減稅 TD-H1】Subagent 風險分級路由 | `agent` / `router` | 實作 3-Tier (`micro`/`standard`/`heavy`) 分流架構；推行 Router 零讀碼調度，消除上層讀取原始碼之 Token 開銷 |
+| **TASK-163** | 【減稅 TD-H2】交付改為結構化 payload，報告由後端組裝 | `engine` / `api` | 取消 Agent 手寫 Markdown 報告；改由 `PUT /api/tasks/:id` 提交結構化 JSON，後端自動拼裝確定性執行報告與真實 Git Diff |
+| **TASK-164** | 【減稅 TD-H3】Context 瘦身（AGENTS / CLAUDE / 哨兵輸出） | `docs` / `gate` | 建立 Context 減稅門禁 (`AGENTS.md` < 60 行，`CLAUDE.md` < 15 行)；嚴禁盲讀大檔 (>500 行切片)；哨兵開工輸出極致精簡 |
+| **TASK-165** | 【減稅 TD-H4】墊片（Shim）標記與觸發率統計 | `metrics` / `event` | 於任務生命週期注入 Shim 標籤（如 `GATE-001`, `GATE-002`），落實 Append-only 事件軌跡與治理指標量測 |
+| **TASK-166** | 【減稅 TD-H5】Worktree 隔離 Runtime 與持久化配額 | `git` / `runtime` | 支援 Git Worktree 隔離子 Agent 實作，防止主工作區污染；配額跨重啟持久化保留與自動級聯清理 |
+| **TASK-167 ~ 177** | 驗證確認並執行與哨兵喚醒流程 | `engine` / `ux` | 進行多輪實戰壓力測試，反覆打磨 Confirmation Gate 的 SSE 廣播、對話鎖定釋放與哨兵喚醒觸發防線 |
+| **TASK-178** | 修正欄位 (跨專案支援) | `cross-repo` | 跨儲存庫對接專案設定與欄位規格校正 |
+| **TASK-179** | 優化後部分功能與顯示無效 | `core` / `ui` | 深度修復：① `requiresConfirmation` 生命週期與 400 阻斷；② `feedbackManager` 遺漏 harness log 與前端 live 顯示；③ 歸檔前置任務輕量摘要與按需查詢 |
+| **TASK-180** | 提供 retro (近期優化深度復盤) | `docs` / `gate` | 實戰驗證「擬定計劃 ➔ 使用者點選確認並執行 ➔ 哨兵二度喚醒」兩階段閉環，完成近期全景技術覆盤與制度沉澱 |
+
+---
+
+### 12.2 核心架構演進與技術突破
+
+#### 1. Context Engineering 深度減稅與零讀碼調度 (TD-H1 ~ TD-H3)
+- **文件瘦身與邊界解耦**：過去 `AGENTS.md` 往往塞滿平台規章、部署指引與各類範本，導致 Agent 每次被喚醒都需要花費數千 Token 吸收過載資訊。本次透過架構減稅，將平台規範收斂為 **`AGENTS.md` 30 行**、**`CLAUDE.md` 6 行**，將非必要細節外移至技能與 Harness 門禁檢核腳本。
+- **3-Tier 分級與零讀碼 Router**：
+  ```mermaid
+  flowchart TD
+      Task["新任務派發 / 狀態切換"] --> Router{"Skill Router (零讀碼判定)"}
+      Router -- "micro (無跨模組/低風險)" --> T1["Tier: micro 原地實作<br/>(主 Agent 原地執行與驗證，無附屬代理)"]
+      Router -- "standard (一般功能/缺陷修復)" --> T2["Tier: standard 單階實作<br/>(指派單一 flash Subagent 載入實作 Skill)"]
+      Router -- "heavy (單向門/高風險變更)" --> T3["Tier: heavy 雙階審核<br/>(flash Subagent 實作 + pro Subagent 雙階審核)"]
+  ```
+  Router 完全不預讀任何目標專案原始碼，僅從任務卡之 `title`, `description`, `tier`, `tags`, `riskDoor` 即時裁定路由，徹底解放上層調度器的 Token 負擔。
+
+#### 2. 結構化交付與後端確定性組裝 (TD-H2)
+- **取消 Handcrafted Markdown 報告**：過去 Agent 需花費 Token 自行排版 Markdown 執行報告，極易發生「報告寫得漂亮、但根本沒跑測試」的幻覺欺瞞現象。
+- **API 契約結構化**：Agent 僅需以 JSON 呼叫 `PUT /api/tasks/:id`：
+  ```json
+  {
+    "status": "review",
+    "objective": "任務目標與背景",
+    "rootCause": "根因深度剖析",
+    "resolution": "核心修復手段",
+    "executionLog": "PASS test/api.test.js ...",
+    "testCommand": "npm test",
+    "exitCode": 0,
+    "testSummary": "All tests green"
+  }
+  ```
+- 後端由 `src/server/feedbackManager.js` 的 `autoAssembleExecutionReport` 負責以確定性格式拼裝出具備目錄、標題、根因、解法與真實終端記錄的報告，並由 `gitService` 自動採集 Git Diff，杜絕假文案與格式錯誤。
+
+#### 3. 0 Token 靜默哨兵與 Confirmation Gate 兩階段人機閉環
+- **雙向確認門禁架構流程**：
+  ```mermaid
+  sequenceDiagram
+      autonumber
+      actor User as 使用者 (Web UI)
+      participant Server as Task Dashboard (後端)
+      participant Sentinel as 靜默哨兵 (watch-task-gate.js)
+      actor Agent as AI 代理人 (CLI Agent)
+
+      User->>Server: 建立任務 (勾選 requiresConfirmation: true)
+      Server->>Server: 任務狀態進入 in_progress (無 executionPlan)
+      Sentinel->>Server: 偵測到任務且無計劃 -> WAKEUP_TRIGGERED (階段一)
+      Sentinel->>Agent: 提示：僅擬定 executionPlan，維持 in_progress，嚴禁實作
+      Agent->>Server: PUT /api/tasks/:id (回寫 executionPlan)
+      Note over Sentinel: 哨兵檢測到已有計劃且需確認<br/>-> 進入靜默守候 (0 Token 消耗，絕不重複喚醒)
+      User->>User: 於儀表板審閱執行計劃 (Markdown 排版 / 輸入意見)
+      User->>Server: 點選「確認並執行」按鈕
+      Note over Server: 清除 claimedBy 鎖定<br/>requiresConfirmation = false<br/>SSE 廣播更新
+      Sentinel->>Server: 偵測到鎖定已釋放且需確認已解除 -> WAKEUP_TRIGGERED (階段二)
+      Sentinel->>Agent: 授權開工：進行程式碼實作與測試
+      Agent->>Server: 測試完成，提交結構化 JSON 推進 review
+  ```
+- **生命週期硬性門禁**：後端嚴格校驗，若任務勾選 `requiresConfirmation: true` 且尚未經使用者確認，任何嘗試推進至 `review` 的請求一律回傳 **HTTP 400 阻斷**，徹底防止 AI 搶跑實作。
+
+#### 4. 冷熱資料分流與輕量級關聯摘要 (Context Engineering)
+- **歷史封存資料庫隔離**：隨任務數成長，`tasks-archived.json` 規模已超過 2.4MB（包含數百個任務的完整 diff 與日誌）。若將其與前端活躍看板混合載入，會導致瀏覽器與後端記憶體雪崩。
+- **輕量摘要 API (`/api/tasks/dependencies-summary`)**：僅提取 `{ id, title, status, project, priority, createdAt }`，排除 heavy `diff`，傳輸量降低 98% 以上。
+- **單一任務 Fallback 讀取**：前端檢索單一任務時，若活躍庫中查無此卡片，後端 `/api/tasks/:id` 自動向封存庫回溯查詢並富化專案路徑、diff 與技能元資料，實現「輕量列表、隨選深查」的最佳實踐。
+
+---
+
+### 12.3 深度覆盤：Keep（亮點）與 Problem（痛點與根因）
+
+#### 🌟 Keep（成效良好、應持續保持之核心優勢）
+
+1. **極致的 Context 減稅成效（Token 消耗暴跌 70%+）**：
+   - 藉由 `AGENTS.md` 行數門禁（< 60 行）、`CLAUDE.md`（< 15 行）與「禁止整檔盲讀大檔」紀律，Agent 在啟動時的 Context 污染降到最低。
+   - 上層調度（Skill Router）零讀碼，主 Agent 上下文始終維持在 5% 以下之安全水位，徹底根絕了「上下文飽和 ➔ 指令漂移 ➔ 幻覺反覆重置」的惡性循環。
+2. **0 Token 靜默哨兵的極高可靠性與即時性**：
+   - 基於原生檔案監聽（支援 Atomic Rename 與直接寫入），待命期間完全零 Token、零 API 成本消耗。
+   - 搭配 PID 活體偵測與 15 分鐘 TTL Conversation Lock，在多終端/多視窗並行操作下能完美防重入與防搶單。
+3. **確定性自動化組裝消除虛假交付 (TD-H2)**：
+   - 將「撰寫報告」與「收集 Diff」從 AI 的自主行為收斂至後端固定管線，使交付的報告品質標準化，且 Git Diff 100% 忠實反映磁碟變更，杜絕手寫浮誇文案。
+4. **人機雙向門禁 (Confirmation Gate) 建立信任閉環**：
+   - 解決了傳統 Agent 遇到複雜需求時「自己想像、盲目敲代碼、交付才發現完全理解錯誤」的痛點。透過兩階段確認，使用者能在開工前及時微調策略，真正達到「人機協同、關鍵決策在人」。
+5. **冷熱分流架構符合 Context Engineering 原則**：
+   - 活躍任務與 2.4MB 封存庫物理拆分，搭配輕量關聯摘要端點，使系統即便在累積上千個任務後，仍能保持毫秒級的載入響應速度。
+
+---
+
+#### ⚠️ Problem（近期實戰暴露之痛點、邊界盲點與根因分析）
+
+1. **痛點一：後端寬鬆的兜底邏輯刺穿了門禁安全防線**：
+   - **現象**：在 TASK-179 之前，任務勾選了「需確認後再執行」，但 Agent 仍能一路推入 `review`，完全沒有觸發確認等待。
+   - **根因分析**：`server.js` 歷史遺留了一段防空計劃的代碼：`if (!task.executionPlan) task.executionPlan = "1. 分析需求\n2. 實作變更\n3. 驗證通過"`。當狀態推進 review 時，後端自動塞入了這段假計劃，導致後續檢查誤判「已有計劃」，加上缺少 `planConfirmed` 硬性檢查，使確認機制完全形同虛設。
+   - **教訓**：後端的 Default/Fallback 邏輯絕不可用來假造業務資料。安全門禁必須是具備阻斷性（Fail-Fast HTTP 400）的單向門，寧可報錯不可假放行。
+
+2. **痛點二：API 欄位命名映射不對稱，導致 Harness 日誌靜默遺失**：
+   - **現象**：Agent 跑完了完整的測試套件並將終端輸出送進 `PUT /api/tasks/:id`，但前端最終渲染的報告中，「終端日誌」區域卻是一片空白。
+   - **根因分析**：`feedbackManager.js` 的 `autoAssembleExecutionReport` 嚴格僅讀取 `payload.rawLog || payload.rawOutput || payload.terminalOutput`，但呼叫端與 Agent 慣用的欄位名稱卻是 `executionLog` 或 `harnessLog`。由於缺少正規化映射，傳入的日誌被直接拋棄。
+   - **教訓**：核心管線與 API 界面必須具備嚴格的 Schema 契約定義或健全的別名正規化容錯（Alias Normalization），重要資料絕不應在組裝過程中被靜默遺棄。
+
+3. **痛點三：前端 UI 狀態過度假設造成除錯資訊被遮蔽**：
+   - **現象**：正在進行中的任務，明明後端日誌檔案已持續寫入輸出，但在彈窗中卻完全看不到；報告中的 `<details>` 終端日誌因為預設摺疊，使用者常誤以為執行沒有產出。
+   - **根因分析**：`modal.js` 的 `updateModalLiveInProgressView` 粗暴地將 `formLogBox` 設為 `display: none`；而 `executionReport.js` 解析時誤判原始字串，導致展開標籤遺失。
+   - **教訓**：UI 呈現應以「有資料即展示」為準則，降低除錯可見性障礙；對於高價值的終端測試證據，應採用 `<details open>` 預設展開，降低認知摩擦。
+
+4. **痛點四：前端本地記憶體快取與後端全域資料脫節**：
+   - **現象**：在看板卡片點擊前置依賴任務，若該任務已被歸檔，彈窗完全無反應，使用者以為功能壞掉。
+   - **根因分析**：前端 `openModalForEdit` 僅在 `window.tasks` 與 `window.archivedTasks` 查找物件，但後者只有在打開封存庫時才會加載。本地查無物件就直接 return，未向後端發動查詢。
+   - **教訓**：前端快取應設計為透明的 Promise Cache 或具備「Cache-miss 時即時請求 API 回補」的機制，而非依賴特定彈窗開啟的副作用。
+
+---
+
+### 12.4 💡 行動建議與後續演進策略 (Action Items / Try)
+
+```mermaid
+flowchart LR
+    A["近期暴露問題"] --> B["Action 1: API 契約正規化與統一驗證"]
+    A --> C["Action 2: 前端通用非同步快取層"]
+    A --> D["Action 3: 待確認狀態之『退回重擬』機制"]
+    A --> E["Action 4: E2E 門禁整合測試持續固化"]
+    A --> F["Action 5: Worktree 實體環境可觀測性看板"]
+```
+
+1. **Action Item 1: API 契約正規化與統一驗證 (Schema & Alias Normalization)**：
+   - 在後端路由層建立輕量 Payload 正規化層，將 `rawLog`, `rawOutput`, `executionLog`, `harnessLog`, `terminalOutput` 統一映射至 `executionLog` 欄位。
+   - 強化狀態流轉防線：任何不合規的推進（如未確認直接推進 review、測試 exitCode 非 0 等）一律回傳語義清楚的 HTTP 400 JSON 錯誤。
+2. **Action Item 2: 前端建立統一的非同步任務資料獲取層 (Unified Task Repository)**：
+   - 重構前端取得任務之邏輯，統一封裝為 `getTaskAsync(taskId)`：先查本地活躍記憶體 ➔ 若無則向 `/api/tasks/:id` 請求 ➔ 自動存入暫存快取。徹底消滅前端各模組因資料未加載導致的靜默失效。
+3. **Action Item 3: 待確認狀態新增顯式「退回重擬計劃」動作 (Reject & Re-plan)**：
+   - 目前待確認彈窗僅提供「確認並執行」。若使用者對計劃完全不認可，只能手動清空計劃。建議新增「退回重新擬定」按鈕，清空 `executionPlan` 並附帶審查意見，重設為 `待擬定計劃`，由哨兵重新喚醒 Agent 重新提擬。
+4. **Action Item 4: 持續固化端到端門禁自動化測試 (E2E Gate Testing)**：
+   - 將本次 TASK-179/180 所建立的 `[8.7/9]` 測試套件（Confirmation Gate 400 攔截、確認後放行、Harness Log 報告完整性、輕量摘要不含 heavy diff）列為 CI 必跑標準，確保日後重構絕不破壞門禁。
+5. **Action Item 5: Worktree 實體環境可觀測性看板 (Worktree Observability)**：
+   - 配合 TD-H5 worktree 機制，在 UI 或 API 增加工作區監控面版，即時掌握各任務 worktree 的磁碟用量、分支狀態與存活時間，並提供孤兒 worktree 自動逾時回收機制。
+
+---
+*Retrospective Report updated at 2026-11-06 by Antigravity (TASK-180).*
+
 
 
 

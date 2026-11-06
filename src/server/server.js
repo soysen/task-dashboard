@@ -1461,6 +1461,11 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
     subagentGuidance = '• 本任務為 standard 級別，若環境支援 Subagent，啟用單一 flash Subagent (Workspace: "inherit") 進行實作與測試，由主進程進行確定性驗證。\n';
   }
 
+  const isPendingPlanCreation = Boolean(task.requiresConfirmation && (!task.executionPlan || !task.executionPlan.trim()));
+  const confirmationGuidance = isPendingPlanCreation
+    ? '• 【需確認後執行門禁 (Confirmation Gate)】: 本任務勾選「需確認後再執行」（requiresConfirmation: true），目前處於待擬定計劃階段！首要任務僅為需求分析與擬定具體完整的 executionPlan 回寫至 tasks.json（維持 status: in_progress），嚴禁未獲使用者授權前直接進行代碼實作或推進 review！請於回覆中提示使用者於儀表板審閱並點選「確認並執行」。\n'
+    : '';
+
   const promptText = '【任務開工】[' + task.id + '] ' + task.title + '\n' +
     '• 專案: ' + task.project + ' (' + projPath + ') | 驗證: ' + harnessCmd + '\n' +
     '• 需求: ' + (task.description || '無') +
@@ -1469,6 +1474,7 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
     docsSection +
     '【3-Phase Gate 規範】：\n' +
     subagentGuidance +
+    confirmationGuidance +
     '1. Pre-Flight: 優先滿足 Feedback，檢閱規範並執行前置驗證（' + harnessCmd + '）；若任務勾選需確認後再執行且未具備執行計劃，必須先產出完整執行計劃回寫 executionPlan 供確認；面對 > 500 行大檔嚴禁整檔閱讀，必須以 grep-n 先定位後切片 30-50 行，檢索上限 2 次避免 Loop。\n' +
     '2. Implementation: 遵循專案架構最小範圍實作並補齊測試，嚴禁跨專案副作用。\n' +
     '3. Review Promotion: 驗證通過後收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })，推進至 review 並清空 feedback。\n' +
@@ -2466,8 +2472,17 @@ function runNativeFolderPicker(promptText, callback) {
             ? (t.sliceInfo || undefined)
             : scanProjectWorklogAndPlan(projPath, t.id, tasks);
 
+          let executionLog = t.executionLog || '';
+          if (!executionLog) {
+            const logFile = path.join(getLogsDir(), `${t.id}.log`);
+            if (fs.existsSync(logFile)) {
+              try { executionLog = fs.readFileSync(logFile, 'utf8'); } catch (e) {}
+            }
+          }
+
           let item = {
             ...t,
+            executionLog: executionLog || t.executionLog || '',
             projectPath: projPath,
             projectDocs: docs,
             projectSkills: skills,
@@ -2543,6 +2558,43 @@ function runNativeFolderPicker(promptText, callback) {
     return;
   }
 
+  // 輕量關聯任務摘要清單 (包含 tasks.json 與 tasks-archived.json，符合 Context Engineering 規範)
+  if (pathname === '/api/tasks/dependencies-summary' && req.method === 'GET') {
+    try {
+      const activeTasks = readTasks();
+      const archivedTasks = readArchivedTasks();
+      const allTasks = [...activeTasks, ...archivedTasks];
+      const targetProj = query.project ? String(query.project).trim() : null;
+      let filtered = targetProj ? allTasks.filter(t => t.project === targetProj) : allTasks;
+      filtered.sort((a, b) => {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        if (timeB !== timeA) return timeB - timeA;
+        const numA = parseInt(String(a.id).replace(/\D/g, ''), 10) || 0;
+        const numB = parseInt(String(b.id).replace(/\D/g, ''), 10) || 0;
+        return numB - numA;
+      });
+      const summaryList = filtered.map(t => ({
+        id: t.id,
+        title: t.title || '',
+        status: t.status || 'todo',
+        project: t.project || '',
+        priority: t.priority || 'P1',
+        createdAt: t.createdAt || ''
+      }));
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'X-Total-Count': String(summaryList.length)
+      });
+      res.end(JSON.stringify(summaryList));
+    } catch (routeErr) {
+      console.error('Error in GET /api/tasks/dependencies-summary route:', routeErr);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Internal Server Error' }));
+    }
+    return;
+  }
+
   // 查詢單一任務完整 Diff (支援封存任務已抽離之 diffPath)
   if (pathname.match(/^\/api\/tasks\/([^/]+)\/diff$/) && req.method === 'GET') {
     const taskId = decodeURIComponent(pathname.split('/')[3] || '').trim();
@@ -2568,7 +2620,7 @@ function runNativeFolderPicker(promptText, callback) {
     return;
   }
 
-  // 查詢單一任務詳情 (支援 tasks.json 與 tasks-archived.json)
+  // 查詢單一任務詳情 (支援 tasks.json 與 tasks-archived.json 並提供完整元資料)
   if (pathname.match(/^\/api\/tasks\/([^/]+)$/) && req.method === 'GET') {
     const taskId = decodeURIComponent(pathname.split('/')[3] || '').trim();
     const tasks = readTasks();
@@ -2579,8 +2631,37 @@ function runNativeFolderPicker(promptText, callback) {
       res.end(JSON.stringify({ error: 'Task not found: ' + taskId }));
       return;
     }
+    const projects = readProjects();
+    const proj = projects.find(p => p.id === task.project);
+    const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, task.project || '');
+    const docs = proj ? (proj.docs || []) : scanProjectGithubInfo(projPath).docs;
+    const skills = proj ? (proj.skills || []) : scanProjectGithubInfo(projPath).skills;
+    const harness = proj ? (proj.harness || {}) : scanProjectGithubInfo(projPath).harness;
+    let diffContent = task.diff || '';
+    if (!diffContent && task.diffPath) {
+      const fullDiffFile = path.join(resolveDataDir(), task.diffPath);
+      if (fs.existsSync(fullDiffFile)) {
+        try { diffContent = fs.readFileSync(fullDiffFile, 'utf8'); } catch (e) {}
+      }
+    }
+    let executionLog = task.executionLog || '';
+    if (!executionLog) {
+      const logFile = path.join(getLogsDir(), `${task.id}.log`);
+      if (fs.existsSync(logFile)) {
+        try { executionLog = fs.readFileSync(logFile, 'utf8'); } catch (e) {}
+      }
+    }
+    const enriched = {
+      ...task,
+      diff: diffContent,
+      executionLog: executionLog,
+      projectPath: projPath,
+      projectDocs: docs,
+      projectSkills: skills,
+      projectHarness: harness
+    };
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(task));
+    res.end(JSON.stringify(enriched));
     return;
   }
 
@@ -2686,6 +2767,22 @@ function runNativeFolderPicker(promptText, callback) {
 
         // [Slice Judge Gate] 若將狀態推進至 review，非手動強制推進 (forceReview !== true) 時強制檢驗 executionLog
         if (data.status === 'review' && prevStatus !== 'review' && !data.forceReview) {
+          // [Confirmation Gate] 若任務 requiresConfirmation 為 true 且尚未確認 (confirmExecution !== true 且 data.requiresConfirmation !== false)，嚴禁推進至 review
+          if (tasks[index].requiresConfirmation && data.requiresConfirmation !== false && !data.confirmExecution) {
+            appendTaskEvent({
+              taskId,
+              type: 'review_gate_rejected',
+              shimId: 'GATE-002',
+              reason: 'Task requires confirmation before implementation. Plan must be confirmed by user.'
+            });
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              error: 'Confirmation gate failed: task has requiresConfirmation: true and has not been confirmed by user. You must formulate executionPlan and remain in in_progress waiting for user confirmation.',
+              reason: 'requiresConfirmation is true and unconfirmed.'
+            }));
+            return;
+          }
+
           // 檢驗 exitCode：若顯式傳入非 0 exitCode，嚴格拒絕推進 review
           if (data.exitCode !== undefined && data.exitCode !== null && Number(data.exitCode) !== 0) {
             appendTaskEvent({

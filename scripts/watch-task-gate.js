@@ -259,13 +259,22 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
     strategyText = `• 執行策略 (Tier: standard 單階實作): 指派單一 flash Subagent (Workspace: "inherit") 載入專案實作 Skill 實作，按需才啟用驗證代理。`;
   }
 
+  const isPendingPlanCreation = Boolean(task.requiresConfirmation && (!task.executionPlan || !task.executionPlan.trim()));
+  const confirmationText = isPendingPlanCreation
+    ? `\n• 【需確認後執行門禁 (Confirmation Gate)】: 本任務勾選「需確認後再執行」（requiresConfirmation: true），目前處於待擬定計劃階段！請僅進行需求分析與擬定具體可行的執行計劃 (executionPlan)，並呼叫 PUT http://localhost:3030/api/tasks/${task.id} 回寫 executionPlan（維持 status: in_progress），嚴禁未獲使用者授權前直接實作代碼或推進 review！請於回覆中提示使用者於儀表板審閱並點選「確認並執行」。`
+    : '';
+
+  const deliveryText = isPendingPlanCreation
+    ? `擬定執行計劃並以 PUT http://localhost:3030/api/tasks/${task.id} 回寫 executionPlan (維持 in_progress 待使用者審閱確認)，請勿直接實作代碼或推進 review。`
+    : `完成後以結構化 JSON 呼叫 PUT http://localhost:3030/api/tasks/${task.id} 推進 review (勿手寫報告)。`;
+
   return `================================================================================\n` +
-    `[${triggerType}] 任務開工通知：[${task.id}] ${task.title}\n` +
+    `[${triggerType}] 任務開工通知${isPendingPlanCreation ? '（待擬定執行計劃）' : ''}：[${task.id}] ${task.title}\n` +
     `• 專案: ${task.project || '預設'}${projPath ? ` (${projPath})` : ''}\n` +
-    `• 需求: ${cleanDesc}${feedbackText}${prioritySkillText}${implSkillsText}${verifySkillsText}\n` +
+    `• 需求: ${cleanDesc}${feedbackText}${confirmationText}${prioritySkillText}${implSkillsText}${verifySkillsText}\n` +
     `${strategyText}\n` +
     `• 執行規範: 遵循 ${STANDARD_DOC} 3-Phase Gate；Router 不預讀原始碼/歷史 plan；僅跑受影響測試 + 專案 harness（無關基線紅燈僅註記）。\n` +
-    `• 交付方式: 完成後以結構化 JSON 呼叫 PUT http://localhost:3030/api/tasks/${task.id} 推進 review (勿手寫報告)。\n` +
+    `• 交付方式: ${deliveryText}\n` +
     `================================================================================`;
 }
 

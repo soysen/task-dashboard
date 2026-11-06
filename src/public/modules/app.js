@@ -981,6 +981,9 @@ node "${gateScriptPath}"${sharedInstructions}`;
     document.getElementById('searchInput').addEventListener('input', renderKanban);
     document.getElementById('priorityFilter').addEventListener('change', renderKanban);
     document.getElementById('projectSearchInput').addEventListener('input', renderSidebarProjects);
+    document.getElementById('formExecutionPlan')?.addEventListener('input', () => {
+      if (typeof updateModalButtonState === 'function') updateModalButtonState();
+    });
 
     document.addEventListener('click', (e) => {
       const container = document.getElementById('select2Container');

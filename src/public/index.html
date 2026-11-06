@@ -749,7 +749,7 @@
                 <!-- 結構化 HTML 計劃檢視容器 -->
                 <div id="formPlanVisual" class="text-xs"></div>
 
-                <textarea id="formExecutionPlan" rows="6" placeholder="此任務之預計執行計劃、步驟與驗證指標..." class="hidden w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs leading-relaxed text-slate-900 dark:text-slate-100 focus:outline-none custom-scrollbar font-mono transition"></textarea>
+                <textarea id="formExecutionPlan" oninput="updateModalButtonState()" rows="6" placeholder="此任務之預計執行計劃、步驟與驗證指標..." class="hidden w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs leading-relaxed text-slate-900 dark:text-slate-100 focus:outline-none custom-scrollbar font-mono transition"></textarea>
               </div>
 
               <!-- 審查意見與修改回饋 (Review Feedback — 統一樣式圓角淺灰底 td-surface-panel，局部琥珀狀態色條) -->

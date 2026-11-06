@@ -152,8 +152,10 @@ import { loadData } from "./app.js";
       if (window.lucide) lucide.createIcons();
     }
 
+    let dependencySummaryMap = {};
+
     // 依賴任務管理
-    function updateDependencyOptions(currentEditingTaskId) {
+    async function updateDependencyOptions(currentEditingTaskId) {
       const selectEl = document.getElementById('formDependenciesSelect');
       if (!selectEl) return;
 
@@ -178,8 +180,30 @@ import { loadData } from "./app.js";
         selectEl.classList.remove('cursor-not-allowed', 'opacity-75');
       }
 
-      // 僅顯示對應專案的任務紀錄，取消專案分組
-      const availableTasks = tasks.filter(t => t.id !== currentEditingTaskId && t.project === currentFormProjId);
+      // 透過輕量 API 取得專案全量任務清單（包含已歸檔任務，符合 Context Engineering 規範）
+      let availableTasks = [];
+      try {
+        const res = await fetch(`/api/tasks/dependencies-summary?project=${encodeURIComponent(currentFormProjId)}&t=${Date.now()}`);
+        if (res.ok) {
+          const list = await res.json();
+          if (Array.isArray(list)) {
+            list.forEach(item => {
+              if (item && item.id) dependencySummaryMap[item.id] = item;
+            });
+            availableTasks = list.filter(t => t.id !== currentEditingTaskId);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load dependency summaries, using fallback:', err);
+      }
+
+      // 降級回退：若 API 查詢失敗或為空，使用記憶體中 tasks
+      if (availableTasks.length === 0) {
+        availableTasks = tasks.filter(t => t.id !== currentEditingTaskId && t.project === currentFormProjId);
+        availableTasks.forEach(item => {
+          if (item && item.id) dependencySummaryMap[item.id] = item;
+        });
+      }
 
       // 由新到舊排序 (依據 createdAt 降序，若無或相同則依據 TASK ID 數字降序)
       availableTasks.sort((a, b) => {
@@ -196,7 +220,8 @@ import { loadData } from "./app.js";
       } else {
         let html = '<option value=""> 選擇關聯/前置任務...</option>';
         availableTasks.forEach(t => {
-          html += `<option value="${t.id}">[${t.id}] ${escapeHtml(t.title)} (${t.status})</option>`;
+          const stText = t.status === 'archived' ? '已封存' : (t.status === 'done' ? '已完成' : t.status);
+          html += `<option value="${t.id}">[${t.id}] ${escapeHtml(t.title)} (${stText})</option>`;
         });
         selectEl.innerHTML = html;
       }
@@ -228,10 +253,24 @@ import { loadData } from "./app.js";
         return;
       }
       container.innerHTML = currentTaskDependencies.map(depId => {
+        const depInfo = tasks.find(t => t.id === depId) || archivedTasks.find(t => t.id === depId) || dependencySummaryMap[depId];
+        const depTitle = depInfo ? depInfo.title : '';
+        const depStatus = depInfo ? depInfo.status : '';
+        const statusLabel = depStatus === 'archived' ? '封存' : (depStatus === 'done' ? '完成' : depStatus);
+        const statusClass = depStatus === 'archived'
+          ? 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+          : (depStatus === 'done'
+            ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+            : 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300');
+        const statusBadge = statusLabel ? `<span class="text-[9px] px-1 py-0.2 rounded font-mono ${statusClass}">${statusLabel}</span>` : '';
+
         return `
-          <span class="inline-flex items-center gap-1 text-[10px] bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 px-2 py-0.5 rounded-md font-mono">
-            <span> ${escapeHtml(depId)}</span>
-            ${!isCurrentModalReadOnly ? `<button type="button" onclick="removeDependency('${depId}')" class="text-indigo-400 hover:text-indigo-600 dark:hover:text-white ml-0.5 font-bold">×</button>` : ''}
+          <span class="inline-flex items-center gap-1.5 text-[10px] bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 px-2 py-0.5 rounded-md font-mono">
+            <span onclick="openModalForEdit('${escapeHtml(depId)}')" class="cursor-pointer hover:underline flex items-center gap-1" title="${escapeHtml(depTitle ? `${depId}: ${depTitle} (${statusLabel || '檢視'})` : `點擊檢視 ${depId}`)}">
+              <span>${escapeHtml(depId)}</span>
+              ${statusBadge}
+            </span>
+            ${!isCurrentModalReadOnly ? `<button type="button" onclick="event.stopPropagation(); removeDependency('${depId}')" class="text-indigo-400 hover:text-indigo-600 dark:hover:text-white ml-0.5 font-bold cursor-pointer">×</button>` : ''}
           </span>
         `;
       }).join('');
@@ -720,18 +759,27 @@ import { loadData } from "./app.js";
       renderDependencyChips();
       renderSelect2Chips();
 
-      // 7. 隱藏執行紀錄與測試 Log 區塊 (進行中任務不需顯示)
+      // 7. 執行紀錄與測試 Log 區塊
       const logBox = document.getElementById('formLogBox');
-      if (logBox && isReadOnly) {
-        logBox.classList.add('hidden');
+      const logVisual = document.getElementById('formLogVisual');
+      const isPendingConfirm = !!currentModalEditingTask?.requiresConfirmation && currentModalEditingTask?.status === 'in_progress';
+      if (logBox) {
+        const hasLog = Boolean(currentModalEditingTask?.executionLog && currentModalEditingTask.executionLog.trim());
+        if (hasLog && (!isReadOnly || isPendingConfirm)) {
+          logBox.classList.remove('hidden');
+          if (logVisual) logVisual.innerText = currentModalEditingTask.executionLog;
+          if (typeof renderExecutionReport === 'function') renderExecutionReport(currentModalEditingTask);
+        } else if (!hasLog) {
+          logBox.classList.add('hidden');
+        }
       }
 
-      // 8. 儲存與刪除/放棄按鈕鎖定 (避免中途異動)
+      // 8. 儲存與刪除/放棄按鈕鎖定 (待確認任務保留儲存按鈕供更新執行計劃與回饋)
       const btnSubmit = document.getElementById('btnSubmitTask');
       const btnDelete = document.getElementById('btnDeleteTask');
       const btnAbandon = document.getElementById('btnAbandonTask');
       if (btnSubmit) {
-        if (isReadOnly) {
+        if (isReadOnly && !isPendingConfirm) {
           btnSubmit.classList.add('hidden');
         } else {
           btnSubmit.classList.remove('hidden');
@@ -785,10 +833,17 @@ import { loadData } from "./app.js";
         }
       }
 
-      // 嚴格規定：進行中任務不需顯示執行紀錄與測試 Log 區塊，維持畫面簡潔並聚焦切片
+      // 進行中任務若有執行紀錄，呈現執行紀錄；無則隱藏
       const logBox = document.getElementById('formLogBox');
+      const logVisual = document.getElementById('formLogVisual');
       if (logBox) {
-        logBox.classList.add('hidden');
+        if (task.executionLog && task.executionLog.trim()) {
+          logBox.classList.remove('hidden');
+          if (logVisual) logVisual.innerText = task.executionLog;
+          if (typeof renderExecutionReport === 'function') renderExecutionReport(task);
+        } else {
+          logBox.classList.add('hidden');
+        }
       }
     }
 
@@ -799,9 +854,22 @@ import { loadData } from "./app.js";
       return !!(safeNormalize(task.executionLog).trim() || safeNormalize(task.feedback).trim() || safeNormalize(task.executionPlan).trim());
     }
 
-    function openModalForEdit(id, options = {}) {
-      const task = tasks.find(t => t.id === id) || archivedTasks.find(t => t.id === id);
-      if (!task) return;
+    async function openModalForEdit(id, options = {}) {
+      let task = tasks.find(t => t.id === id) || archivedTasks.find(t => t.id === id);
+      if (!task) {
+        try {
+          const res = await fetch(`/api/tasks/${encodeURIComponent(id)}?t=${Date.now()}`);
+          if (res.ok) {
+            task = await res.json();
+          }
+        } catch (fetchErr) {
+          console.warn('Failed to fetch task on demand for', id, fetchErr);
+        }
+      }
+      if (!task) {
+        if (typeof showToast === 'function') showToast(`找不到任務 ${id} 的詳細資訊`, true);
+        return;
+      }
       if (task.executionLog && typeof task.executionLog !== 'string') {
         task.executionLog = normalizeLogText(task.executionLog);
       }
@@ -831,7 +899,7 @@ import { loadData } from "./app.js";
           .catch(() => {});
       }
 
-      const fromArchive = Boolean(options && options.fromArchive);
+      const fromArchive = Boolean(options && options.fromArchive) || task.status === 'archived';
       setIsOpenedFromArchive(fromArchive);
 
       const btnBackToArchive = document.getElementById('btnBackToArchive');
@@ -913,8 +981,8 @@ import { loadData } from "./app.js";
       setCurrentTaskDependencies(Array.isArray(task.dependencies) ? [...task.dependencies] : []);
       updateDependencyOptions(task.id);
 
-      // 根據任務狀態設定全域欄位唯讀 (進行中任務所有欄位皆改為 readonly，避免中途異動)
-      setModalFieldsReadOnly(task.status === 'in_progress');
+      // 根據任務狀態設定全域欄位唯讀 (進行中與封存任務欄位皆改為 readonly，避免中途異動)
+      setModalFieldsReadOnly(task.status === 'in_progress' || task.status === 'archived');
 
       // 右欄：異動檔案清單 (可點選互動過濾 Diff)
       setCurrentActiveTaskDiff(task.diff || '');
@@ -979,7 +1047,21 @@ import { loadData } from "./app.js";
           logVisual.innerText = task.executionLog;
           renderExecutionReport(task);
         } else {
-          logBox.classList.add('hidden');
+          fetch(`/api/tasks/${encodeURIComponent(task.id)}/log?t=${Date.now()}`)
+            .then(res => res.ok ? res.text() : '')
+            .then(logText => {
+              if (logText && logText.trim() && currentModalEditingTask && currentModalEditingTask.id === task.id) {
+                task.executionLog = logText;
+                logBox.classList.remove('hidden');
+                logVisual.innerText = logText;
+                renderExecutionReport(task);
+              } else if (!task.executionLog) {
+                logBox.classList.add('hidden');
+              }
+            })
+            .catch(() => {
+              if (!task.executionLog) logBox.classList.add('hidden');
+            });
         }
       }
 
