@@ -1475,7 +1475,7 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
     confirmationGuidance +
     '1. Pre-Flight: 優先滿足 Feedback，檢閱規範並執行前置驗證（' + harnessCmd + '）；若任務勾選需確認後再執行且未具備執行計劃，必須先產出完整執行計劃回寫 executionPlan 供確認；若需求包含【最新需求覆蓋】，其內容具備最高優先權，衝突處一律覆蓋舊有描述；面對 > 500 行大檔嚴禁整檔閱讀，必須以 grep-n 先定位後切片 30-50 行，檢索上限 2 次避免 Loop。\n' +
     '2. Implementation: 遵循專案架構最小範圍實作並補齊測試，嚴禁跨專案副作用。\n' +
-    '3. Review Promotion: 驗證通過後收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })，推進至 review 並清空 feedback。\n' +
+    '3. Review Promotion: 驗證通過且完成 Pre-Commit 預檢（若專案具備 .git/hooks/pre-commit 必須先執行通過），收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })，推進至 review 並清空 feedback。\n' +
     '【執行紀錄證據】：executionLog 必須逐步記錄實際檢閱檔案、診斷結果、修改檔案與原因，以及每項驗證的命令、工作目錄、退出碼與實際 stdout/stderr。區分工作摘要與原始執行細節，不得僅寫「測試通過／工作完成」，不得宣稱未執行的檢查已通過；保留可用輸出且不得截斷，敏感憑證不得寫入日誌。';
 
   const rawCliCmd = (settings.cliCommand || 'hermes').trim();

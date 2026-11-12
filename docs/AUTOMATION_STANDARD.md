@@ -54,11 +54,12 @@ flowchart TD
     end
 
     subgraph Phase3["Phase 3: Compliance Manifest & Review Promotion"]
-        P3_1["1. 執行專案測試與 Harness 驗證 (取得 Exit Code 0)"] --> P3_2["2. 採集全量完整 Git Diff (含 untracked 檔案)"]
-        P3_2 --> P3_3["3. 依任務核心主軸產出標準 Conventional Commit 訊息"]
-        P3_3 --> P3_4["4. 送出結構化 JSON Payload (由後端自動組裝執行報告)"]
-        P3_4 --> P3_5["5. Chat 精簡回報 (僅回覆摘要與任務卡連結)"]
-        P3_5 --> P3_6["6. 呼叫 Task Dashboard API 推進至 review (清空 feedback)"]
+        P3_1["1. 執行專案測試與 Harness 驗證 (取得 Exit Code 0)"] --> P3_PC["2. Pre-Commit 預先自我檢驗門禁\n(主動執行 pre-commit hook 取得 Exit 0)"]
+        P3_PC --> P3_2["3. 採集全量完整 Git Diff (含 untracked 檔案)"]
+        P3_2 --> P3_3["4. 依任務核心主軸產出標準 Conventional Commit 訊息"]
+        P3_3 --> P3_4["5. 送出結構化 JSON Payload (由後端自動組裝執行報告)"]
+        P3_4 --> P3_5["6. Chat 精簡回報 (僅回覆摘要與任務卡連結)"]
+        P3_5 --> P3_6["7. 呼叫 Task Dashboard API 推進至 review (清空 feedback)"]
     end
 
     Phase1 --> Phase2 --> Phase3
@@ -141,16 +142,20 @@ flowchart TD
 
 ### Phase 3: Compliance Manifest & Review Promotion (合規驗證與交付)
 1. 執行該專案的測試與驗證指令（如 `npm test`、`npm run build:app`），取得 Exit Code 0。
-2. **全量完整 Git Diff 採集**：
+2. **Pre-Commit 預先自我檢驗門禁 (Pre-Commit Self-Verification Gate)**：
+   - **主動偵測**：檢查專案是否存在 `.git/hooks/pre-commit`、`.husky/pre-commit`，或 `package.json` 中的 `scripts.pre-commit` / `scripts.lint`。
+   - **暫存與模擬驗證**：若存在 Pre-commit 機制，Agent 必須先執行 `git add -A` 暫存變更，並主動執行該 Pre-commit 腳本（或執行 `git commit --dry-run` 模擬提交）。
+   - **原地自癒 (Self-Healing)**：若 Pre-commit 檢驗失敗（如 lint 格式錯誤、缺少測試日誌或 Harness Evidence 檢核不符），Agent **必須在 Phase 3 內原地排查並修復完畢**，確保 Pre-commit 順利獲得 Exit Code 0 後，方可推進至 `review`。
+3. **全量完整 Git Diff 採集**：
    - 記錄實際修改檔案清單 `modifiedFiles`。
    - 記錄產生的 `diff`：必須包含已追蹤 (`git diff HEAD`) 與未追蹤 (`git diff --no-index /dev/null <untracked>`) 檔案之全量完整無截斷 diff。
-3. **依據任務核心主軸與 Git Diff 實質變更產出標準 Commit 訊息 (`commitMessage`)**：
+4. **依據任務核心主軸與 Git Diff 實質變更產出標準 Commit 訊息 (`commitMessage`)**：
    - 結構化 Commit 格式：`task.commitMessage = { "subject": "<type>(<scope>): <clean_subject>", "body": "- <重點 1>\n- <重點 2>" }`。
    - **【核心主軸原則】**：即使任務歷經多次 Feedback 修訂，Commit 主旨 (subject) 必須嚴格鎖定任務原始核心主軸，內文 (body) 則綜合全量實際異動項目與歷次 Feedback 修訂重點，嚴禁將主旨退化為最後單一一次 Feedback 的局部微調。
    - **【實質變更防偽守則】**：
      - **拒絕照抄負向抱怨或測試標題**：若任務標題為抱怨句、問題陳述或測試性標題（例如「commit 提供的內容僅僅只是帶入 harness 結果與任務標題，未針對 diff 的實質變動產出」），必須提煉為具備明確動詞與受詞的正向工程句（例如 `feat(git): 升級 Commit 訊息產出機制支援依據 Git Diff 深度語意提煉`）。
      - **Body 徹底剔除罐頭字串**：嚴禁填入空泛通用字串（如「後端服務邏輯調校與開工引擎強化」、「前端面板視圖與彈窗互動優化」、「程式碼與架構規範檢驗通過」）或僅條列測試通過訊息。Body 必須由實質 Git Diff 提取意圖註解、異動函式、API 路由、UI 元件與模組符號，或由 Agent 提交的高品質 `task.keyChanges` / `task.resolution` 組合而成。
-4. **交付報告結構化組裝與二元驗收門禁 [GATE-001]**：
+5. **交付報告結構化組裝與二元驗收門禁 [GATE-001]**：
    - Agent 交付傳送結構化 JSON Payload，由後端依據標準規格自動組裝任務執行報告。二元門禁嚴格檢驗 `executionLog` 客觀證據與要求 `exitCode === 0`，未達標準一律阻擋推進（HTTP 400）。
    - 格式包含以下四大核心章節與折疊原生輸出：
      ```markdown
@@ -181,10 +186,10 @@ flowchart TD
      ```
      </details>
      ```
-5. **Chat 精簡回報原則 (Chat-Report Symmetry 升級)**：
+6. **Chat 精簡回報原則 (Chat-Report Symmetry 升級)**：
    - AI 在完成交付後，於 Chat 視窗中**僅需提供簡潔摘要（1~2 行）與任務卡連結**，宣告實作結論與測試通過。
    - 完整 4 章節任務執行報告統一由後端依據 JSON payload 結構化自動組裝至 `task.executionLog`，**嚴禁在 Chat 視窗全量重複傾倒整份 Markdown 報告**，徹底消除 Output Token 雙重收稅。
-6. **推進狀態至 Review 與 Feedback 歸檔自癒 [GATE-002]**：
+7. **推進狀態至 Review 與 Feedback 歸檔自癒 [GATE-002]**：
    - 將 feedback 內容附加寫入 `task.description` 尾端（保留原始需求，以 `\n\n--- 【歷次審查意見 / Feedback 記錄】 ---\n[Timestamp]\n- <feedback>` 區隔），並清空 `task.feedback`。
    - 系統若於 review/done 狀態偵測到殘留未清空之 feedback，自動觸發自癒清理歸檔並記錄 `GATE-002` 事件。
    - 將任務狀態更新為 `status: "review"`，重置 `requestCommitGen: false`。

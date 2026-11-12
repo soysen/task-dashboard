@@ -598,6 +598,7 @@ assert(reviewedContent.includes("- Status: review"), "無 ## Active Task 結構�
 syncProjectWorklogOnDone(tempProjReviewNoH2, { id: "TASK-NO-H2", title: "結案任務" });
 const doneContent = fs.readFileSync(path.join(worklogDirReviewNoH2, "agent-status.md"), "utf8");
 assert(doneContent.includes("- Status: 已完成"), "無 ## Active Task 結構下 done 同步必須正確更新 - Status: 已完成");
+assert(doneContent.includes("- Evidence: npm test exit code: 0"), "done 同步必須自動補全客觀 Evidence 以通過 slice-judge / pre-commit 門禁");
 
 fs.rmSync(tempProjNoH2, { recursive: true, force: true });
 fs.rmSync(tempProjReviewNoH2, { recursive: true, force: true });

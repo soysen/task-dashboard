@@ -285,7 +285,7 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
     `• 專案: ${task.project || '預設'}${projPath ? ` (${projPath})` : ''}\n` +
     `• 需求: ${cleanDesc}${feedbackText}${confirmationText}${prioritySkillText}${implSkillsText}${verifySkillsText}\n` +
     `${strategyText}\n` +
-    `• 執行規範: 遵循 ${STANDARD_DOC} 3-Phase Gate；Phase 1 僅由主 Agent 執行一次；若需求包含【最新需求覆蓋】一律以其為最高優先；Executor 只讀 Handoff Contract，禁止重讀專案文件；僅跑受影響測試 + 專案 harness（無關基線紅燈僅註記）。\n` +
+    `• 執行規範: 遵循 ${STANDARD_DOC} 3-Phase Gate；Phase 1 僅由主 Agent 執行一次；若需求包含【最新需求覆蓋】一律以其為最高優先；Executor 只讀 Handoff Contract，禁止重讀專案文件；Phase 3 驗收必須包含專案 Pre-Commit 預檢（若專案具備 .git/hooks/pre-commit 須執行通過）；僅跑受影響測試 + 專案 harness（無關基線紅燈僅註記）。\n` +
     `• 交付方式: ${deliveryText}\n` +
     `================================================================================`;
 }

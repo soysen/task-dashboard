@@ -2182,6 +2182,36 @@ import { loadData } from "./app.js";
       });
     }
 
+    async function autoFixCommitErrorWithAgent() {
+      const taskId = document.getElementById('commitTaskId').value;
+      if (!taskId) return;
+      const errorText = document.getElementById('commitErrorText');
+      const errMsg = (errorText && errorText.textContent) ? errorText.textContent.trim() : 'Pre-commit 驗證失敗';
+
+      const feedbackMsg = `Commit 遭到 Pre-Commit 阻斷，請排查並修復以下錯誤，重新驗證通過後交付：\n\n${errMsg}`;
+      try {
+        const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            status: 'in_progress',
+            feedback: feedbackMsg
+          })
+        });
+        if (res.ok) {
+          showToast(`已將 Pre-commit 錯誤注入 Feedback 並喚醒 Agent 自動修復！`);
+          closeCommitModal();
+          if (typeof loadData === 'function') {
+            await loadData();
+          }
+        } else {
+          showToast(`退回 Agent 失敗，請手動退回重做`);
+        }
+      } catch (e) {
+        showToast(`網路請求失敗: ${e.message}`);
+      }
+    }
+
     function commitTaskFromCard(id, event) {
       openCommitModal(id, event);
     }
@@ -2835,6 +2865,7 @@ if (typeof window !== "undefined") {
   window.closeCommitModal = closeCommitModal;
   window.regenerateCommitMessage = regenerateCommitMessage;
   window.confirmCommitTask = confirmCommitTask;
+  window.autoFixCommitErrorWithAgent = autoFixCommitErrorWithAgent;
   window.commitTaskFromCard = commitTaskFromCard;
   window.archiveTaskFromCard = archiveTaskFromCard;
   window.archiveCurrentTaskFromModal = archiveCurrentTaskFromModal;

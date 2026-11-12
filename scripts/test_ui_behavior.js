@@ -506,14 +506,16 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
   assert(fontSizeBtns.fontSizeBtnLarge.className.includes('border-indigo-600'), '大字級按鈕必須呈現選取高亮狀態');
   console.log('  ✅ TASK-126 啟動時讀取設定自動套用字級大小與持久化同步測試通過');
 
-  // 19. 驗證 TASK-156 Commit 遇到 pre-commit 阻斷展示錯誤且不封存前端防禦機制
+  // 19. 驗證 TASK-156 Commit 遇到 pre-commit 阻斷展示錯誤且不封存前端防禦機制，以及一鍵轉交 Agent 自動修復
   assert(htmlContent.includes('id="commitErrorBox"'), 'index.html commitModal 必須包含 #commitErrorBox 錯誤容器');
   assert(htmlContent.includes('id="commitErrorText"'), 'index.html commitModal 必須包含 #commitErrorText 錯誤展示區塊');
+  assert(htmlContent.includes('id="btnAutoFixWithAgent"'), 'index.html commitModal 必須包含 #btnAutoFixWithAgent 按鈕');
   assert(allUiContent.includes('Commit 遭到 pre-commit 阻斷，請檢視失敗原因'), 'confirmCommitTask 必須提示 pre-commit 阻斷警告');
+  assert(allUiContent.includes('autoFixCommitErrorWithAgent'), 'modal.js 必須具備 autoFixCommitErrorWithAgent 函數');
   assert(allUiContent.includes('!res.ok || !result.success || result.isCommitted === false'), 'confirmCommitTask 必須攔截 API 400 或 commit 失敗結果');
   assert(allUiContent.includes("errorBox.classList.remove('hidden')"), 'confirmCommitTask 失敗時必須顯露 #commitErrorBox');
   assert(allUiContent.includes("errorBox.classList.add('hidden')"), 'openCommitModal 與 closeCommitModal 必須重置隱藏 #commitErrorBox');
-  console.log('  ✅ TASK-156 Commit Modal Pre-commit 錯誤展示與攔截防禦驗證通過');
+  console.log('  ✅ TASK-156 Commit Modal Pre-commit 錯誤展示、攔截防禦與一鍵 Agent 自癒驗證通過');
 
   // 20. 驗證 TASK-187 Commit 成功後立即將結束的 task 導入 archived 並即時更新畫面無須 reload
   assert(allUiContent.includes('setTasks(tasks.filter(t => !arcSet.has(t.id)))'), 'confirmCommitTask 必須即時將已封存任務過濾移出 tasks 陣列');
