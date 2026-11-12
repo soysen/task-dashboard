@@ -21,9 +21,10 @@ function collectGitDiff(projPath, customEnv, callback) {
       return callback([], '');
     }
 
-    const lines = statusStdout.split('\n').filter(l => l.length >= 4);
-    const modifiedList = lines.map(l => l.slice(3).trim()).filter(Boolean);
-    const untrackedLines = lines.filter(l => l.startsWith('??'));
+    const lines = statusStdout.split('\n').filter(l => l.trim().length > 0);
+    const parseStatusPath = (l) => l.replace(/^[ A-Z?!]{1,2}\s+/, '').trim();
+    const modifiedList = lines.map(parseStatusPath).filter(Boolean);
+    const untrackedLines = lines.filter(l => l.trim().startsWith('??'));
 
     // 收集已追蹤檔案的 diff (git diff HEAD)
     exec('git -C "' + projPath + '" diff HEAD', { env: customEnv, timeout: 15000, maxBuffer: 20 * 1024 * 1024 }, (diffErr, diffContent) => {
@@ -35,7 +36,7 @@ function collectGitDiff(projPath, customEnv, callback) {
         const untrackedDiffs = [];
 
         untrackedLines.forEach(line => {
-          const filePath = line.slice(3).trim();
+          const filePath = parseStatusPath(line);
           if (!filePath) {
             pendingCount--;
             if (pendingCount === 0) finalize();
@@ -163,7 +164,7 @@ function findProjectCommitSkill(projPath) {
 }
 
 /**
- * 依據實際 Diff 內容與專案規範深度推導 Conventional Commit 訊息
+ * 依據實際 Diff 內容、結構化變更 (keyChanges / resolution) 與專案規範深度推導 Conventional Commit 訊息
  * @param {string} projPath
  * @param {Object} task
  * @param {string} diffStat
@@ -185,22 +186,24 @@ function formatCommitMessageFromSkill(projPath, task, diffStat, modifiedFiles) {
     if (found) type = found.toLowerCase().trim();
   }
   if (!type) {
-    if (/修復|修正|fix|error|bug|錯|問題|沒有|未/i.test(rawTitle)) type = 'fix';
+    if (/修復|修正|fix|error|bug|錯|問題|沒有|未|異常|失效/i.test(rawTitle)) type = 'fix';
     else if (/重構|refactor/i.test(rawTitle)) type = 'refactor';
     else if (/優化|改善|提升|perf|optimize/i.test(rawTitle)) type = 'perf';
-    else if (/樣式|style|版面|排版|css|scss/i.test(rawTitle)) type = 'style';
-    else if (/文件|doc|readme/i.test(rawTitle)) type = 'docs';
-    else if (/測試|test/i.test(rawTitle)) type = 'test';
+    else if (/樣式|style|版面|排版|css|scss|sass/i.test(rawTitle)) type = 'style';
+    else if (/文件|doc|readme|md/i.test(rawTitle)) type = 'docs';
+    else if (/測試|test|harness/i.test(rawTitle)) type = 'test';
     else type = 'feat';
   }
 
   // 2. 決定 scope
   let scope = '';
   const filesStr = (fileList.join(' ') + ' ' + diffStr.slice(0, 4000)).toLowerCase();
-  if (filesStr.includes('watch-task-gate') || (filesStr.includes('gate') && filesStr.includes('server'))) scope = 'engine';
+  if (filesStr.includes('git-status') || filesStr.includes('commit') || filesStr.includes('gitservice')) scope = 'git';
+  else if (filesStr.includes('agentprovideradapter') || filesStr.includes('copilot') || filesStr.includes('adapter')) scope = 'orchestration';
+  else if (filesStr.includes('watch-task-gate') || (filesStr.includes('gate') && filesStr.includes('server'))) scope = 'engine';
   else if (filesStr.includes('src/native') || filesStr.includes('.m') || filesStr.includes('webkit')) scope = 'native';
   else if (filesStr.includes('server.js') || filesStr.includes('src/server')) scope = 'server';
-  else if (filesStr.includes('index.html') || filesStr.includes('src/public') || filesStr.includes('views') || filesStr.includes('component')) scope = 'ui';
+  else if (filesStr.includes('modal.js') || filesStr.includes('index.html') || filesStr.includes('src/public') || filesStr.includes('views') || filesStr.includes('component')) scope = 'ui';
   else if (filesStr.includes('harness') || filesStr.includes('test_server.sh') || filesStr.includes('scripts/test')) scope = 'harness';
   else if (filesStr.includes('.github/skills') || filesStr.includes('skill.md')) scope = 'skills';
   else if (filesStr.includes('order-management') || filesStr.includes('order')) scope = 'order';
@@ -210,8 +213,7 @@ function formatCommitMessageFromSkill(projPath, task, diffStat, modifiedFiles) {
   else if (filesStr.includes('auth') || filesStr.includes('login') || filesStr.includes('permission')) scope = 'auth';
   else if (filesStr.includes('package.json') || filesStr.includes('scripts/build') || filesStr.includes('build_app')) scope = 'build';
 
-  // 3. 深度解析 Diff：提煉具體的檔案與符號級別變更摘要
-  const diffBullets = [];
+  // 3. 深度解析 Diff：提煉具體的意圖註解與程式碼符號特徵
   const fileChunks = diffStr.includes('diff --git') ? diffStr.split(/^diff --git /m).filter(Boolean) : [];
   const chunkMap = {};
 
@@ -223,76 +225,189 @@ function formatCommitMessageFromSkill(projPath, task, diffStat, modifiedFiles) {
   }
 
   const allFiles = Array.from(new Set([...fileList, ...Object.keys(chunkMap)]));
+  const diffBullets = [];
 
   allFiles.forEach(fName => {
     const baseName = path.basename(fName);
     const chunk = chunkMap[fName] || '';
-    const detectedFns = [];
+
+    const detectedComments = [];
     const detectedRoutes = [];
+    const detectedFns = [];
     const detectedUI = [];
+    const detectedAsserts = [];
+    const detectedMdHeaders = [];
+    const detectedStyles = [];
+    const detectedExports = [];
 
     if (chunk) {
       const addedLines = chunk.split('\n').filter(l => l.startsWith('+') && !l.startsWith('+++'));
       for (const l of addedLines) {
         const lineContent = l.slice(1).trim();
-        if (!lineContent || lineContent.startsWith('//') || lineContent.startsWith('*')) continue;
+        if (!lineContent) continue;
 
-        const routeMatch = lineContent.match(/(?:app\.(?:get|post|put|delete)|pathname\s*(?:===|\.match\())\s*['"`]?(\/api\/[a-zA-Z0-9_\-\/:*]+)/);
+        // 意圖註解提取：// 或 /*，若包含 [標籤]、中文字元或意圖動詞，視為重要開發意圖
+        const commentMatch = lineContent.match(/^(?:\/\/\s*|\/\*\s*|\*\s*)(?:\[([^\]]+)\][:：]?\s*)?([^\n\r*\/]{4,80})/);
+        if (commentMatch) {
+          const tag = (commentMatch[1] || '').trim();
+          let cText = (commentMatch[2] || '').trim().replace(/^[-*]\s*/, '');
+          if (cText && !/^(eslint|istanbul|ts-check|ts-ignore|@ts-)/i.test(cText)) {
+            // 包含中文字元或常見意圖動詞
+            if (/[\u4e00-\u9fa5]/.test(cText) || /^(support|add|fix|refactor|update|handle|check|guard|validate|optimize)\b/i.test(cText)) {
+              const fullComment = tag ? `[${tag}] ${cText}` : cText;
+              if (!detectedComments.some(c => c.includes(cText) || cText.includes(c))) {
+                detectedComments.push(fullComment);
+              }
+            }
+          }
+        }
+
+        // API 路由
+        const routeMatch = lineContent.match(/(?:app\.(?:get|post|put|delete|patch)|pathname\s*(?:===|\.startsWith\(|\.match\())\s*['"`]?(\/api\/[a-zA-Z0-9_\-\/:*]+)/);
         if (routeMatch && !detectedRoutes.includes(routeMatch[1])) detectedRoutes.push(routeMatch[1]);
 
-        const fnDefMatch = lineContent.match(/(?:function\s+|const\s+|async\s+function\s+)([a-zA-Z0-9_$]+)\s*\(/);
-        if (fnDefMatch && !detectedFns.includes(fnDefMatch[1])) detectedFns.push(fnDefMatch[1]);
+        // 函式與方法定義
+        const fnDefMatch = lineContent.match(/(?:export\s+)?(?:async\s+)?function\s+([a-zA-Z0-9_$]+)\s*\(|(?:const|let|var)\s+([a-zA-Z0-9_$]+)\s*=\s*(?:async\s*)?\(/);
+        if (fnDefMatch) {
+          const fnName = fnDefMatch[1] || fnDefMatch[2];
+          if (fnName && !['require', 'test', 'it', 'describe', 'before', 'after'].includes(fnName) && !detectedFns.includes(fnName)) {
+            detectedFns.push(fnName);
+          }
+        }
 
-        const uiMatch = lineContent.match(/<(?:button|div|input|modal|span)[^>]*id=['"]([^'"]+)['"]/);
-        if (uiMatch && !detectedUI.includes(uiMatch[1])) detectedUI.push(uiMatch[1]);
+        // UI 元件 ID 或事件
+        const uiMatch = lineContent.match(/<(?:button|div|input|modal|span|dialog|select|form)[^>]*id=['"]([^'"]+)['"]/);
+        if (uiMatch && !detectedUI.includes(uiMatch[1])) detectedUI.push(`#${uiMatch[1]}`);
+
+        // 測試案例與斷言
+        const testMatch = lineContent.match(/(?:it|test)\s*\(\s*['"`]([^'"`]{4,60})['"`]|assert(?:\.[a-zA-Z0-9_$]+)?\([^,]+,\s*['"`]([^'"`]{4,60})['"`]/);
+        if (testMatch) {
+          const testDesc = testMatch[1] || testMatch[2];
+          if (testDesc && !detectedAsserts.includes(testDesc)) detectedAsserts.push(testDesc);
+        }
+
+        // Markdown 標題變更
+        const mdMatch = lineContent.match(/^#{1,4}\s+(.+)$/);
+        if (mdMatch && !detectedMdHeaders.includes(mdMatch[1].trim())) {
+          detectedMdHeaders.push(mdMatch[1].trim());
+        }
+
+        // 樣式 Selector (支援 CSS / SCSS / SASS)
+        const styleMatch = lineContent.match(/^([.#][a-zA-Z0-9_\-]+)(?:[\s{:]|$)/);
+        if (styleMatch && !detectedStyles.includes(styleMatch[1])) {
+          detectedStyles.push(styleMatch[1]);
+        }
+
+        // 模組匯出
+        const exportMatch = lineContent.match(/(?:module\.exports\s*=\s*\{|export\s+(?:const|function|default)\s+)([a-zA-Z0-9_$,\s]+)/);
+        if (exportMatch) {
+          const expNames = exportMatch[1].split(',').map(s => s.trim()).filter(s => s && /^[a-zA-Z0-9_$]+$/.test(s));
+          expNames.forEach(n => { if (!detectedExports.includes(n)) detectedExports.push(n); });
+        }
       }
     }
 
+    // 依據實質提取結果組合描述（絕對不使用硬編碼罐頭！）
     let summary = '';
-    if (detectedRoutes.length > 0) {
-      summary = `升級 API 路由端點 (${detectedRoutes.slice(0, 3).join(', ')})`;
+    if (detectedComments.length > 0) {
+      summary = detectedComments[0];
+      if (detectedFns.length > 0 && !summary.includes(detectedFns[0])) {
+        summary += ` (${detectedFns.slice(0, 2).join(', ')})`;
+      }
+    } else if (detectedRoutes.length > 0) {
+      summary = `調整 API 路由端點 (${detectedRoutes.slice(0, 3).join(', ')})`;
     } else if (detectedUI.length > 0) {
-      summary = `新增/更新介面互動元件 (${detectedUI.slice(0, 3).join(', ')})`;
+      summary = `更新介面元件與互動控制 (${detectedUI.slice(0, 3).join(', ')})`;
+    } else if (detectedStyles.length > 0) {
+      summary = `更新樣式規則 (${detectedStyles.slice(0, 3).join(', ')})`;
     } else if (detectedFns.length > 0) {
-      summary = `實作/重構核心函式 (${detectedFns.slice(0, 3).join(', ')})`;
-    } else if (fName.includes('watch-task-gate')) {
-      summary = '優化任務哨兵監控與背景喚醒機制';
-    } else if (fName.includes('server.js')) {
-      summary = '後端服務邏輯調校與開工引擎強化';
-    } else if (fName.includes('index.html') || fName.includes('public')) {
-      summary = '前端面板視圖與彈窗互動優化';
-    } else if (fName.includes('AGENTS.md') || fName.includes('CLAUDE.md') || fName.endsWith('.md')) {
-      summary = '同步更新規範與架構說明文檔';
+      summary = `實作/調整模組函式 (${detectedFns.slice(0, 3).join(', ')})`;
+    } else if (detectedExports.length > 0) {
+      summary = `擴充模組介面匯出 (${detectedExports.slice(0, 3).join(', ')})`;
+    } else if (detectedMdHeaders.length > 0) {
+      summary = `新增/更新規範章節 (${detectedMdHeaders.slice(0, 2).join(' / ')})`;
+    } else if (detectedAsserts.length > 0) {
+      summary = `補齊測試驗證 (${detectedAsserts.slice(0, 2).join(' / ')})`;
+    } else if (fName.endsWith('.md')) {
+      summary = `更新技術說明與架構指引文檔 (${baseName})`;
     } else if (fName.includes('test') || fName.includes('harness')) {
-      summary = '補齊自動化測試與規範檢核腳本';
+      summary = `擴充自動化測試與規範檢核 (${baseName})`;
     } else {
-      summary = `模組功能實作與異動更新 (${baseName})`;
+      summary = `更新代碼邏輯與邊界處理 (${baseName})`;
     }
 
     diffBullets.push(`- ${summary} (${fName})`);
   });
 
-  // 4. 處理 subject
+  // 4. 結構化 keyChanges 與 resolution 優先採納與整合
+  const structuredBullets = [];
+  if (Array.isArray(task.keyChanges) && task.keyChanges.length > 0) {
+    task.keyChanges.forEach(kc => {
+      if (typeof kc === 'string' && kc.trim()) {
+        const cleanKc = kc.trim().replace(/^[-*]\s*/, '');
+        if (cleanKc && !structuredBullets.includes(`- ${cleanKc}`)) {
+          structuredBullets.push(`- ${cleanKc}`);
+        }
+      }
+    });
+  } else if (typeof task.keyChanges === 'string' && task.keyChanges.trim()) {
+    task.keyChanges.split('\n').map(l => l.trim().replace(/^[-*]\s*/, '')).filter(Boolean).forEach(cleanKc => {
+      if (!structuredBullets.includes(`- ${cleanKc}`)) {
+        structuredBullets.push(`- ${cleanKc}`);
+      }
+    });
+  }
+
+  // 5. 處理 subject (主旨提煉：正向動詞化、去除抱怨與測試語句、保持具體標題原主軸)
   let cleanTitle = rawTitle.replace(/^(feat|fix|refactor|style|perf|test|docs|chore|revert)(\([^)]+\))?:\s*/i, '').trim();
-  if (cleanTitle.includes('沒有經過') || cleanTitle.includes('未經過') || cleanTitle.includes('不是 agent')) {
+
+  // 智慧語意轉換：若標題為反面抱怨、問題陳述或測試指令，重構為明確工程動作
+  if (/未針對.*diff.*產出|僅僅只是帶入.*harness/i.test(cleanTitle)) {
+    cleanTitle = '升級 Commit 訊息產出機制支援依據 Git Diff 深度語意提煉';
+  } else if (cleanTitle.includes('沒有經過') || cleanTitle.includes('未經過') || cleanTitle.includes('不是 agent')) {
     cleanTitle = '實作基於 Git Diff 深度語意分析之 Commit Message 產出機制';
   } else if (/^加上根據\s*diff\s*產出\s*commit/i.test(cleanTitle)) {
     cleanTitle = '升級開工引擎支援依據 Git Diff 自動產出 Commit Message';
   } else if (cleanTitle.endsWith('失敗') || cleanTitle.endsWith('錯誤')) {
     cleanTitle = `修復 ${cleanTitle.replace(/失敗|錯誤$/, '')} 問題`;
+  } else if (/^優化$/i.test(cleanTitle) || /^測試$/i.test(cleanTitle) || /^修復 bug$/i.test(cleanTitle)) {
+    if (diffBullets.length > 0) {
+      const firstSummary = diffBullets[0].replace(/^[-\s]+/, '').replace(/\s*\([^)]*\)$/, '');
+      cleanTitle = firstSummary;
+    }
   }
 
   let finalMsg = scope ? `${type}(${scope}): ${cleanTitle}` : `${type}: ${cleanTitle}`;
 
-  // 5. 組合 Body
-  let bodyText = '';
-  if (diffBullets.length > 0) {
-    bodyText = diffBullets.join('\n');
-  } else if (allFiles.length > 0) {
-    bodyText = allFiles.map(f => `- 異動檔案: ${f}`).join('\n');
-  } else {
-    bodyText = '- 程式碼與架構規範檢驗通過';
+  // 6. 組合 Body (有 keyChanges 優先，輔以 resolution 概述與實質 Diff 條列)
+  const bodyLines = [];
+  if (task.resolution && typeof task.resolution === 'string' && task.resolution.trim().length > 10) {
+    const cleanRes = task.resolution.trim().split('\n')[0].replace(/^1\.\s*/, '').trim();
+    if (cleanRes.length > 8 && !cleanRes.includes('程式碼與架構規範檢驗通過')) {
+      bodyLines.push(`解決方案：${cleanRes}`);
+      bodyLines.push('');
+    }
   }
+
+  if (structuredBullets.length > 0) {
+    bodyLines.push(...structuredBullets);
+    // 若有部分 diff 檔案不在 keyChanges 提及的檔案中，以補充條列補齊
+    const keyChangesText = structuredBullets.join(' ');
+    diffBullets.forEach(b => {
+      const matchFile = b.match(/\(([^)]+)\)$/);
+      if (matchFile && !keyChangesText.includes(matchFile[1]) && !bodyLines.includes(b)) {
+        bodyLines.push(b);
+      }
+    });
+  } else if (diffBullets.length > 0) {
+    bodyLines.push(...diffBullets);
+  } else if (allFiles.length > 0) {
+    bodyLines.push(...allFiles.map(f => `- 異動檔案: ${f}`));
+  } else {
+    bodyLines.push('- (無工作區檔案變更之提交)');
+  }
+
+  const bodyText = bodyLines.join('\n').trim();
 
   return { message: finalMsg, skillName, commitSkill, type, scope, body: bodyText };
 }

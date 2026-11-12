@@ -144,9 +144,12 @@ flowchart TD
 2. **全量完整 Git Diff 採集**：
    - 記錄實際修改檔案清單 `modifiedFiles`。
    - 記錄產生的 `diff`：必須包含已追蹤 (`git diff HEAD`) 與未追蹤 (`git diff --no-index /dev/null <untracked>`) 檔案之全量完整無截斷 diff。
-3. **依據任務核心主軸產出標準 Commit 訊息 (`commitMessage`)**：
+3. **依據任務核心主軸與 Git Diff 實質變更產出標準 Commit 訊息 (`commitMessage`)**：
    - 結構化 Commit 格式：`task.commitMessage = { "subject": "<type>(<scope>): <clean_subject>", "body": "- <重點 1>\n- <重點 2>" }`。
    - **【核心主軸原則】**：即使任務歷經多次 Feedback 修訂，Commit 主旨 (subject) 必須嚴格鎖定任務原始核心主軸，內文 (body) 則綜合全量實際異動項目與歷次 Feedback 修訂重點，嚴禁將主旨退化為最後單一一次 Feedback 的局部微調。
+   - **【實質變更防偽守則】**：
+     - **拒絕照抄負向抱怨或測試標題**：若任務標題為抱怨句、問題陳述或測試性標題（例如「commit 提供的內容僅僅只是帶入 harness 結果與任務標題，未針對 diff 的實質變動產出」），必須提煉為具備明確動詞與受詞的正向工程句（例如 `feat(git): 升級 Commit 訊息產出機制支援依據 Git Diff 深度語意提煉`）。
+     - **Body 徹底剔除罐頭字串**：嚴禁填入空泛通用字串（如「後端服務邏輯調校與開工引擎強化」、「前端面板視圖與彈窗互動優化」、「程式碼與架構規範檢驗通過」）或僅條列測試通過訊息。Body 必須由實質 Git Diff 提取意圖註解、異動函式、API 路由、UI 元件與模組符號，或由 Agent 提交的高品質 `task.keyChanges` / `task.resolution` 組合而成。
 4. **交付報告結構化組裝與二元驗收門禁 [GATE-001]**：
    - Agent 交付傳送結構化 JSON Payload，由後端依據標準規格自動組裝任務執行報告。二元門禁嚴格檢驗 `executionLog` 客觀證據與要求 `exitCode === 0`，未達標準一律阻擋推進（HTTP 400）。
    - 格式包含以下四大核心章節與折疊原生輸出：

@@ -1994,8 +1994,15 @@ import { loadData } from "./app.js";
       let subject = '';
       let bodyText = '';
       const isLegacyDesc = task.commitMessage && task.description && task.commitMessage.body && task.commitMessage.body.trim() === task.description.trim();
+      const hasBoilerplateBody = task.commitMessage && task.commitMessage.body && (
+        task.commitMessage.body.includes('後端服務邏輯調校與開工引擎強化') ||
+        task.commitMessage.body.includes('前端面板視圖與彈窗互動優化') ||
+        task.commitMessage.body.includes('補齊自動化測試與規範檢核腳本') ||
+        task.commitMessage.body.includes('程式碼與架構規範檢驗通過') ||
+        task.commitMessage.body.includes('模組功能實作與異動更新')
+      );
 
-      if (task.commitMessage && task.commitMessage.subject && !isLegacyDesc) {
+      if (task.commitMessage && task.commitMessage.subject && !isLegacyDesc && !hasBoilerplateBody) {
         subject = task.commitMessage.subject;
         bodyText = task.commitMessage.body || '';
       } else {
@@ -2043,8 +2050,8 @@ import { loadData } from "./app.js";
       if (errorBox) errorBox.classList.add('hidden');
       if (errorText) errorText.textContent = '';
 
-      // 若尚未有 Agent 生成的 commitMessage 或為舊版複製內容，自動非同步向後端獲取依據 diff 分析的 commit 內容
-      if (!task.commitMessage || !task.commitMessage.subject || isLegacyDesc) {
+      // 若尚未有 Agent 生成的 commitMessage、為舊版複製內容、或含有舊版罐頭字串，自動非同步向後端獲取依據 diff 分析的實質 commit 內容
+      if (!task.commitMessage || !task.commitMessage.subject || isLegacyDesc || hasBoilerplateBody) {
         fetch(`/api/tasks/${encodeURIComponent(task.id)}/generate-commit`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2062,6 +2069,40 @@ import { loadData } from "./app.js";
 
       document.getElementById('commitModal').classList.remove('hidden');
       if (window.lucide) lucide.createIcons();
+    }
+
+    async function regenerateCommitMessage() {
+      const taskId = document.getElementById('commitTaskId').value;
+      if (!taskId) return;
+      const btn = document.getElementById('btnRegenCommit');
+      if (btn) {
+        btn.disabled = true;
+        btn.classList.add('opacity-50');
+      }
+      try {
+        const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/generate-commit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ force: true })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (document.getElementById('commitTaskId').value === taskId) {
+            if (data.subject) document.getElementById('commitSubjectInput').value = data.subject;
+            if (data.body) document.getElementById('commitBodyInput').value = data.body;
+          }
+          const task = tasks.find(t => t.id === taskId);
+          if (task) {
+            task.commitMessage = { subject: data.subject, body: data.body };
+          }
+        }
+      } catch (e) {
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.classList.remove('opacity-50');
+        }
+      }
     }
 
     function closeCommitModal() {
@@ -2722,6 +2763,7 @@ export {
   quickApproveDone,
   openCommitModal,
   closeCommitModal,
+  regenerateCommitMessage,
   confirmCommitTask,
   commitTaskFromCard,
   archiveTaskFromCard,
@@ -2791,6 +2833,7 @@ if (typeof window !== "undefined") {
   window.quickApproveDone = quickApproveDone;
   window.openCommitModal = openCommitModal;
   window.closeCommitModal = closeCommitModal;
+  window.regenerateCommitMessage = regenerateCommitMessage;
   window.confirmCommitTask = confirmCommitTask;
   window.commitTaskFromCard = commitTaskFromCard;
   window.archiveTaskFromCard = archiveTaskFromCard;

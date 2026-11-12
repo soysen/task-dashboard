@@ -837,6 +837,7 @@ node "$PROJECT_DIR/scripts/test_ui_behavior.js"
 node "$PROJECT_DIR/scripts/test_confirmation_ux.js"
 node "$PROJECT_DIR/scripts/test_plan_html_ux.js"
 node "$PROJECT_DIR/scripts/test_agent_provider_adapter.js"
+node "$PROJECT_DIR/scripts/test_commit_generator.js"
 node "$PROJECT_DIR/scripts/test_execution_logs.js"
 
 echo "🎉 所有後端 API 整合測試與前端核心狀態防線測試順利通過！"

@@ -16,9 +16,27 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { formatTierStrategy, resolveProvider } = require('../src/server/agentProviderAdapter');
-
 const USER_HOME = process.env.HOME || os.homedir();
+
+function loadAgentProviderAdapter() {
+  const candidates = [
+    path.resolve(__dirname, '../src/server/agentProviderAdapter'),
+    path.join(__dirname, 'agentProviderAdapter'),
+    path.join(USER_HOME, 'projects/task-dashboard/src/server/agentProviderAdapter')
+  ];
+  for (const c of candidates) {
+    try {
+      if (fs.existsSync(c) || fs.existsSync(c + '.js')) {
+        return require(c);
+      }
+    } catch (e) {}
+  }
+  return {
+    resolveProvider: () => ({ name: 'antigravity', fastExecutor: 'flash Subagent (Workspace: "inherit")' }),
+    formatTierStrategy: (tier) => `• 執行策略 (Tier: ${tier})`
+  };
+}
+const { formatTierStrategy, resolveProvider } = loadAgentProviderAdapter();
 const DEFAULT_APP_SUPPORT_DIR = process.env.TASK_DASHBOARD_DATA_DIR || path.join(USER_HOME, 'Library/Application Support/TaskDashboard');
 
 // 解析命令列參數 (例如 node watch-task-gate.js --agent=antigravity 或 --conversationId=conv_123)

@@ -478,13 +478,19 @@
       </div>
 
       <!-- Modal Footer -->
-      <div class="p-3.5 px-5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2 bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
-        <button type="button" onclick="closeCommitModal()" class="px-3.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
-          取消
+      <div class="p-3.5 px-5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
+        <button id="btnRegenCommit" type="button" onclick="regenerateCommitMessage()" class="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center gap-1.5" title="根據目前工作區 Git Diff 與實質程式碼特徵重新提煉 Commit 內容">
+          <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+          <span>依據 Diff 重新提煉</span>
         </button>
-        <button id="commitSubmitBtn" type="button" onclick="confirmCommitTask()" class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-500/20 transition">
-          <i data-lucide="git-commit" class="w-3.5 h-3.5"></i> 確認提交 Commit
-        </button>
+        <div class="flex items-center gap-2">
+          <button type="button" onclick="closeCommitModal()" class="px-3.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+            取消
+          </button>
+          <button id="commitSubmitBtn" type="button" onclick="confirmCommitTask()" class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-500/20 transition">
+            <i data-lucide="git-commit" class="w-3.5 h-3.5"></i> 確認提交 Commit
+          </button>
+        </div>
       </div>
     </div>
   </div>

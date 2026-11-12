@@ -2996,7 +2996,14 @@ function runNativeFolderPicker(promptText, callback) {
                 freshTask.riskReasons = risk.riskReasons;
               }
               const isLegacyDesc = freshTask.commitMessage && freshTask.description && freshTask.commitMessage.body && freshTask.commitMessage.body.trim() === freshTask.description.trim();
-              if (!freshTask.commitMessage || !freshTask.commitMessage.subject || isLegacyDesc) {
+              const hasBoilerplateBody = freshTask.commitMessage && freshTask.commitMessage.body && (
+                freshTask.commitMessage.body.includes('後端服務邏輯調校與開工引擎強化') ||
+                freshTask.commitMessage.body.includes('前端面板視圖與彈窗互動優化') ||
+                freshTask.commitMessage.body.includes('補齊自動化測試與規範檢核腳本') ||
+                freshTask.commitMessage.body.includes('程式碼與架構規範檢驗通過') ||
+                freshTask.commitMessage.body.includes('模組功能實作與異動更新')
+              );
+              if (!freshTask.commitMessage || !freshTask.commitMessage.subject || isLegacyDesc || hasBoilerplateBody || freshTask.requestCommitGen) {
                 const commitMsg = formatCommitMessageFromSkill(projPath, freshTask, diffContent, modifiedList);
                 freshTask.commitMessage = {
                   subject: commitMsg.message,
@@ -3237,7 +3244,9 @@ function runNativeFolderPicker(promptText, callback) {
 
         // 若啟用本機 CLI Agent 且未禁止 CLI，嘗試以 CLI Agent 根據實際 diff 產出
         if (settings.enableCliAgent && bodyData.useCli !== false) {
-          const cliPrompt = `請分析專案 ${task.project} 當前 Git Diff 與技能規範，產出符合 Conventional Commit 的 Commit Message。格式第一行必須為「type(scope): subject」，接著空一行，隨後為條列式說明（以 - 開頭）。請只輸出 Commit Message 本身：\n\n【重要原則】：即使任務包含多次 Feedback 修訂，Commit 主旨 (subject) 必須嚴格基於任務原始主軸（標題: ${task.title}），內文 (body) 則綜合全量實際異動項目與歷次修訂成果，嚴禁將主旨退化為單一局部 feedback 的微調！\n\n【任務資訊】\nID: ${task.id}\n標題: ${task.title}\n需求: ${task.description || '無'}\n\n【異動檔案】\n${mergedModified.join(', ')}\n\n【Git Diff】\n${(diffContent || '').slice(0, 6000)}`;
+          const keyChangesStr = Array.isArray(task.keyChanges) ? task.keyChanges.join('\n') : (task.keyChanges || '無');
+          const resolutionStr = task.resolution || '無';
+          const cliPrompt = `請分析專案 ${task.project} 當前 Git Diff、結構化改動與技能規範，產出符合 Conventional Commit 的 Commit Message。格式第一行必須為「type(scope): subject」，接著空一行，隨後為條列式說明（以 - 開頭）。請只輸出 Commit Message 本身：\n\n【重要原則】：即使任務包含多次 Feedback 修訂，Commit 主旨 (subject) 必須嚴格基於任務原始主軸（標題: ${task.title}），內文 (body) 則綜合全量實際異動項目與歷次修訂成果，嚴禁將主旨退化為單一局部 feedback 的微調！嚴禁填入空泛通用罐頭字串，必須反映實質代碼變更！\n\n【任務資訊】\nID: ${task.id}\n標題: ${task.title}\n需求: ${task.description || '無'}\n解決方案概述: ${resolutionStr}\n\n【結構化改動要點】\n${keyChangesStr}\n\n【異動檔案】\n${mergedModified.join(', ')}\n\n【Git Diff】\n${(diffContent || '').slice(0, 6000)}`;
 
           let bin = rawCliCmd.split(/\s+/)[0];
           let args = [];
