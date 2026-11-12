@@ -663,8 +663,8 @@ import { loadData } from "./app.js";
         }
       }
 
-      // 2. 所有文字與文字區塊欄位 readonly (若任務處於待確認狀態，執行計劃 formExecutionPlan 與審閱意見 formFeedback 允許使用者進行修改)
-      const textInputs = ['formTitle', 'formProjectInput', 'formDescription', 'select2Input'];
+      // 2. 所有文字與文字區塊欄位 readonly (若任務處於待確認狀態，執行計劃 formExecutionPlan、任務描述 formDescription 與審閱意見 formFeedback 允許使用者進行修改)
+      const textInputs = ['formTitle', 'formProjectInput', 'select2Input'];
       textInputs.forEach(id => {
         const el = document.getElementById(id);
         if (el) {
@@ -676,6 +676,18 @@ import { loadData } from "./app.js";
           }
         }
       });
+
+      const descInput = document.getElementById('formDescription');
+      if (descInput) {
+        const isPendingConfirm = !!currentModalEditingTask?.requiresConfirmation && currentModalEditingTask?.status === 'in_progress';
+        const descReadOnly = isReadOnly && !isPendingConfirm;
+        descInput.readOnly = descReadOnly;
+        if (descReadOnly) {
+          descInput.classList.add('bg-slate-100/90', 'dark:bg-slate-800/80', 'cursor-not-allowed', 'text-slate-600', 'dark:text-slate-300');
+        } else {
+          descInput.classList.remove('bg-slate-100/90', 'dark:bg-slate-800/80', 'cursor-not-allowed', 'text-slate-600', 'dark:text-slate-300');
+        }
+      }
 
       const execPlanInput = document.getElementById('formExecutionPlan');
       if (execPlanInput) {
@@ -1745,6 +1757,29 @@ import { loadData } from "./app.js";
           const newExecutionLog = (toText(task.executionLog) || '') + confirmLog;
           const formExecPlan = (document.getElementById('formExecutionPlan')?.value || '').trim();
           const currentPlan = formExecPlan || toText(task.executionPlan) || '';
+
+          // 讀取可能由使用者直接在欄位修改的最新描述
+          const formDesc = document.getElementById('formDescription')?.value;
+          let newDescription = (formDesc !== undefined ? formDesc : (task.description || '')).trim();
+
+          // 若有填寫審閱意見，格式化追加至描述並附帶「最高優先級覆蓋宣告」
+          if (formFeedback) {
+            const timeStr = nowIso.replace('T', ' ').slice(0, 19);
+            const formattedLines = formFeedback.split('\n')
+              .map(l => l.trim())
+              .filter(Boolean)
+              .map(l => l.startsWith('- ') ? l : `- ${l}`)
+              .join('\n');
+            const sectionHeader = '--- 【執行計劃確認意見 / 最新需求覆蓋】 ---';
+            const directive = '> ⚠️ 【最高優先級覆蓋規範】：本區塊為使用者審閱執行計劃後的最新授權指示。若與上方舊有需求存在矛盾、衝突或規格調整，一律以本區塊最新指示為準並覆蓋舊有描述！';
+
+            if (!newDescription.includes(sectionHeader)) {
+              newDescription = `${newDescription}\n\n${sectionHeader}\n[${timeStr}]\n${directive}\n${formattedLines}`.trim();
+            } else {
+              newDescription = `${newDescription}\n\n[${timeStr}]\n${directive}\n${formattedLines}`.trim();
+            }
+          }
+
           const res = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -1756,7 +1791,8 @@ import { loadData } from "./app.js";
               confirmExecution: true,
               executionPlan: currentPlan,
               executionLog: newExecutionLog,
-              feedback: formFeedback || task.feedback || '',
+              description: newDescription,
+              feedback: '',
               status: 'in_progress',
               updatedAt: nowIso
             })

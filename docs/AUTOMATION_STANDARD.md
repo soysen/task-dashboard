@@ -19,7 +19,7 @@ Task Dashboard 支援 **Desktop AI 哨兵待命 (Reactive Wakeup)** 與 **獨立
 - **工作原理**：
   腳本利用 macOS 原生 FSEvents 在背景靜默監聽資料庫 `tasks.json`。一旦任務變更為 `in_progress` 或請求依據 Diff 生成 Commit 訊息 (`requestCommitGen: true`)，哨兵立即輸出完整開工上下文並以 `exit(0)` 正常退出，觸發外部 IDE 的 **Reactive Wakeup** 喚醒機制。
 - **Agent 接續開工**：
-  AI 被喚醒後，根據哨兵輸出的開工指示執行 **3-Phase Execution Gate**。主 Agent 作為高階 Planner 執行 Phase 1 規劃並擬定 Handoff Contract，依 3-Tier 風險分級與專案 Skill 路由指派 flash Executor（或 micro 原地實作），由主 Agent 於 Phase 3 依契約驗收並推進至 `review`（僅 `riskDoor === "one-way"` 另開獨立 Verifier）。任務推進至 `review` 後，主 Agent 再次在背景掛載哨兵，進入下一輪無縫待命。
+  AI 被喚醒後，根據哨兵輸出的開工指示執行 **3-Phase Execution Gate**。主 Agent 作為高階 Planner 執行 Phase 1 規劃並擬定 Handoff Contract，依 3-Tier 風險分級與專案 Skill 路由指派通用 Executor（對應 Fast / Balanced 檔位子代理，如 Antigravity Flash、Claude Sonnet、Codex Mini 或 VS Code Copilot Agent Mode；或 micro 原地實作），由主 Agent 於 Phase 3 依契約驗收並推進至 `review`（僅 `riskDoor === "one-way"` 另開獨立 Reasoning Verifier 審查）。任務推進至 `review` 後，主 Agent 再次在背景掛載哨兵，進入下一輪無縫待命。
 
 ### 模式 B：本機 CLI Agent 自動即時觸發
 - 若使用者在 Dashboard 設定中啟用了 **「CLI Agent 模式」**（支援 `agy`、`claude`、`hermes` 或自訂指令）：
@@ -64,24 +64,25 @@ flowchart TD
     Phase1 --> Phase2 --> Phase3
 ```
 
-### Subagent 風險分級與專案 Skill 路由規範 (Skill Router & 3-Tier Risk Routing)
-為消除無差別啟動雙 Subagent 所產生的固定外殼稅與重複 Context 負擔，主 Agent 扮演高階 **Planner**（執行 Phase 1 分析並擬定 Handoff Contract），依據任務階層 (`tier`)、單雙向門禁 (`riskDoor`) 與專案 Skills 進行動態分流指派：
+### Subagent 風險分級與跨平台通用調度規範 (Universal 3-Tier Risk Routing)
+為消除無差別啟動雙 Subagent 所產生的固定外殼稅與重複 Context 負擔，主 Agent 扮演高階 **Planner**（執行 Phase 1 分析並擬定 Handoff Contract），依據任務階層 (`tier`)、單雙向門禁 (`riskDoor`) 與目標 AI 平台（Antigravity、Claude Code、OpenAI Codex、VS Code Copilot）進行動態分流指派：
 
-| 階層 (Tier) | 適用場景 / 判定規則 | Phase 1 規劃 | Phase 2 實作 | Phase 3 驗收 |
+| 階層 (Tier) | 適用場景 / 判定規則 | Phase 1 規劃 | Phase 2 實作 (Executor) | Phase 3 驗收 (Verifier) |
 | :--- | :--- | :--- | :--- | :--- |
 | **`micro`** | 文案錯字、註解微調、格式化、純小範圍樣式，或標註 `tier:micro` | 主 Agent 評估改動範圍 | 主 Agent **原地實作，不啟動 Subagent** | 主 Agent 本地測試 + `harness:check` exit 0 |
-| **`standard`** | 一般功能開發、局部 Bug 修復、單元測試補齊，或推斷不出之預設 | 主 Agent 執行一次 Phase 1，擬定 `Handoff Contract` 寫入 build-plan，更新 agent-status `## Delegation` | 指派單一 `flash` Executor Subagent (`Workspace: "inherit"`) 僅依契約實作 | 主 Agent 依契約驗收標準審查 diff，執行 harness 後送出 payload 推進 review |
-| **`heavy`** | 跨模組重構、破壞性變更、資料庫遷移，或 `riskDoor === "one-way"` | 主 Agent 規劃切片並擬定 `Handoff Contract` 寫入 build-plan，更新 agent-status `## Delegation` | 指派單一 `flash` Executor Subagent (`Workspace: "inherit"`) 逐片實作 | 主 Agent 審查 diff 並驗收推進 review；僅 `riskDoor === "one-way"` 另開獨立 `pro` Verifier 審核 |
+| **`standard`** | 一般功能開發、局部 Bug 修復、單元測試補齊，或推斷不出之預設 | 主 Agent 執行一次 Phase 1，擬定 `Handoff Contract` 寫入 build-plan，更新 agent-status `## Delegation` | 指派單一 **Fast / Balanced Executor**（如 Flash、Sonnet、Codex Worker 或 Copilot Fast Subagent，設定 `Workspace: "inherit"`）僅依契約實作 | 主 Agent 依契約驗收標準審查 diff，執行 harness 後送出 payload 推進 review |
+| **`heavy`** | 跨模組重構、破壞性變更、資料庫遷移，或 `riskDoor === "one-way"` | 主 Agent 規劃切片並擬定 `Handoff Contract` 寫入 build-plan，更新 agent-status `## Delegation` | 指派單一 **Executor Subagent** 逐片實作 | 主 Agent 審查 diff 並驗收推進 review；僅 `riskDoor === "one-way"` 另開獨立 **Reasoning Verifier**（如 Pro、Opus、o1 或 Copilot Reasoning Subagent）審核 |
 
 - **階層推斷優先序**：
   1. 顯式指定：`task.tier` 為 `micro`、`standard`、`heavy` 之一時直接採用。
   2. 標籤標註：`task.tags` 包含 `tier:micro`、`micro`、`tier:heavy`、`heavy` 等。
   3. 門禁升級：若 `riskDoor === "one-way"`，強制升級為 `heavy`。
   4. 關鍵字推斷：標題與描述包含重構、架構、破壞性變更等推為 `heavy`；包含文案、錯字、註解微調等推為 `micro`；其餘預設為 `standard`。
-- **門禁與三大安全守則**：
-  1. **確認門禁聯鎖**：若任務標註 `requiresConfirmation === true` 且未具備執行計劃，無論何種 Tier 均禁止直接進入實作，必須先完成計劃供確認。
-  2. **強制繼承工作區 (`Workspace: "inherit"`)**：Subagent 必須設定 `Workspace: "inherit"`，確保所有 Git Diff 與檔案異動直接落於原專案工作區，嚴禁隔離導致 Diff 脫鉤。
-  3. **防搶單時序 (Race Condition Prevention)**：主 Agent 在所有執行與審核皆完成並將任務正式推入 `review` 後，才可重新掛載 `watch-task-gate.js` 進入背景待命。**嚴禁於 Subagent 運行期間提前重啟哨兵**，避免重複認領與衝突。
+- **門禁與四大安全守則**：
+  1. **確認門禁聯鎖 (Confirmation Gate)**：若任務標註 `requiresConfirmation === true` 且未具備執行計劃，無論何種 Tier 均禁止直接進入實作，必須先完成計劃供確認。
+  2. **最新需求覆蓋優先權**：若任務描述包含 `--- 【執行計劃確認意見 / 最新需求覆蓋】 ---` 區塊，其內容具備最高優先權。若與上方舊有需求存在矛盾或規格調整，一律以該區塊最新指示為準覆蓋舊有描述，嚴禁混雜衝突邏輯。
+  3. **強制繼承工作區 (`Workspace: "inherit"`)**：Subagent 必須設定 `Workspace: "inherit"`，確保所有 Git Diff 與檔案異動直接落於原專案工作區，嚴禁隔離導致 Diff 脫鉤。
+  4. **防搶單時序 (Race Condition Prevention)**：主 Agent 在所有執行與審核皆完成並將任務正式推入 `review` 後，才可重新掛載 `watch-task-gate.js` 進入背景待命。**嚴禁於 Subagent 運行期間提前重啟哨兵**，避免重複認領與衝突。
 
 ### Handoff Contract 規格與 Executor 禁讀守則
 為達成精準交接並徹底杜絕 Token 浪費，Planner 與 Executor 之間以 Handoff Contract 嚴格隔離上下文：

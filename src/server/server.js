@@ -17,6 +17,11 @@ const {
   determineTaskTier
 } = require('./feedbackManager');
 const {
+  PROVIDER_MATRIX,
+  resolveProvider,
+  formatTierStrategy
+} = require('./agentProviderAdapter');
+const {
   resolveTaskSkillRoute,
   parseAgentStatusContent,
   parseBuildPlanContent,
@@ -1452,14 +1457,7 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
 
   const feedbackSection = task.feedback ? '\n• 【最高優先 Feedback】: ' + task.feedback : '';
   const tier = determineTaskTier(task);
-  let subagentGuidance = '';
-  if (tier === 'micro') {
-    subagentGuidance = '• 執行策略 (Tier: micro 原地實作): 由主 Agent 原地直接實作與驗證，不啟動額外附屬代理。\n';
-  } else if (tier === 'heavy') {
-    subagentGuidance = '• 執行策略 (Tier: heavy Planner→Executor 切片): 主 Agent 規劃並切片寫入 Handoff Contract，指派 flash Subagent (Workspace: "inherit") 逐片實作，由主 Agent 審查 diff；riskDoor one-way 才另開獨立 Verifier。\n';
-  } else {
-    subagentGuidance = '• 執行策略 (Tier: standard Planner→Executor): 主 Agent 執行一次 Phase 1，寫入 build-plan「Handoff Contract」後，指派單一 flash Subagent (Workspace: "inherit") 僅依契約實作；主 Agent 依契約驗收。\n';
-  }
+  const subagentGuidance = formatTierStrategy(tier, resolveProvider(task)) + '\n';
 
   const isPendingPlanCreation = Boolean(task.requiresConfirmation && (!task.executionPlan || !task.executionPlan.trim()));
   const confirmationGuidance = isPendingPlanCreation
@@ -1475,7 +1473,7 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
     '【3-Phase Gate 規範】：\n' +
     subagentGuidance +
     confirmationGuidance +
-    '1. Pre-Flight: 優先滿足 Feedback，檢閱規範並執行前置驗證（' + harnessCmd + '）；若任務勾選需確認後再執行且未具備執行計劃，必須先產出完整執行計劃回寫 executionPlan 供確認；面對 > 500 行大檔嚴禁整檔閱讀，必須以 grep-n 先定位後切片 30-50 行，檢索上限 2 次避免 Loop。\n' +
+    '1. Pre-Flight: 優先滿足 Feedback，檢閱規範並執行前置驗證（' + harnessCmd + '）；若任務勾選需確認後再執行且未具備執行計劃，必須先產出完整執行計劃回寫 executionPlan 供確認；若需求包含【最新需求覆蓋】，其內容具備最高優先權，衝突處一律覆蓋舊有描述；面對 > 500 行大檔嚴禁整檔閱讀，必須以 grep-n 先定位後切片 30-50 行，檢索上限 2 次避免 Loop。\n' +
     '2. Implementation: 遵循專案架構最小範圍實作並補齊測試，嚴禁跨專案副作用。\n' +
     '3. Review Promotion: 驗證通過後收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })，推進至 review 並清空 feedback。\n' +
     '【執行紀錄證據】：executionLog 必須逐步記錄實際檢閱檔案、診斷結果、修改檔案與原因，以及每項驗證的命令、工作目錄、退出碼與實際 stdout/stderr。區分工作摘要與原始執行細節，不得僅寫「測試通過／工作完成」，不得宣稱未執行的檢查已通過；保留可用輸出且不得截斷，敏感憑證不得寫入日誌。';
@@ -2952,6 +2950,29 @@ function runNativeFolderPicker(promptText, callback) {
           if (isConfirmedExecutionTrigger || data.confirmExecution === true) {
             tasks[index].claimedBy = null;
             tasks[index].claimedAt = null;
+
+            // [Confirmation Gate 雙層防禦]：若仍有殘留 feedback，自動吸收進 description 並清空 feedback，避免誤觸 isRedo
+            const pendingFeedback = String(data.feedback !== undefined ? data.feedback : (tasks[index].feedback || '')).trim();
+            if (pendingFeedback) {
+              const timeStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+              const formattedLines = pendingFeedback.split('\n')
+                .map(l => l.trim())
+                .filter(Boolean)
+                .map(l => l.startsWith('- ') ? l : `- ${l}`)
+                .join('\n');
+              const sectionHeader = '--- 【執行計劃確認意見 / 最新需求覆蓋】 ---';
+              const directive = '> ⚠️ 【最高優先級覆蓋規範】：本區塊為使用者審閱執行計劃後的最新授權指示。若與上方舊有需求存在矛盾、衝突或規格調整，一律以本區塊最新指示為準並覆蓋舊有描述！';
+              let curDesc = String(tasks[index].description || '').trim();
+
+              if (!curDesc.includes(pendingFeedback)) {
+                if (!curDesc.includes(sectionHeader)) {
+                  tasks[index].description = `${curDesc}\n\n${sectionHeader}\n[${timeStr}]\n${directive}\n${formattedLines}`.trim();
+                } else {
+                  tasks[index].description = `${curDesc}\n\n[${timeStr}]\n${directive}\n${formattedLines}`.trim();
+                }
+              }
+            }
+            tasks[index].feedback = '';
           }
           writeTasks(tasks);
           executeTaskWithCliAgent(taskId);

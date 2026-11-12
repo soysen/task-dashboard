@@ -16,6 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { formatTierStrategy, resolveProvider } = require('../src/server/agentProviderAdapter');
 
 const USER_HOME = process.env.HOME || os.homedir();
 const DEFAULT_APP_SUPPORT_DIR = process.env.TASK_DASHBOARD_DATA_DIR || path.join(USER_HOME, 'Library/Application Support/TaskDashboard');
@@ -250,14 +251,7 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
   }
 
   const tier = determineTaskTier(task);
-  let strategyText = '';
-  if (tier === 'micro') {
-    strategyText = `• 執行策略 (Tier: micro 原地實作): 由主 Agent 原地直接實作與驗證，不啟動額外附屬代理。`;
-  } else if (tier === 'heavy') {
-    strategyText = `• 執行策略 (Tier: heavy Planner→Executor 切片): 主 Agent 規劃並切片寫入 Handoff Contract，指派 flash Subagent (Workspace: "inherit") 逐片實作，由主 Agent 審查 diff；riskDoor one-way 才另開獨立 Verifier。`;
-  } else {
-    strategyText = `• 執行策略 (Tier: standard Planner→Executor): 主 Agent 執行一次 Phase 1，寫入 build-plan「Handoff Contract」後，指派單一 flash Subagent (Workspace: "inherit") 僅依契約實作；主 Agent 依契約驗收。`;
-  }
+  const strategyText = formatTierStrategy(tier, resolveProvider(task));
 
   const isPendingPlanCreation = Boolean(task.requiresConfirmation && (!task.executionPlan || !task.executionPlan.trim()));
   const confirmationText = isPendingPlanCreation
@@ -273,7 +267,7 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
     `• 專案: ${task.project || '預設'}${projPath ? ` (${projPath})` : ''}\n` +
     `• 需求: ${cleanDesc}${feedbackText}${confirmationText}${prioritySkillText}${implSkillsText}${verifySkillsText}\n` +
     `${strategyText}\n` +
-    `• 執行規範: 遵循 ${STANDARD_DOC} 3-Phase Gate；Phase 1 僅由主 Agent 執行一次；Executor 只讀 Handoff Contract，禁止重讀專案文件；僅跑受影響測試 + 專案 harness（無關基線紅燈僅註記）。\n` +
+    `• 執行規範: 遵循 ${STANDARD_DOC} 3-Phase Gate；Phase 1 僅由主 Agent 執行一次；若需求包含【最新需求覆蓋】一律以其為最高優先；Executor 只讀 Handoff Contract，禁止重讀專案文件；僅跑受影響測試 + 專案 harness（無關基線紅燈僅註記）。\n` +
     `• 交付方式: ${deliveryText}\n` +
     `================================================================================`;
 }

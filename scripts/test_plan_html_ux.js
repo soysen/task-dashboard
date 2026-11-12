@@ -150,10 +150,12 @@ async function main() {
 
     assert.equal(requests.length, 1);
     const req = requests[0][1];
-    assert.equal(req.feedback, '補充邊界測試並於 Phase 2 交付驗證截圖', '使用者輸入的審閱意見應寫入 task.feedback');
+    assert.equal(req.feedback, '', '確認並執行時 task.feedback 必須被清空以防誤觸退回重做機制');
+    assert(req.description.includes('補充邊界測試並於 Phase 2 交付驗證截圖'), '使用者輸入的審閱意見應改寫追加回 task.description');
+    assert(req.description.includes('最高優先級覆蓋規範'), '追加內容必須包含最高優先級覆蓋宣告以防需求矛盾');
     assert(req.executionLog.includes('💬 [審閱意見] 補充邊界測試並於 Phase 2 交付驗證截圖'), '審閱意見應記錄於 executionLog');
     assert(req.executionLog.includes('✅ [Confirmation Gate]'), '確認門禁記錄應正常保留');
-    console.log('  ✅ confirmAndExecuteTask 審閱意見收集與回寫驗證通過');
+    console.log('  ✅ confirmAndExecuteTask 審閱意見改寫追加至 description 並清空 feedback 驗證通過');
   }
 
   console.log('🎉 所有待確認執行計劃 HTML 視覺化與意見輸入欄位測試通過！');
