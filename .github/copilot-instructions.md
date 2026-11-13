@@ -49,3 +49,8 @@ curl -X PUT http://localhost:3030/api/tasks/<TASK_ID> \
   }'
 ```
 推進至 Review 並釋放認領鎖。
+
+## 5. HTML 報告產出
+- 遇到多項調查結果、比較、實作計劃或明確的 HTML 報告需求時，使用 `.github/skills/answer-me-with-html/SKILL.md`。
+- 報告以繁體中文撰寫，技術名詞首次出現時附英文標註；先查相關 Markdown 文件，資訊不足時再檢查程式碼。
+- 使用 `~/projects/answer-me-with-html` 的 CLI 產生 HTML，並以 `--no-open` 避免開啟瀏覽器；在任務交付中附上 CLI 回報的 HTML 路徑。
