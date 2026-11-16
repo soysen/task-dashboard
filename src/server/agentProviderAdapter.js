@@ -12,6 +12,7 @@ const PROVIDER_MATRIX = {
     reasoningVerifier: 'pro Verifier (Model: "pro", Workspace: "inherit")',
     nativeOrchestrator: 'Orchestrator (Plan→Execute 原生雙階段)',
     directExecutor: 'Hydrogen / Fast 直行模式',
+    nativeSwarm: true,
     subagentMechanism: 'invoke_subagent'
   },
   claude: {
@@ -99,7 +100,10 @@ function formatTierStrategy(tier, providerOrName = null) {
   }
 
   if (tier === 'heavy') {
-    return `• 執行策略 (Tier: heavy Planner→Executor 切片): ${provider.nativeOrchestrator} 0 讀碼第 1 步立即交棒內建執行階段 (${provider.directExecutor}) 拆寫 Handoff Contract 逐片實作（大切片優先 Model: "inherit"，備援 ${provider.fastExecutor}）；含 cross-model-review 或 riskDoor one-way 另開 ${provider.reasoningVerifier}。`;
+    const swarmSuffix = provider.nativeSwarm
+      ? `；平行切片或 cross-model-review 可開 swarm（Coordinator 不寫碼，實作派 gemini-4-hydrogen-medium/low 或 gemini-3.8-flash-medium + workspace:"share"；審查禁 inherit，先查 swarm({action:"models",all:true}) 依額度選 claude-opus-5-5-high→gemini-4-argon-high，無額度再 fallback ${provider.reasoningVerifier}，僅傳規格/git diff/測試輸出）。`
+      : '。';
+    return `• 執行策略 (Tier: heavy Planner→Executor 切片): ${provider.nativeOrchestrator} 0 讀碼第 1 步立即交棒內建執行階段 (${provider.directExecutor}) 拆寫 Handoff Contract 逐片實作（大切片優先 Model: "inherit"，備援 ${provider.fastExecutor}）；含 cross-model-review 或 riskDoor one-way 另開 ${provider.reasoningVerifier}${swarmSuffix}`;
   }
 
   return `• 執行策略 (Tier: standard Planner→Executor): ${provider.nativeOrchestrator} 0 讀碼第 1 步直接交棒內建執行階段 (${provider.directExecutor}) 實作；直接用 ${provider.directExecutor} 原地切片（免降級）；單階段高階模式寫 Handoff Contract 派單一 ${provider.fastExecutor}。`;

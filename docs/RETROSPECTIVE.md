@@ -20,6 +20,7 @@
 11. [🎨 2026-10-22 待確認執行計劃 HTML 視覺化排版、審閱意見輸入解鎖與跨專案 5GSA 錯誤導頁重構技術回顧 (TASK-135 ~ TASK-138)](#11-2026-10-22-待確認執行計劃-html-視覺化排版審閱意見輸入解鎖與跨專案-5gsa-錯誤導頁重構技術回顧-task-135--task-138)
 12. [🚀 2026-11-06 全面架構減稅、Subagent 零讀碼路由、TD-H1~TD-H5 治理防線與 Confirmation Gate / Harness Log 深度閉環技術覆盤 (TASK-162 ~ TASK-180)](#12-2026-11-06-全面架構減稅subagent-零讀碼路由td-h1td-h5-治理防線與-confirmation-gate--harness-log-深度閉環技術覆盤-task-162--task-180)
 13. [🎯 2026-11-16 跨平台三態開工引擎演進、Orchestrator 0 讀碼秒交棒與 Hydrogen 實作實戰覆盤](#13-2026-11-16-跨平台三態開工引擎演進orchestrator-0-讀碼秒交棒與-hydrogen-實作實戰覆盤)
+14. [🔧 2026-11-16 Phase 1 引擎強化、Phase 2 核心大檔模組拆分、跨檔狀態修復與待命 Prompt 精煉覆盤](#14-2026-11-16-phase-1-引擎強化phase-2-核心大檔模組拆分跨檔狀態修復與待命-prompt-精煉覆盤)
 
 ---
 
@@ -888,6 +889,75 @@ flowchart LR
    - 在 `projects.json` 或 `worklogParser.js` 評估增加狀態字詞映射選項（如依專案需求輸出 `進行中` 或 `in_progress`），消除跨專案 Harness 檢核摩擦。
 3. **Action Item 3：追蹤 `Orchestrator 0 讀碼交棒 ➔ Hydrogen` 與 `Model: "inherit"` 成本表現**
    - 持續觀察後續跨模組任務在 `heavy` 分級下的 Token 耗用與單次交付通過率，必要時針對超多檔案修改強制加上「`heavy` 超過 N 檔改以 `Model: "inherit"` 子代理切片隔離」閾值。
+
+---
+
+## 14. 🔧 2026-11-16 Phase 1 引擎強化、Phase 2 核心大檔模組拆分、跨檔狀態修復與待命 Prompt 精煉覆盤
+
+### 14.1 當日異動總覽 (Commits: `82ab6ab` → `cbee6f6` → `9d0c091` → `01f2662`)
+
+本日延續跨平台開工引擎與架構優化，依序完成 Phase 1 引擎強化、Phase 2 核心巨石模組拆分、拆分後跨檔狀態修復與待命 Prompt 精煉共 4 筆關鍵提交：
+
+| Commit | 類型 / 範疇 | 核心異動內容 | 涵蓋檔案 |
+| :--- | :--- | :--- | :--- |
+| **`82ab6ab`** | `feat(engine)` | **Phase 1 優化**：<br>1. `gitnexusDetector.js` 動態偵測 `.gitnexus`，於索引落後 HEAD 時提示先執行 `analyze`<br>2. `agentProviderAdapter.js` / `app.js` / `AUTOMATION_STANDARD.md` 對齊 Hydrogen 與 `Model: "inherit"`<br>3. `worklogParser.js` 依 `harness-status-dictionary.md` 相容中文狀態枚舉 `進行中` / `已完成`<br>4. `index.html` / `app.js` 新增哨兵 `--tier` 快捷切換器<br>5. `test_confirm_and_wakeup_flow.js` 與 `test_server.sh` 隔離測試埠與暫存資料夾 | `gitnexusDetector.js`、`agentProviderAdapter.js`、`app.js`、`AUTOMATION_STANDARD.md`、`worklogParser.js`、`index.html`、`test_confirm_and_wakeup_flow.js`、`test_server.sh` |
+| **`cbee6f6`** | `refactor(core)` | **Phase 2 核心大檔拆分**：<br>1. `server.js`（3809 → 2961 行）：抽出 `services/harnessService.js`（391 行）與 `services/taskStorage.js`（524 行）<br>2. `modal.js`（2890 → 2091 行）：抽出 `modalFormEditor.js`（550 行）與 `modalArchive.js`（299 行） | `server.js`、`services/harnessService.js`、`services/taskStorage.js`、`src/public/modules/modal.js`、`src/public/modules/modalFormEditor.js`、`src/public/modules/modalArchive.js` |
+| **`9d0c091`** | `fix(ui)` | **修復 Phase 2 拆分後跨檔狀態變數與匯入缺漏**：<br>1. `modalFormEditor.js` 補齊 `currentModalEditingTask` 匯入與 `setIsCurrentModalReadOnly()`<br>2. `modalArchive.js` 補齊 `projects` 與 `promptTaskDeleteOrAbandon` 匯入，並將 `selectedArchiveTaskIds` / `archiveLoadSeq` / `isLoadingArchivedTasks` 移回匯出共用<br>3. `modal.js` 移除重複封存狀態變數宣告 | `src/public/modules/modalFormEditor.js`、`src/public/modules/modalArchive.js`、`src/public/modules/modal.js` |
+| **`01f2662`** | `refactor(prompt)` | **精煉待命 Prompt 與哨兵喚醒簡報消除重複指令**：<br>1. `app.js` `updateAiPromptDisplay()` 精簡待命原則為 3 行<br>2. `agentProviderAdapter.js` / `watch-task-gate.js` 濃縮執行策略、規範與交付字數並保留測試契約 | `src/public/modules/app.js`、`agentProviderAdapter.js`、`watch-task-gate.js` |
+
+---
+
+### 14.2 實戰演進軌跡
+
+```mermaid
+flowchart TD
+    A["82ab6ab: Phase 1 引擎強化<br/>(GitNexus 動態偵測、Hydrogen/inherit 對齊、中文狀態相容、哨兵 --tier 切換、測試埠/暫存隔離)"]
+    B["cbee6f6: Phase 2 核心大檔模組拆分<br/>(server.js 3809→2961 抽出 harnessService 與 taskStorage<br/>modal.js 2890→2091 抽出 modalFormEditor 與 modalArchive)"]
+    C["9d0c091: UI 跨檔狀態變數與匯入補齊修復<br/>(補齊 currentModalEditingTask、projects、promptTaskDeleteOrAbandon，共享封存狀態並清除重複宣告)"]
+    D["01f2662: 待命 Prompt 與哨兵喚醒簡報精煉<br/>(精簡 app.js 待命原則為 3 行，濃縮執行策略/規範字數並保留測試契約)"]
+
+    A --> B
+    B --> C
+    C --> D
+```
+
+---
+
+### 14.3 深度覆盤：Keep（亮點）與 Problem（痛點與根因）
+
+#### 🌟 Keep（成效良好、經實戰驗證之優勢）
+1. **Phase 1 引擎韌性與環境隔離全面到位**：
+   - `gitnexusDetector.js` 實現動態偵測 `.gitnexus`，在索引落後 HEAD 時主動提示先執行 `analyze`，避免代理人依賴過期代碼圖譜。
+   - `agentProviderAdapter.js`、`app.js` 與 `AUTOMATION_STANDARD.md` 全面對齊 Hydrogen 與 `Model: "inherit"`，徹底消除降級風險。
+   - `worklogParser.js` 依 `harness-status-dictionary.md` 順暢相容中文狀態枚舉 `進行中` / `已完成`，消除跨專案字典驗證報錯。
+   - `index.html` 與 `app.js` 增設哨兵 `--tier` 快捷切換器，大幅提升人機操作彈性。
+   - `test_confirm_and_wakeup_flow.js` 與 `test_server.sh` 隔離獨立測試埠與暫存資料夾，阻絕了回歸測試對本機任務與追蹤檔案（如 `task-005-build-plan.md`）的非預期修改或刪除。
+2. **Phase 2 兩大巨石檔案結構化拆分減負**：
+   - 後端核心 `server.js` 成功由 3809 行減至 2961 行，拆出專注 Harness 測試生命週期的 `services/harnessService.js`（391 行）與任務資料存取的 `services/taskStorage.js`（524 行）。
+   - 前端主控 `modal.js` 成功由 2890 行降至 2091 行，拆出負責表單編輯的 `modalFormEditor.js`（550 行）與歷史封存的 `modalArchive.js`（299 行）。模組職責清晰，大幅降低後續維護與 AI 上下文載入負擔。
+3. **Prompt 與哨兵簡報高資訊密度精煉**：
+   - `app.js` `updateAiPromptDisplay()` 將原本散落冗長的待命守則濃縮為 3 行關鍵原則。
+   - `agentProviderAdapter.js` 與 `watch-task-gate.js` 大幅精簡重複指令與背景陳述，在維持嚴格測試契約與切片交付驗收格式的前提下顯著降低啟動 Token 開銷。
+
+#### ⚠️ Problem（痛點與根因）
+1. **痛點：巨大模組拆分時 ES Module 跨檔狀態與匯入依賴脫節（`cbee6f6` → `9d0c091`）**
+   - **現象**：在 `cbee6f6` 拆分 `modal.js` 抽出 `modalFormEditor.js` 與 `modalArchive.js` 後，前端即出現執行期相依性異常：`modalFormEditor.js` 漏引 `currentModalEditingTask` 與 `setIsCurrentModalReadOnly()`，`modalArchive.js` 漏引 `projects` 與 `promptTaskDeleteOrAbandon`，且封存狀態變數（`selectedArchiveTaskIds`、`archiveLoadSeq`、`isLoadingArchivedTasks`）因各自維護而脫節，迫使緊急進行 `9d0c091` 補齊匯入並將共用狀態統一移回匯出。
+   - **根因**：前端為原生瀏覽器 ES Module 架構，缺乏 TypeScript 靜態編譯型別檢查。當大型模組內部存在高度耦合的共用可變狀態（Shared Mutable State）與閉包依賴時，若僅以代碼搬移進行拆分，極易造成跨檔狀態參照遺漏與重複宣告。
+   - **教訓**：
+     1. 拆分大檔前必須完整盤點可變狀態（State Coupling）與外部依賴圖（Dependency Graph）。
+     2. 跨模組狀態應優先封裝為集中狀態容器或明確的 Getter/Setter 函式，避免分散在多個檔案中。
+     3. 模組重構後必須立即進行無死角的前端執行期與語法相依性完整走查。
+
+---
+
+### 14.4 🎯 下一步行動建議 (Action Items / Try)
+
+1. **Action Item 1：建立前端原生 ES Module 狀態與依賴完整性檢查防線**
+   - 針對未經 Bundler/TypeScript 轉譯的原生 ES Module 專案，引進靜態 linter 或 AST 分析腳本，在 CI/Harness 階段自動檢查跨檔匯入完整性與未定義識別字（Undeclared Variables），防止重構導致執行期白屏或狀態斷鏈。
+2. **Action Item 2：持續推進巨石模組次階段解耦**
+   - 針對重構後仍有 2961 行的 `server.js` 與 2091 行的 `modal.js`，規劃後續將 Express 路由控制器（如 Task / Project Controller）與 Modal 細部視圖進一步專責化，目標將單檔規模控制於 1000 行以內。
+3. **Action Item 3：追蹤精簡後 Prompt 之遵從度與 Token 節省指標**
+   - 持續在實戰（如各類 Standard / Heavy 任務）中驗證精煉後的 3 行待命原則與哨兵簡報，確認各 Provider 在省下 Token 的同時，仍能 100% 遵守測試契約與交付規範。
 
 ---
 *Retrospective Report updated at 2026-11-16.*

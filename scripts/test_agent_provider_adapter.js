@@ -70,7 +70,10 @@ function testAgentProviderAdapter() {
   assert(codexHeavy.includes('Reasoner Verifier (o1 / o3-mini)'), 'Codex heavy 應提示 o1/o3 Reasoner');
 
   // Antigravity (向下相容 + Orchestrator 0 讀碼第 1 步交棒給內建 Hydrogen 執行階段)
+  const agyMicro = formatTierStrategy('micro', 'antigravity');
+  assert(!agyMicro.includes('swarm'), 'antigravity micro 不得包含 swarm');
   const agyStandard = formatTierStrategy('standard', 'antigravity');
+  assert(!agyStandard.includes('swarm'), 'antigravity standard 不得包含 swarm');
   assert(agyStandard.includes('flash Subagent (Workspace: "inherit")'), 'Antigravity standard 必須保留 flash Subagent 相容鍵字');
   assert(agyStandard.includes('Orchestrator (Plan→Execute 原生雙階段)'), 'Antigravity standard 應包含 Orchestrator 原生雙階段說明');
   assert(agyStandard.includes('0 讀碼第 1 步直接交棒內建執行階段 (Hydrogen / Fast 直行模式)'), 'Antigravity standard 應要求 0 讀碼第 1 步交棒內建 Hydrogen');
@@ -79,6 +82,23 @@ function testAgentProviderAdapter() {
   assert(agyHeavy.includes('0 讀碼第 1 步立即交棒內建執行階段 (Hydrogen / Fast 直行模式)'), 'Antigravity heavy 應要求 0 讀碼第 1 步交棒內建 Hydrogen');
   assert(agyHeavy.includes('Model: "inherit"'), 'Antigravity heavy 分擔切片應支援 Model: "inherit"');
   assert(agyHeavy.includes('cross-model-review'), 'Antigravity heavy 應支援 cross-model-review 觸發 Verifier');
+  assert(agyHeavy.includes('swarm'), 'antigravity heavy 必須包含 swarm');
+  assert(agyHeavy.includes('Coordinator 不寫碼'), 'antigravity heavy 必須包含 Coordinator 不寫碼');
+  assert(agyHeavy.includes('gemini-4-hydrogen-medium/low'), 'antigravity heavy 必須包含 gemini-4-hydrogen-medium/low');
+  assert(agyHeavy.includes('gemini-3.8-flash-medium'), 'antigravity heavy 必須包含 gemini-3.8-flash-medium');
+  assert(agyHeavy.includes('workspace:"share"'), 'antigravity heavy 必須包含 workspace:"share"');
+  assert(agyHeavy.includes('審查禁 inherit'), 'antigravity heavy 必須包含 審查禁 inherit');
+  assert(agyHeavy.includes('swarm({action:"models",all:true})'), 'antigravity heavy 必須包含 swarm({action:"models",all:true})');
+  assert(agyHeavy.includes('claude-opus-5-5-high'), 'antigravity heavy 必須包含 claude-opus-5-5-high');
+  assert(agyHeavy.includes('gemini-4-argon-high'), 'antigravity heavy 必須包含 gemini-4-argon-high');
+  assert(!agyHeavy.includes('\n'), 'antigravity heavy 必須無換行');
+
+  // 跨平台隔離：claude / codex / copilot / generic 的 heavy 策略不得包含 gemini-4-hydrogen 或 swarm({action:"models"
+  ['claude', 'codex', 'copilot', 'generic'].forEach(p => {
+    const heavy = formatTierStrategy('heavy', p);
+    assert(!heavy.includes('gemini-4-hydrogen'), `${p} heavy 策略不得包含 gemini-4-hydrogen`);
+    assert(!heavy.includes('swarm({action:"models"'), `${p} heavy 策略不得包含 swarm({action:"models"`);
+  });
 
   // Micro (所有平台原地實作) & 單行限制驗證
   ['antigravity', 'claude', 'codex', 'copilot', 'generic'].forEach(p => {

@@ -2,26 +2,27 @@
 
 ## Active Task
 
-- ID: TASK-187
-- Title: 按下 commit 的 task
+- ID: TASK-212
+- Title: 進行 code review
 - Status: 已完成
-- Last updated: 2026-11-06
-- Goal: 目前已經 commit 的 task 需要 reload 畫面才會消失，應該按下 commit 後，直接觸發 API 將結束的 task 導入 archived 中，不用留在畫面上。
+- Last updated: 2026-11-16
+- Goal: 進行 code review
 - Route: code-review-and-quality
-- Scope: 按下 commit 的 task
+- Scope: 進行 code review
 - Out of scope: 跨專案副作用
 
 ## Last Completed Task
 
-- ID: TASK-199
-- Title: 驗證基於 Git Diff 深度語意分析之 Commit 訊息生成機制
+- ID: TASK-212
+- Title: 進行 code review
 - Status: 已完成
-- Last updated: 2026-11-12
+- Evidence: npm test exit code: 0 (npm test 全套整合測試（含後端 API [1/9]~[9/9]、UI 互動防線、TD-H2、Agent Provider Adapter）與 npm run harness:check (8/8) 全數通過。)
+- Last updated: 2026-11-16
 
 ## Execution Tracking
 
 - CurrentStep: 任務驗收通過，已成功結案
-- Evidence: 進行中
+- Evidence: npm test exit code: 0 (npm test 全套整合測試（含後端 API [1/9]~[9/9]、UI 互動防線、TD-H2、Agent Provider Adapter）與 npm run harness:check (8/8) 全數通過。)
 - NextStep: 完成實作與測試後推入 review 交付審查
 
 ## Reset Decision Log
