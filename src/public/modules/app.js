@@ -352,15 +352,14 @@ import {
 
       const sharedInstructions = `
 
-【開工指示 (Reactive Wakeup - 零讀碼拆單調度 & Subagent Context 隔離)】：
-1. 主對話零讀碼與拆單鐵律（嚴防高階模型配額消耗）：
-   • 喚醒後主對話僅讀哨兵 Brief 與目標專案 AGENTS.md（若有指定需求文件如 doc/*.md 僅讀大綱評估規模），嚴禁在主對話預讀業務原始碼、專案 SKILL.md、歷史 build-plan 或 tasks-archived.json！
-   • 若運行於原生雙階段模式（如 ${adapter.nativeOrchestrator}）：Planning 階段僅負責「評估需求規模 (Tier) 與擬定 Subagent 拆單派工計畫」，嚴禁在 Planning 階段查閱業務代碼細節，評估完立即呼叫 exit_plan_mode 交棒！
-2. 依哨兵「執行策略 (Tier)」強制分配任務給獨立 Subagent（嚴禁主對話自己實作 standard/heavy）：
-   • micro: 僅限單純錯字/註解微調，原地直接修改與驗證，不啟動 Subagent。
-   • standard: 寫入最小 Handoff Contract 後，強制透過 ${adapter.subagentMechanism} 指派單一獨立 ${adapter.fastExecutor}，將載入【指定專案 Skills】、grep -n 切片讀碼、修改檔案與跑測試全部隔離於子代理對話內完成。
-   • heavy: 強制將需求拆解為獨立 Slices 寫入 Handoff Contract，透過 ${adapter.subagentMechanism} 指派獨立 ${adapter.fastExecutor} 逐片實作與驗證；若屬 riskDoor === "one-way" 或含 cross-model-review，完畢後再指派獨立 ${adapter.verifier} 載入【專案驗證 Skills】審核把關。
-3. API-First 交付與重啟：子代理回報完成且驗證通過後，主對話以結構化 JSON 呼叫 PUT http://localhost:3030/api/tasks/<id> 推進 review（diff、commitMessage 與報告皆由後端自動產生，勿手動收集或手寫 tasks.json；僅伺服器未啟動時才直接寫檔）。推入 review 後再次背景執行上述 node 指令重新待命。`;
+【開工指示 (Reactive Wakeup - 0 讀碼秒交棒 & Hydrogen 實作調度)】：
+1. Orchestrator 前半場 0 讀碼秒交棒鐵律（嚴防高階規劃模型燒額度）：
+   • 若主視窗選用 ${adapter.nativeOrchestrator}：被哨兵喚醒後，前半場（Planning 階段）嚴禁呼叫 read_file / grep 去讀業務碼、doc 需求文件或 SKILL.md！除非任務勾選需確認 (requiresConfirmation: true)，否則必須「0 讀碼、第 1 步直接呼叫 exit_plan_mode」把控制權交給後半場的內建執行模型（${adapter.directExecutor}）！
+   • 交棒至後半場（或主視窗本來就直接選用 ${adapter.directExecutor}）後，才開始讀取哨兵指定的目標檔案（>500 行以 grep -n 切片 30~50 行）與【指定專案 Skills】。
+2. 依哨兵「執行策略 (Tier)」與模型特性實作：
+   • micro / standard：於後半場內建執行階段（${adapter.directExecutor}）直接切片實作與驗證（免再降級外開 flash）；僅在傳統單階段高階模型下才外開 ${adapter.fastExecutor}。
+   • heavy：於執行階段拆解為獨立 Slices 寫入 Handoff Contract 逐片實作（若切片過大需隔離 Context，可呼叫 ${adapter.subagentMechanism} 並以 Model: "inherit" 或 ${adapter.fastExecutor} 分擔）；若屬 riskDoor === "one-way" 或含 cross-model-review，完畢後再指派獨立 ${adapter.verifier} 載入【專案驗證 Skills】審核把關。
+3. API-First 交付與重啟：完成驗證與 Pre-Commit 預檢後，以結構化 JSON 呼叫 PUT http://localhost:3030/api/tasks/<id> 推進 review（diff、commitMessage 與報告皆由後端自動產生，勿手寫 tasks.json）。推入 review 後再次背景執行上述 node 指令重新待命。`;
 
       let promptText = '';
       if (currentDesktopAgentTarget === 'antigravity') {

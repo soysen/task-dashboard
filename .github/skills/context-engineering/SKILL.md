@@ -21,7 +21,7 @@ models-tested: [orchestrator, hydrogen, flash, sonnet, opus]
 2. **[MUST] 檢索上限防止迴圈 (Max 2 Inspections)**：同一檔案相同區塊最多檢索 2 次；確定關鍵邏輯後立即進入實作與測試驗證，嚴防原地循環。
 3. **[MUST] 優先滿足 Feedback**：若任務帶有 `task.feedback`，必須視為最高優先權目標，不因其他上下文干擾而偏離。
 4. **[MUST] SSOT 隔離防污染**：禁止將任何執行時資料寫入專案內 `data/` 範本，避免污染 Git 上下文。
-5. **[MUST] 零讀碼拆單與強制 Subagent Context 隔離**：`Orchestrator` 等原生雙階段模型於規劃階段僅評估規模與擬定拆單派工計畫後立即交棒，嚴禁預讀業務原始碼；`standard` 與 `heavy` 任務強制委派獨立輕量 Subagent（`Workspace: "inherit"`）在隔離對話內讀碼、載入指定 SKILL.md、實作與跑測試，徹底防止主對話 Context 膨脹消耗高階模型配額；僅 `micro` 原地直行、僅 `riskDoor === "one-way"` 或 `cross-model-review` 另開獨立 Verifier。
+5. **[MUST] 0 讀碼秒交棒與執行模型調度**：運行於 `Orchestrator` 等原生雙階段模型時，Planning 階段嚴禁呼叫讀檔或搜尋工具（除非 `requiresConfirmation: true`），必須 **0 讀碼第 1 步直接 `exit_plan_mode`** 交由後半場內建執行模型（如 `Hydrogen`）讀檔與實作；直接選用 `Hydrogen` 或需派子代理隔離 `heavy` 切片時優先採用 `Model: "inherit"`（避免降級至 `flash`）；傳統單階段高階模式則以 Handoff Contract 委派單一輕量 Executor 隔離上下文；僅 `riskDoor === "one-way"` 或 `cross-model-review` 另開獨立 Verifier。
 
 ## 適用時機與豁免規則
 - **適用時機**：探索大型檔案結構、規劃任務執行前置檢閱、遭遇 Token 消耗過大、排查重複呼叫迴圈，或具備 Subagent 環境欲隔離實作與審查負載時。
@@ -57,5 +57,5 @@ models-tested: [orchestrator, hydrogen, flash, sonnet, opus]
 - [ ] 檢索目標檔案前，已先用 `grep -n` 鎖定行號，避免整檔載入。
 - [ ] 相同片段檢索不超過 2 次，避免陷入 Loop。
 - [ ] 保持 Single Source of Truth，未污染倉庫範本。
-- [ ] 已遵循主對話零讀碼拆單原則（Orchestrator 規劃階段 0 讀碼交棒），且 `standard`/`heavy` 皆已強制委派獨立 Subagent 隔離 Context。
+- [ ] 已遵循 Orchestrator 前半場 0 讀碼第 1 步 `exit_plan_mode` 交棒，並於後半場 `Hydrogen` 或 `Model: "inherit"` 子代理完成讀檔與實作。
 - [ ] 程式碼修改完成後，已執行 `npm run harness:check` 與 `npm test`。

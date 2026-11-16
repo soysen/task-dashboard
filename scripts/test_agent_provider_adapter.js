@@ -43,23 +43,23 @@ function testAgentProviderAdapter() {
   }
   console.log('  ✅ resolveProvider 優先序、assignedAgent/assignee 串接與預設相容性驗證通過');
 
-  // 3. 驗證 formatTierStrategy 針對各平台正確生成強制子代理隔離策略且嚴守單行
+  // 3. 驗證 formatTierStrategy 針對各平台正確生成「0 讀碼秒交棒 + 內建執行階段實作」策略且嚴守單行
   // Copilot (Agent Mode / Subagents)
   const copilotStandard = formatTierStrategy('standard', 'copilot');
-  assert(copilotStandard.includes('Copilot Subagent'), 'Copilot standard 應指示調度 Copilot Subagent');
+  assert(copilotStandard.includes('Copilot Subagent'), 'Copilot standard 應包含傳統單階段降級備援 Copilot Subagent');
   assert(copilotStandard.includes('Tier: standard Planner→Executor'), '標準策略語義應完整');
-  assert(copilotStandard.includes('強制') && copilotStandard.includes('Subagent'), 'Copilot standard 應強制委派子代理隔離');
-  assert(!copilotStandard.includes('免外開'), '不得再出現免外開 Subagent 誤導字眼');
+  assert(copilotStandard.includes('0 讀碼第 1 步'), 'Copilot standard 應要求 Planning 階段 0 讀碼第 1 步交棒');
+  assert(copilotStandard.includes('Copilot Fast 單線程直行'), 'Copilot standard 應包含內建執行階段直行描述');
 
   const copilotHeavy = formatTierStrategy('heavy', 'copilot');
   assert(copilotHeavy.includes('Copilot Verifier (OpenAI o1 Reasoning Mode)'), 'Copilot heavy 應包含 o1 獨立 Verifier');
-  assert(!copilotHeavy.includes('免外開'), 'Copilot heavy 不得出現免外開 Subagent');
+  assert(copilotHeavy.includes('Model: "inherit"'), 'Copilot heavy 應包含 Model: "inherit" 選項');
 
   // Claude Code
   const claudeStandard = formatTierStrategy('standard', 'claude');
   assert(claudeStandard.includes('Haiku Subagent'), 'Claude standard 應提示 Haiku Subagent');
   assert(claudeStandard.includes('Claude Plan Mode (Plan→Act)'), 'Claude standard 應包含 Plan Mode 0 讀碼交棒指示');
-  assert(claudeStandard.includes('Task Tool / Subagents'), 'Claude standard 應明確帶出子代理工具機制');
+  assert(claudeStandard.includes('Haiku / Sonnet 單線程直行'), 'Claude standard 應帶出內建執行階段直行描述');
   const claudeHeavy = formatTierStrategy('heavy', 'claude');
   assert(claudeHeavy.includes('Opus / Thinking Verifier'), 'Claude heavy 應提示 Opus Verifier');
 
@@ -69,17 +69,16 @@ function testAgentProviderAdapter() {
   const codexHeavy = formatTierStrategy('heavy', 'codex');
   assert(codexHeavy.includes('Reasoner Verifier (o1 / o3-mini)'), 'Codex heavy 應提示 o1/o3 Reasoner');
 
-  // Antigravity (向下相容 + Orchestrator 零讀碼拆單強制 Subagent 隔離)
+  // Antigravity (向下相容 + Orchestrator 0 讀碼第 1 步交棒給內建 Hydrogen 執行階段)
   const agyStandard = formatTierStrategy('standard', 'antigravity');
-  assert(agyStandard.includes('flash Subagent (Workspace: "inherit")'), 'Antigravity standard 必須保持 flash Subagent');
-  assert(agyStandard.includes('Orchestrator (Plan→Execute 原生雙階段)'), 'Antigravity standard 應包含 Orchestrator 規劃交棒指示');
-  assert(agyStandard.includes('invoke_subagent'), 'Antigravity standard 應指明透過 invoke_subagent 隔離 Context');
-  assert(!agyStandard.includes('免外開'), 'Antigravity standard 不得免外開 Subagent');
+  assert(agyStandard.includes('flash Subagent (Workspace: "inherit")'), 'Antigravity standard 必須保留 flash Subagent 相容鍵字');
+  assert(agyStandard.includes('Orchestrator (Plan→Execute 原生雙階段)'), 'Antigravity standard 應包含 Orchestrator 原生雙階段說明');
+  assert(agyStandard.includes('0 讀碼第 1 步直接交棒內建執行階段 (Hydrogen / Fast 直行模式)'), 'Antigravity standard 應要求 0 讀碼第 1 步交棒內建 Hydrogen');
   const agyHeavy = formatTierStrategy('heavy', 'antigravity');
   assert(agyHeavy.includes('pro Verifier (Model: "pro", Workspace: "inherit")'), 'Antigravity heavy 必須保持 pro Verifier');
-  assert(agyHeavy.includes('Orchestrator (Plan→Execute 原生雙階段)'), 'Antigravity heavy 應包含 Orchestrator 拆單派工說明');
+  assert(agyHeavy.includes('0 讀碼第 1 步立即交棒內建執行階段 (Hydrogen / Fast 直行模式)'), 'Antigravity heavy 應要求 0 讀碼第 1 步交棒內建 Hydrogen');
+  assert(agyHeavy.includes('Model: "inherit"'), 'Antigravity heavy 分擔切片應支援 Model: "inherit"');
   assert(agyHeavy.includes('cross-model-review'), 'Antigravity heavy 應支援 cross-model-review 觸發 Verifier');
-  assert(!agyHeavy.includes('免外開'), 'Antigravity heavy 不得免外開實作 Subagent');
 
   // Micro (所有平台原地實作) & 單行限制驗證
   ['antigravity', 'claude', 'codex', 'copilot', 'generic'].forEach(p => {
@@ -91,7 +90,7 @@ function testAgentProviderAdapter() {
       assert(!strategy.includes('\n'), `${p} ${tier} 策略必須為單行無換行，避免哨兵 brief 行數超標`);
     });
   });
-  console.log('  ✅ formatTierStrategy 四大平台、強制子代理隔離與單行限制驗證通過');
+  console.log('  ✅ formatTierStrategy 四大平台、0 讀碼秒交棒與單行限制驗證通過');
 
   // 4. 驗證 determineTaskTier 針對大型複雜任務 (如 TASK-208 模式) 升級為 heavy 與哨兵 Brief 行數限制
   const { determineTaskTier: gateDetermineTier, formatWakeupBrief } = require('./watch-task-gate');

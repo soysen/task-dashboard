@@ -69,15 +69,15 @@ flowchart TD
 為消除無差別啟動雙 Subagent 所產生的固定外殼稅與重複 Context 負擔，依據任務階層 (`tier`)、單雙向門禁 (`riskDoor`)、目標 AI 平台（Antigravity、Claude Code、OpenAI Codex、VS Code Copilot）以及當前運行的**三態自適應執行模式**進行動態分流：
 
 #### 三態自適應執行模式 (Execution Profiles)
-1. **原生雙階段編排模式 (Native Plan→Execute Orchestrator)**：如 Antigravity `Orchestrator`、Claude Code `Plan Mode`、Copilot/Cursor `Plan→Act`。為防止高階模型配額消耗與主對話歷史膨脹，**Planning 階段嚴禁預讀業務原始碼或長篇 SKILL.md**，僅負責評估需求規模 (`tier`) 與擬定 Subagent 拆單派工計畫後 1 步交棒；**Execution 階段對 `standard`/`heavy` 強制委派獨立輕量 Subagent 隔離 Context 實作**。
-2. **單階段委派模式 (Delegated Subagent)**：傳統單階段主力模型。主 Agent 執行一次需求與契約整理並寫入 `Handoff Contract`，指派單一輕量執行子代理（`Workspace: "inherit"`）僅依契約於隔離對話內讀碼與實作。
-3. **輕量高速直行模式 (Direct Fast Executor)**：如 Antigravity `Hydrogen` / `Flash`、Claude `Haiku` 或單行程 CLI 模式。適合直接掛載哨兵接辦 `micro` 與一般 `standard`：`micro` 原地 Fast-Track 實作；`standard` 仍建議指派單一子代理隔離長檔案與測試 Log。
+1. **原生雙階段編排模式 (Native Plan→Execute Orchestrator)**：如 Antigravity `Orchestrator`、Claude Code `Plan Mode`、Copilot/Cursor `Plan→Act`。為防止高階規劃模型消耗額度，**Planning 階段嚴禁預讀任何檔案（含業務碼、`doc/*.md` 與 `SKILL.md`）**，除非任務為待確認 (`requiresConfirmation: true`)，否則須**0 讀碼第 1 步直接 `exit_plan_mode`**，將讀取需求與實作交由後半場的**內建執行模型（如 `Hydrogen`）**完成；僅超大 `heavy` 任務為隔離長 Context 時，才輔以子代理（優先 `Model: "inherit"` 或平台輕量檔位）分擔切片。
+2. **單階段委派模式 (Delegated Subagent)**：傳統單階段高階模型（無原生 Plan→Execute 切換）。主 Agent 撰寫最小 `Handoff Contract`，指派單一輕量執行子代理（`Workspace: "inherit"`）依契約於隔離對話內讀碼與實作。
+3. **輕量高速直行模式 (Direct Fast Executor)**：如 Antigravity `Hydrogen` / `Flash`、Claude `Haiku` 或單行程 CLI 模式。適合直接掛載哨兵接辦任務：`micro` / `standard` 直接原地切片實作與驗證；`heavy` 若需拆片隔離 Context，可派子代理並設定 `Model: "inherit"` 維持同級高速執行。
 
 | 階層 (Tier) | 適用場景 / 判定規則 | Phase 1 規劃 | Phase 2 實作 (Executor) | Phase 3 驗收 (Verifier) |
 | :--- | :--- | :--- | :--- | :--- |
 | **`micro`** | 文案錯字、註解微調、格式化、純小範圍樣式，或標註 `tier:micro` | 主 Agent 評估改動範圍 | 主 Agent **原地實作，不啟動 Subagent** | 主 Agent 本地測試 + `harness:check` exit 0 |
-| **`standard`** | 一般功能開發、局部 Bug 修復、單元測試補齊，或推斷不出之預設 | 主 Agent 撰寫最小 `Handoff Contract` 與 `## Delegation`（Orchestrator 規劃階段 0 讀碼交棒） | **強制子代理隔離**：透過 `invoke_subagent` / 平台子代理機制指派單一 **Fast / Balanced Executor**（`Workspace: "inherit"`）依契約於隔離對話內讀碼、實作與跑測試 | 主 Agent 依契約驗收標準審查 diff，送出 payload 推進 review |
-| **`heavy`** | 跨模組重構、資料庫遷移、`riskDoor === "one-way"`、含 `orchestrator`/`cross-model-review` 或 `>=3` 領域技能標籤、或「根據文件規劃/串接 API」 | 主 Agent 拆解獨立 Slices 並寫入 `Handoff Contract` 與 `## Delegation`（禁在主對話展開大檔） | **強制子代理切片隔離**：指派獨立 **Executor Subagent** 逐片實作與驗證 | 主 Agent 審查 diff 並驗收推進 review；若 `riskDoor === "one-way"` 或含 `cross-model-review` 另開獨立 **Reasoning Verifier**（如 Pro、Opus、o1）審核 |
+| **`standard`** | 一般功能開發、局部 Bug 修復、單元測試補齊，或推斷不出之預設 | **Orchestrator**：0 讀碼第 1 步 `exit_plan_mode` 交棒；**傳統單階段**：撰寫 `Handoff Contract` | **Orchestrator 後半場 / Hydrogen**：由內建執行階段（`Hydrogen`）直接切片讀碼與實作（免降級外開 `flash`）；**傳統單階段**：指派單一輕量 Subagent 依契約實作 | 主 Agent 依驗收標準審查 diff，執行 harness 後送出 payload 推進 review |
+| **`heavy`** | 跨模組重構、資料庫遷移、`riskDoor === "one-way"`、含 `orchestrator`/`cross-model-review` 或 `>=3` 領域技能標籤、或「根據文件規劃/串接 API」 | **Orchestrator**：0 讀碼第 1 步交棒後半場讀取需求並拆解 `Handoff Contract` Slices | **內建執行階段 (`Hydrogen`)** 逐片實作；若切片過大須隔離 Context，輔以 Subagent（優先 `Model: "inherit"` 或輕量檔位）分擔 | 主 Agent 審查 diff 並驗收推進 review；若 `riskDoor === "one-way"` 或含 `cross-model-review` 另開獨立 **Reasoning Verifier**（如 Pro、Opus、o1）審核 |
 
 - **階層推斷優先序**：
   1. 顯式指定：`task.tier` 為 `micro`、`standard`、`heavy` 之一時直接採用。

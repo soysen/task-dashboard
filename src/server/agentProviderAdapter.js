@@ -99,10 +99,10 @@ function formatTierStrategy(tier, providerOrName = null) {
   }
 
   if (tier === 'heavy') {
-    return `• 執行策略 (Tier: heavy Planner→Executor 強制切片與子代理隔離): 主對話嚴禁讀業務碼或自己呼叫 edit_file 實作（若為 ${provider.nativeOrchestrator}，Planning 階段僅評估需求規模與擬定拆單委派計畫後交棒執行階段），寫入 Handoff Contract 後強制透過 ${provider.subagentMechanism} 指派獨立 ${provider.fastExecutor} 逐片讀碼實作以隔離 Context；主 Agent 審查 diff，且於 riskDoor one-way 或含 cross-model-review 時另開獨立 ${provider.reasoningVerifier}。`;
+    return `• 執行策略 (Tier: heavy Planner→Executor 切片): 若為 ${provider.nativeOrchestrator}，Planning 階段 0 讀碼第 1 步立即交棒內建執行階段 (${provider.directExecutor}) 讀檔、拆解 Handoff Contract 切片並逐片實作（或視切片大小輔以 ${provider.fastExecutor} / Model: "inherit" 分擔）；若含 cross-model-review 或 riskDoor one-way 則另開獨立 ${provider.reasoningVerifier}。`;
   }
 
-  return `• 執行策略 (Tier: standard Planner→Executor 強制子代理隔離): 主對話嚴禁讀業務碼或自己呼叫 edit_file 實作（若為 ${provider.nativeOrchestrator}，Planning 階段僅擬定委派計畫後 1 步交棒執行階段），寫入 build-plan「Handoff Contract」後強制透過 ${provider.subagentMechanism} 指派單一獨立 ${provider.fastExecutor} 於隔離 Context 依契約完成讀碼、實作與測試；主 Agent 僅依契約驗收。`;
+  return `• 執行策略 (Tier: standard Planner→Executor): 若為 ${provider.nativeOrchestrator}，Planning 階段嚴禁讀檔須 0 讀碼第 1 步直接交棒內建執行階段 (${provider.directExecutor}) 讀檔與實作；若直接運行於 ${provider.directExecutor} 則原地切片實作；傳統單階段高階模式則寫入 build-plan「Handoff Contract」指派單一 ${provider.fastExecutor} 依契約實作。`;
 }
 
 module.exports = {

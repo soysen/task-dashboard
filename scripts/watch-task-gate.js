@@ -302,7 +302,7 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
       if (matched.length > 0) {
         const skillLabel = tier === 'micro'
           ? '【指定專案 Skills (按需載入)】'
-          : '【指定專案 Skills (交由 Subagent 載入，主對話禁讀)】';
+          : '【指定專案 Skills (於執行階段按需載入，Planning 階段禁讀)】';
         prioritySkillText = `\n• ${skillLabel}: ${matched.map(s => `${s.label || s.id} (${s.path || s.id})`).join('、')}`;
       }
     }
@@ -328,7 +328,7 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
 
   const ruleText = tier === 'micro'
     ? `• 執行規範: 遵循 ${STANDARD_DOC} 3-Phase Gate；micro 任務由主 Agent 原地以 grep-n 切片最小範圍實作與驗證（禁整檔盲讀）；Phase 3 須含專案 Pre-Commit 預檢與專案 harness（無關基線紅燈僅註記）。`
-    : `• 執行規範: 遵循 ${STANDARD_DOC} 3-Phase Gate；主對話嚴禁預讀業務原始碼與專案 SKILL.md（Orchestrator 規劃階段僅評估規模與擬定 Subagent 拆單計畫後立即交棒）；standard/heavy 強制呼叫獨立 Subagent 於隔離 Context 內讀取 Handoff Contract、載入指定 Skill 並以 grep-n 切片實作；Phase 3 須含專案 Pre-Commit 預檢與專案 harness。`;
+    : `• 執行規範: 遵循 ${STANDARD_DOC} 3-Phase Gate；若運行於 Orchestrator 原生雙階段模式，前半場 Planning 階段嚴禁呼叫 read_file/grep（0 讀碼第 1 步直接 exit_plan_mode），交由後半場內建執行階段 (Hydrogen) 讀取需求、載入指定 Skill 並以 grep-n 切片實作；若需派子代理優先用 Model: "inherit" 或依平台規範；Phase 3 須含專案 Pre-Commit 預檢與專案 harness。`;
 
   const isPendingPlanCreation = Boolean(task.requiresConfirmation && (!task.executionPlan || !task.executionPlan.trim()));
   const confirmationText = isPendingPlanCreation
