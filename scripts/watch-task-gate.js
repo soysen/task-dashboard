@@ -37,7 +37,8 @@ function loadAgentProviderAdapter() {
       fastExecutor: 'flash Subagent (Workspace: "inherit")',
       reasoningVerifier: 'pro Verifier (Model: "pro", Workspace: "inherit")',
       nativeOrchestrator: 'Orchestrator (Plan→Execute 原生雙階段)',
-      directExecutor: 'Hydrogen / Fast 直行模式'
+      directExecutor: 'Hydrogen / Fast 直行模式',
+      subagentMechanism: 'invoke_subagent'
     }),
     formatTierStrategy: (tier) => `• 執行策略 (Tier: ${tier})`
   };
@@ -231,10 +232,21 @@ function determineTaskTier(task) {
   // 3. riskDoor 為 one-way 時自動升級為 heavy
   if (task.riskDoor === 'one-way') return 'heavy';
 
-  // 4. 根據標題與描述關鍵字推斷
+  // 4. 複雜度標籤升級（編排、跨模型審查、任務拆解或多領域技能疊加）
+  const heavyTags = ['orchestrator', 'cross-model-review', 'planning-and-task-breakdown', 'incremental-implementation'];
+  if (tags.some(t => heavyTags.includes(t))) {
+    return 'heavy';
+  }
+  const genericTypeTags = new Set(['feat', 'fix', 'docs', 'chore', 'test', 'style', 'perf', 'ci', 'build']);
+  const domainSkillTags = tags.filter(t => t && !genericTypeTags.has(t));
+  if (domainSkillTags.length >= 3) {
+    return 'heavy';
+  }
+
+  // 5. 根據標題與描述關鍵字推斷
   const text = `${task.title || ''} ${task.description || ''}`.toLowerCase();
 
-  const heavyKeywords = ['重構', 'refactor', '架構', 'architecture', 'migration', 'breaking', '資料庫遷移', 'one-way'];
+  const heavyKeywords = ['重構', 'refactor', '架構', 'architecture', 'migration', 'breaking', '資料庫遷移', 'one-way', '根據文件', '規劃執行', '串接 api', '串接api', '跨模組'];
   if (heavyKeywords.some(k => text.includes(k))) {
     return 'heavy';
   }
@@ -274,24 +286,33 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
   let implSkillsText = '';
   let verifySkillsText = '';
 
+  const tier = determineTaskTier(task);
+  const strategyText = formatTierStrategy(tier, resolveProvider(task));
+
   if (p && Array.isArray(p.skills) && p.skills.length > 0) {
+    let matched = [];
     // 1. 若 task.tags 有明確命中專案 skill
     if (Array.isArray(task.tags) && task.tags.length > 0) {
-      const matched = p.skills.filter(s =>
+      matched = p.skills.filter(s =>
         task.tags.some(t => {
           const cleanTag = String(t).trim().toLowerCase();
           return cleanTag === (s.id || '').toLowerCase() || cleanTag === (s.label || '').toLowerCase();
         })
       );
       if (matched.length > 0) {
-        prioritySkillText = `\n• 【指定專案 Skills (優先必載)】: ${matched.map(s => `${s.label || s.id} (${s.path || s.id})`).join('、')}`;
+        const skillLabel = tier === 'micro'
+          ? '【指定專案 Skills (按需載入)】'
+          : '【指定專案 Skills (交由 Subagent 載入，主對話禁讀)】';
+        prioritySkillText = `\n• ${skillLabel}: ${matched.map(s => `${s.label || s.id} (${s.path || s.id})`).join('、')}`;
       }
     }
 
-    // 2. 實作 Skills
-    const implSkills = p.skills.filter(s => !VERIFY_SKILL_IDS.includes(s.id) && !IGNORE_SKILL_IDS.includes(s.id));
-    if (implSkills.length > 0) {
-      implSkillsText = `\n• 【專案實作 Skills】: ${implSkills.map(s => `${s.label || s.id} (${s.path || s.id})`).join('、')}`;
+    // 2. 實作 Skills（僅在未命中指定 Skills 時才輸出全量實作清單，避免干擾主對話）
+    if (matched.length === 0) {
+      const implSkills = p.skills.filter(s => !VERIFY_SKILL_IDS.includes(s.id) && !IGNORE_SKILL_IDS.includes(s.id));
+      if (implSkills.length > 0) {
+        implSkillsText = `\n• 【專案實作 Skills】: ${implSkills.map(s => `${s.label || s.id} (${s.path || s.id})`).join('、')}`;
+      }
     }
 
     // 3. 驗證 Skills 與 Harness
@@ -305,8 +326,9 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
     verifySkillsText = `\n• 【專案驗證 Skills & Harness】: ${verifyParts.join(' | ')}`;
   }
 
-  const tier = determineTaskTier(task);
-  const strategyText = formatTierStrategy(tier, resolveProvider(task));
+  const ruleText = tier === 'micro'
+    ? `• 執行規範: 遵循 ${STANDARD_DOC} 3-Phase Gate；micro 任務由主 Agent 原地以 grep-n 切片最小範圍實作與驗證（禁整檔盲讀）；Phase 3 須含專案 Pre-Commit 預檢與專案 harness（無關基線紅燈僅註記）。`
+    : `• 執行規範: 遵循 ${STANDARD_DOC} 3-Phase Gate；主對話嚴禁預讀業務原始碼與專案 SKILL.md（Orchestrator 規劃階段僅評估規模與擬定 Subagent 拆單計畫後立即交棒）；standard/heavy 強制呼叫獨立 Subagent 於隔離 Context 內讀取 Handoff Contract、載入指定 Skill 並以 grep-n 切片實作；Phase 3 須含專案 Pre-Commit 預檢與專案 harness。`;
 
   const isPendingPlanCreation = Boolean(task.requiresConfirmation && (!task.executionPlan || !task.executionPlan.trim()));
   const confirmationText = isPendingPlanCreation
@@ -322,7 +344,7 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
     `• 專案: ${task.project || '預設'}${projPath ? ` (${projPath})` : ''}\n` +
     `• 需求: ${cleanDesc}${feedbackText}${confirmationText}${prioritySkillText}${implSkillsText}${verifySkillsText}\n` +
     `${strategyText}\n` +
-    `• 執行規範: 遵循 ${STANDARD_DOC} 3-Phase Gate；Phase 1 僅執行一次（>500 行大檔以 grep-n 切片定位）；若需求含【最新需求覆蓋】以其為最高優先；原生雙階段模式直接交棒內建執行階段落地，委派模式之 Executor 只讀 Handoff Contract 禁重讀專案文件；Phase 3 驗收須包含專案 Pre-Commit 預檢與專案 harness（無關基線紅燈僅註記）。\n` +
+    `${ruleText}\n` +
     `• 交付方式: ${deliveryText}\n` +
     `================================================================================`;
 }

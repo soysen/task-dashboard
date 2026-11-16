@@ -99,10 +99,10 @@ function formatTierStrategy(tier, providerOrName = null) {
   }
 
   if (tier === 'heavy') {
-    return `• 執行策略 (Tier: heavy Planner→Executor 切片): 原生雙階段 (${provider.nativeOrchestrator}) 規劃切片後直接交棒內建執行階段逐片落地（免外開實作 Subagent）；單階段模式寫入 Handoff Contract 指派 ${provider.fastExecutor} 逐片實作；由主 Agent 審查 diff，僅 riskDoor one-way 另開獨立 ${provider.reasoningVerifier}。`;
+    return `• 執行策略 (Tier: heavy Planner→Executor 強制切片與子代理隔離): 主對話嚴禁讀業務碼或自己呼叫 edit_file 實作（若為 ${provider.nativeOrchestrator}，Planning 階段僅評估需求規模與擬定拆單委派計畫後交棒執行階段），寫入 Handoff Contract 後強制透過 ${provider.subagentMechanism} 指派獨立 ${provider.fastExecutor} 逐片讀碼實作以隔離 Context；主 Agent 審查 diff，且於 riskDoor one-way 或含 cross-model-review 時另開獨立 ${provider.reasoningVerifier}。`;
   }
 
-  return `• 執行策略 (Tier: standard Planner→Executor): 原生雙階段 (${provider.nativeOrchestrator}) 於 Phase 1 切片定位後直接交棒內建執行階段落地（免外開 Subagent）；單階段模式寫入 build-plan「Handoff Contract」後指派單一 ${provider.fastExecutor} 僅依契約實作；輕量直行 (${provider.directExecutor}) 則單線程依序實作並由主 Agent 驗收。`;
+  return `• 執行策略 (Tier: standard Planner→Executor 強制子代理隔離): 主對話嚴禁讀業務碼或自己呼叫 edit_file 實作（若為 ${provider.nativeOrchestrator}，Planning 階段僅擬定委派計畫後 1 步交棒執行階段），寫入 build-plan「Handoff Contract」後強制透過 ${provider.subagentMechanism} 指派單一獨立 ${provider.fastExecutor} 於隔離 Context 依契約完成讀碼、實作與測試；主 Agent 僅依契約驗收。`;
 }
 
 module.exports = {

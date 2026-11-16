@@ -69,21 +69,22 @@ flowchart TD
 為消除無差別啟動雙 Subagent 所產生的固定外殼稅與重複 Context 負擔，依據任務階層 (`tier`)、單雙向門禁 (`riskDoor`)、目標 AI 平台（Antigravity、Claude Code、OpenAI Codex、VS Code Copilot）以及當前運行的**三態自適應執行模式**進行動態分流：
 
 #### 三態自適應執行模式 (Execution Profiles)
-1. **原生雙階段模式 (Native Plan→Execute)**：如 Antigravity `Orchestrator`、Claude Code `Plan Mode`、Copilot/Cursor `Plan→Act`。規劃階段可依 `grep -n` 精準切片唯讀定位目標程式與執行 GitNexus 影響評估，擬定計畫後直接交棒給**同對話內建執行階段**落地實作與驗證，**免重複寫外部 Handoff Contract 或另開實作 Subagent**，徹底避免三層套娃浪費。
-2. **單階段委派模式 (Delegated Subagent)**：無原生雙階段切換的傳統單階段主力模型。主 Agent 執行一次 Phase 1 並寫入 `Handoff Contract`，指派單一輕量執行子代理（`Workspace: "inherit"`）僅依契約實作並禁讀重複專案文件。
-3. **輕量高速直行模式 (Direct Fast Executor)**：如 Antigravity `Hydrogen` / `Flash`、Claude `Haiku` 或單行程 CLI 模式。對 `micro` 與一般 `standard` 任務採單線程 Fast-Track 直接「切片定位 ➔ 最小範圍修改 ➔ Harness 驗證 ➔ API 交付」，免建外部交接契約與子代理。
+1. **原生雙階段編排模式 (Native Plan→Execute Orchestrator)**：如 Antigravity `Orchestrator`、Claude Code `Plan Mode`、Copilot/Cursor `Plan→Act`。為防止高階模型配額消耗與主對話歷史膨脹，**Planning 階段嚴禁預讀業務原始碼或長篇 SKILL.md**，僅負責評估需求規模 (`tier`) 與擬定 Subagent 拆單派工計畫後 1 步交棒；**Execution 階段對 `standard`/`heavy` 強制委派獨立輕量 Subagent 隔離 Context 實作**。
+2. **單階段委派模式 (Delegated Subagent)**：傳統單階段主力模型。主 Agent 執行一次需求與契約整理並寫入 `Handoff Contract`，指派單一輕量執行子代理（`Workspace: "inherit"`）僅依契約於隔離對話內讀碼與實作。
+3. **輕量高速直行模式 (Direct Fast Executor)**：如 Antigravity `Hydrogen` / `Flash`、Claude `Haiku` 或單行程 CLI 模式。適合直接掛載哨兵接辦 `micro` 與一般 `standard`：`micro` 原地 Fast-Track 實作；`standard` 仍建議指派單一子代理隔離長檔案與測試 Log。
 
 | 階層 (Tier) | 適用場景 / 判定規則 | Phase 1 規劃 | Phase 2 實作 (Executor) | Phase 3 驗收 (Verifier) |
 | :--- | :--- | :--- | :--- | :--- |
 | **`micro`** | 文案錯字、註解微調、格式化、純小範圍樣式，或標註 `tier:micro` | 主 Agent 評估改動範圍 | 主 Agent **原地實作，不啟動 Subagent** | 主 Agent 本地測試 + `harness:check` exit 0 |
-| **`standard`** | 一般功能開發、局部 Bug 修復、單元測試補齊，或推斷不出之預設 | 主 Agent 執行一次 Phase 1（唯讀切片定位）；單階段委派時寫入 `Handoff Contract` 與 `## Delegation` | **原生雙階段**：直接交棒內建執行階段落地（免外開 Subagent）；**輕量直行**：單線程依序實作；**單階段委派**：指派單一 **Fast / Balanced Executor**（`Workspace: "inherit"`）依契約實作 | 主 Agent 依驗收標準審查 diff，執行 harness 後送出 payload 推進 review |
-| **`heavy`** | 跨模組重構、破壞性變更、資料庫遷移，或 `riskDoor === "one-way"` | 主 Agent 規劃切片並評估影響；單階段委派時寫入 `Handoff Contract` 與 `## Delegation` | **原生雙階段**：交棒內建執行階段逐片落地（免外開實作 Subagent）；**單階段委派**：指派單一 **Executor Subagent** 逐片實作 | 主 Agent 審查 diff 並驗收推進 review；僅 `riskDoor === "one-way"` 另開獨立 **Reasoning Verifier**（如 Pro、Opus、o1 或 Copilot Reasoning Subagent）審核 |
+| **`standard`** | 一般功能開發、局部 Bug 修復、單元測試補齊，或推斷不出之預設 | 主 Agent 撰寫最小 `Handoff Contract` 與 `## Delegation`（Orchestrator 規劃階段 0 讀碼交棒） | **強制子代理隔離**：透過 `invoke_subagent` / 平台子代理機制指派單一 **Fast / Balanced Executor**（`Workspace: "inherit"`）依契約於隔離對話內讀碼、實作與跑測試 | 主 Agent 依契約驗收標準審查 diff，送出 payload 推進 review |
+| **`heavy`** | 跨模組重構、資料庫遷移、`riskDoor === "one-way"`、含 `orchestrator`/`cross-model-review` 或 `>=3` 領域技能標籤、或「根據文件規劃/串接 API」 | 主 Agent 拆解獨立 Slices 並寫入 `Handoff Contract` 與 `## Delegation`（禁在主對話展開大檔） | **強制子代理切片隔離**：指派獨立 **Executor Subagent** 逐片實作與驗證 | 主 Agent 審查 diff 並驗收推進 review；若 `riskDoor === "one-way"` 或含 `cross-model-review` 另開獨立 **Reasoning Verifier**（如 Pro、Opus、o1）審核 |
 
 - **階層推斷優先序**：
   1. 顯式指定：`task.tier` 為 `micro`、`standard`、`heavy` 之一時直接採用。
   2. 標籤標註：`task.tags` 包含 `tier:micro`、`micro`、`tier:heavy`、`heavy` 等。
   3. 門禁升級：若 `riskDoor === "one-way"`，強制升級為 `heavy`。
-  4. 關鍵字推斷：標題與描述包含重構、架構、破壞性變更等推為 `heavy`；包含文案、錯字、註解微調等推為 `micro`；其餘預設為 `standard`。
+  4. 複雜度標籤升級：若 `task.tags` 含 `orchestrator`、`cross-model-review`、`planning-and-task-breakdown`、`incremental-implementation`，或排除通用型別標籤後的領域技能標籤數量 `>= 3`，自動升級為 `heavy`。
+  5. 關鍵字推斷：標題與描述包含重構、架構、破壞性變更、根據文件、規劃執行、串接 API、跨模組等推為 `heavy`；包含文案、錯字、註解微調等推為 `micro`；其餘預設為 `standard`。
 - **門禁與四大安全守則**：
   1. **確認門禁聯鎖 (Confirmation Gate)**：若任務標註 `requiresConfirmation === true` 且未具備執行計劃，無論何種 Tier 均禁止直接進入實作，必須先完成計劃供確認。
   2. **最新需求覆蓋優先權**：若任務描述包含 `--- 【執行計劃確認意見 / 最新需求覆蓋】 ---` 區塊，其內容具備最高優先權。若與上方舊有需求存在矛盾或規格調整，一律以該區塊最新指示為準覆蓋舊有描述，嚴禁混雜衝突邏輯。

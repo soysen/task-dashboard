@@ -632,10 +632,21 @@ function determineTaskTier(task) {
   // 3. riskDoor 為 one-way 時自動升級為 heavy
   if (task.riskDoor === 'one-way') return 'heavy';
 
-  // 4. 根據標題與描述關鍵字推斷
+  // 4. 複雜度標籤升級（編排、跨模型審查、任務拆解或多領域技能疊加）
+  const heavyTags = ['orchestrator', 'cross-model-review', 'planning-and-task-breakdown', 'incremental-implementation'];
+  if (tags.some(t => heavyTags.includes(t))) {
+    return 'heavy';
+  }
+  const genericTypeTags = new Set(['feat', 'fix', 'docs', 'chore', 'test', 'style', 'perf', 'ci', 'build']);
+  const domainSkillTags = tags.filter(t => t && !genericTypeTags.has(t));
+  if (domainSkillTags.length >= 3) {
+    return 'heavy';
+  }
+
+  // 5. 根據標題與描述關鍵字推斷
   const text = `${task.title || ''} ${task.description || ''}`.toLowerCase();
 
-  const heavyKeywords = ['重構', 'refactor', '架構', 'architecture', 'migration', 'breaking', '資料庫遷移', 'one-way'];
+  const heavyKeywords = ['重構', 'refactor', '架構', 'architecture', 'migration', 'breaking', '資料庫遷移', 'one-way', '根據文件', '規劃執行', '串接 api', '串接api', '跨模組'];
   if (heavyKeywords.some(k => text.includes(k))) {
     return 'heavy';
   }

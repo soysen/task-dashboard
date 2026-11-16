@@ -316,47 +316,51 @@ import {
           nativeOrchestrator: 'Orchestrator (Plan→Execute 原生雙階段)',
           fastExecutor: 'flash Subagent (Workspace: "inherit")',
           directExecutor: 'Hydrogen / Fast 直行模式',
-          verifier: 'pro Verifier (Model: "pro", Workspace: "inherit")'
+          verifier: 'pro Verifier (Model: "pro", Workspace: "inherit")',
+          subagentMechanism: 'invoke_subagent'
         },
         claude: {
           nativeOrchestrator: 'Claude Plan Mode (Plan→Act)',
           fastExecutor: 'Haiku Subagent (claude-3-5-haiku)',
           directExecutor: 'Haiku / Sonnet 單線程直行',
-          verifier: 'Opus / Thinking Verifier (claude-3-opus)'
+          verifier: 'Opus / Thinking Verifier (claude-3-opus)',
+          subagentMechanism: 'Task Tool'
         },
         codex: {
           nativeOrchestrator: 'Codex Plan→Act 雙階段',
           fastExecutor: 'Worker Subagent (gpt-4o-mini)',
           directExecutor: 'Codex Mini 單線程直行',
-          verifier: 'Reasoner Verifier (o1 / o3-mini)'
+          verifier: 'Reasoner Verifier (o1 / o3-mini)',
+          subagentMechanism: 'Swarm / Handoff'
         },
         copilot: {
           nativeOrchestrator: 'Copilot Plan→Agent 雙階段',
           fastExecutor: 'Copilot Subagent (Fast / Default Agent Mode)',
           directExecutor: 'Copilot Fast 單線程直行',
-          verifier: 'Copilot Verifier (OpenAI o1 Reasoning Mode)'
+          verifier: 'Copilot Verifier (OpenAI o1 Reasoning Mode)',
+          subagentMechanism: 'Agent Mode'
         },
         universal: {
           nativeOrchestrator: 'Native Plan→Execute 原生雙階段模式',
           fastExecutor: 'Executor Subagent (Fast / 輕量檔位)',
           directExecutor: 'Fast Direct 輕量直行模式',
-          verifier: 'Verifier Subagent (Reasoning / 深度推理檔位)'
+          verifier: 'Verifier Subagent (Reasoning / 深度推理檔位)',
+          subagentMechanism: 'Subagent Tool'
         }
       };
       const adapter = targetAdapterMap[currentDesktopAgentTarget] || targetAdapterMap.universal;
 
       const sharedInstructions = `
 
-【開工指示 (Reactive Wakeup - 三態自適應調度)】：
-1. Phase 1 精準切片定位（免盲讀）：喚醒後讀取哨兵 Brief 與專案 AGENTS.md，不預讀歷史 build-plan、tasks-archived.json 或無關原始碼；對目標檔案一律先以 grep -n 定位後切片 30~50 行（檢索上限 2 次）。（若勾選需確認且無執行計劃，先擬定計劃回寫 executionPlan 保持 in_progress 供確認；若有 feedback 或【最新需求覆蓋】視為最高優先）。
-2. 依哨兵「執行策略 (Tier)」、當前模型特性與【專案 Skills】自適應調度（免雙重子代理稅）：
-   • micro: 主 Agent 原地直接實作與驗證，不啟動 Subagent。
-   • standard / heavy:
-     - 原生雙階段模式（如 ${adapter.nativeOrchestrator}）：於 Plan 階段完成切片定位與規劃後，直接交棒內建執行階段載入【專案實作 Skills】落地實作與驗證，免再外開實作 Subagent。
-     - 單階段委派模式：寫入 Handoff Contract 後，指派單一 ${adapter.fastExecutor} 載入【專案實作 Skills】依契約實作（Executor 禁重讀專案架構文件）。
-     - 輕量直行模式（如 ${adapter.directExecutor}）：於單一執行緒內載入【專案實作 Skills】按切片依序完成實作與驗證。
-     - 高風險把關：僅在 riskDoor === "one-way" 時，額外啟動獨立 ${adapter.verifier} 載入【專案驗證 Skills】進行深度推理審核。
-3. API-First 交付與重啟：以結構化 JSON 呼叫 PUT http://localhost:3030/api/tasks/<id> 推進 review（diff、commitMessage 與報告皆由後端自動產生，勿手動收集或手寫 tasks.json；僅伺服器未啟動時才直接寫檔）。requestCommitGen 時依工作區全量 diff 產出 commitMessage 並重置 flag。推入 review 後再次背景執行上述 node 指令重新待命。`;
+【開工指示 (Reactive Wakeup - 零讀碼拆單調度 & Subagent Context 隔離)】：
+1. 主對話零讀碼與拆單鐵律（嚴防高階模型配額消耗）：
+   • 喚醒後主對話僅讀哨兵 Brief 與目標專案 AGENTS.md（若有指定需求文件如 doc/*.md 僅讀大綱評估規模），嚴禁在主對話預讀業務原始碼、專案 SKILL.md、歷史 build-plan 或 tasks-archived.json！
+   • 若運行於原生雙階段模式（如 ${adapter.nativeOrchestrator}）：Planning 階段僅負責「評估需求規模 (Tier) 與擬定 Subagent 拆單派工計畫」，嚴禁在 Planning 階段查閱業務代碼細節，評估完立即呼叫 exit_plan_mode 交棒！
+2. 依哨兵「執行策略 (Tier)」強制分配任務給獨立 Subagent（嚴禁主對話自己實作 standard/heavy）：
+   • micro: 僅限單純錯字/註解微調，原地直接修改與驗證，不啟動 Subagent。
+   • standard: 寫入最小 Handoff Contract 後，強制透過 ${adapter.subagentMechanism} 指派單一獨立 ${adapter.fastExecutor}，將載入【指定專案 Skills】、grep -n 切片讀碼、修改檔案與跑測試全部隔離於子代理對話內完成。
+   • heavy: 強制將需求拆解為獨立 Slices 寫入 Handoff Contract，透過 ${adapter.subagentMechanism} 指派獨立 ${adapter.fastExecutor} 逐片實作與驗證；若屬 riskDoor === "one-way" 或含 cross-model-review，完畢後再指派獨立 ${adapter.verifier} 載入【專案驗證 Skills】審核把關。
+3. API-First 交付與重啟：子代理回報完成且驗證通過後，主對話以結構化 JSON 呼叫 PUT http://localhost:3030/api/tasks/<id> 推進 review（diff、commitMessage 與報告皆由後端自動產生，勿手動收集或手寫 tasks.json；僅伺服器未啟動時才直接寫檔）。推入 review 後再次背景執行上述 node 指令重新待命。`;
 
       let promptText = '';
       if (currentDesktopAgentTarget === 'antigravity') {
