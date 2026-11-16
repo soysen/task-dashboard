@@ -1,4 +1,4 @@
-import { projects, tasks, archivedTasks, currentTaskDependencies, setCurrentTaskDependencies } from "./state.js";
+import { projects, tasks, archivedTasks, currentTaskDependencies, currentModalEditingTask, setCurrentTaskDependencies } from "./state.js";
 import { escapeHtml, autoResizeTextarea, showToast } from "./utils.js";
 
     function setFormProject(projId) {
@@ -234,6 +234,9 @@ import { escapeHtml, autoResizeTextarea, showToast } from "./utils.js";
     }
 
     let isCurrentModalReadOnly = false;
+    function setIsCurrentModalReadOnly(val) {
+      isCurrentModalReadOnly = !!val;
+    }
 
     function removeDependency(taskId) {
       if (isCurrentModalReadOnly) return;
@@ -522,6 +525,7 @@ import { escapeHtml, autoResizeTextarea, showToast } from "./utils.js";
 
 
 export {
+  setIsCurrentModalReadOnly,
   setFormProject,
   updateConfirmationGateForProject,
   clearFormProject,

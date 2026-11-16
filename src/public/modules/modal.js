@@ -4,8 +4,8 @@ import { renderKanban, renderMetrics } from "./kanban.js";
 import { renderDiffViewer, parseDiffStats, filterDiffForFile, showAllDiffs } from "./diffViewer.js";
 import { renderExecutionReport, renderExecutionPlan, switchPlanViewTab } from "./executionReport.js";
 import { loadData } from "./app.js";
-import { setFormProject, updateConfirmationGateForProject, clearFormProject, updateProjectClearButtonVisibility, showProjectAutocomplete, hideProjectAutocomplete, toggleProjectAutocomplete, onProjectAutocompleteInput, renderProjectAutocompleteList, updateDependencyOptions, addDependencyFromSelect, removeDependency, renderDependencyChips, initSelect2Dropdown, toggleSelect2Dropdown, onSelect2Search, onSelect2KeyDown, select2ToggleOption, select2AddTag, select2RemoveTag, syncSelect2ToHiddenInput, setSelect2Tags, renderSelect2Chips, insertFeedbackPreset, insertGrillMeDecision } from "./modalFormEditor.js";
-import { loadArchivedTasks, openArchiveModal, closeArchiveModal, renderArchiveTasksList, toggleArchiveTaskSelect, toggleArchiveSelectAll, batchDeleteSelectedArchived, deleteAllArchivedTasks, batchRestoreSelectedArchived, restoreSingleArchivedTask, deleteSingleArchivedTask } from "./modalArchive.js";
+import { setIsCurrentModalReadOnly, setFormProject, updateConfirmationGateForProject, clearFormProject, updateProjectClearButtonVisibility, showProjectAutocomplete, hideProjectAutocomplete, toggleProjectAutocomplete, onProjectAutocompleteInput, renderProjectAutocompleteList, updateDependencyOptions, addDependencyFromSelect, removeDependency, renderDependencyChips, initSelect2Dropdown, toggleSelect2Dropdown, onSelect2Search, onSelect2KeyDown, select2ToggleOption, select2AddTag, select2RemoveTag, syncSelect2ToHiddenInput, setSelect2Tags, renderSelect2Chips, insertFeedbackPreset, insertGrillMeDecision } from "./modalFormEditor.js";
+import { selectedArchiveTaskIds, loadArchivedTasks, openArchiveModal, closeArchiveModal, renderArchiveTasksList, toggleArchiveTaskSelect, toggleArchiveSelectAll, batchDeleteSelectedArchived, deleteAllArchivedTasks, batchRestoreSelectedArchived, restoreSingleArchivedTask, deleteSingleArchivedTask } from "./modalArchive.js";
 
     function switchModalWorkspaceTab(mode = 'review') {
       const reviewPane = document.getElementById('modalReviewPane');
@@ -131,7 +131,7 @@ import { loadArchivedTasks, openArchiveModal, closeArchiveModal, renderArchiveTa
     }
 
     function setModalFieldsReadOnly(isReadOnly) {
-      isCurrentModalReadOnly = !!isReadOnly;
+      setIsCurrentModalReadOnly(isReadOnly);
 
       // 1. 進行中唯讀提示橫幅
       const notice = document.getElementById('modalInProgressNotice');
@@ -1732,10 +1732,7 @@ import { loadArchivedTasks, openArchiveModal, closeArchiveModal, renderArchiveTa
       });
     }
 
-    // ===== 封存任務管理 (Archive Modal) =====
-    let selectedArchiveTaskIds = new Set();
-    let archiveLoadSeq = 0;
-    let isLoadingArchivedTasks = false;
+    let currentPendingAction = null; // { taskId, actionType: 'delete' | 'abandon', task: ... }
 
     async function promptTaskDeleteOrAbandon(id, actionType = 'delete', event) {
       if (event) {

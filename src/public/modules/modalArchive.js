@@ -1,7 +1,11 @@
-import { tasks, archivedTasks, selectedArchivedTaskIds, setArchivedTasks, setArchivedTasksCount } from "./state.js";
+import { projects, tasks, archivedTasks, selectedArchivedTaskIds, setArchivedTasks, setArchivedTasksCount } from "./state.js";
 import { escapeHtml, showToast, withButtonLoading } from "./utils.js";
 import { loadData } from "./app.js";
-import { openModalForEdit } from "./modal.js";
+import { openModalForEdit, promptTaskDeleteOrAbandon } from "./modal.js";
+
+    let selectedArchiveTaskIds = new Set();
+    let archiveLoadSeq = 0;
+    let isLoadingArchivedTasks = false;
 
     async function loadArchivedTasks() {
       const reqId = ++archiveLoadSeq;
@@ -281,10 +285,8 @@ import { openModalForEdit } from "./modal.js";
       promptTaskDeleteOrAbandon(id, 'delete', event);
     }
 
-    let currentPendingAction = null; // { taskId, actionType: 'delete' | 'abandon', task: ... }
-
-
 export {
+  selectedArchiveTaskIds,
   loadArchivedTasks,
   openArchiveModal,
   closeArchiveModal,
