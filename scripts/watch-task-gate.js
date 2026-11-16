@@ -349,17 +349,17 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
   }
 
   const ruleText = tier === 'micro'
-    ? `• 執行規範: 遵循 ${STANDARD_DOC} 3-Phase Gate；micro 任務由主 Agent 原地以 grep-n 切片最小範圍實作與驗證（禁整檔盲讀）；Phase 3 須含專案 Pre-Commit 預檢與專案 harness（無關基線紅燈僅註記）。`
-    : `• 執行規範: 遵循 ${STANDARD_DOC} 3-Phase Gate；若運行於 Orchestrator 原生雙階段模式，前半場 Planning 階段嚴禁呼叫 read_file/grep（0 讀碼第 1 步直接 exit_plan_mode），交由後半場內建執行階段 (Hydrogen) 讀取需求、載入指定 Skill 並以 grep-n 切片實作；若需派子代理優先用 Model: "inherit" 或依平台規範；Phase 3 須含專案 Pre-Commit 預檢與專案 harness。`;
+    ? `• 執行規範: 依 ${STANDARD_DOC} 3-Phase Gate，以 grep-n 切片最小實作，Phase 3 須過 Pre-Commit 與 harness。`
+    : `• 執行規範: 依 ${STANDARD_DOC} 3-Phase Gate（0 讀碼第 1 步 exit_plan_mode 交棒內建執行、>500 行 grep-n 切片、Phase 3 須過 Pre-Commit 與 harness）。`;
 
   const isPendingPlanCreation = Boolean(task.requiresConfirmation && (!task.executionPlan || !task.executionPlan.trim()));
   const confirmationText = isPendingPlanCreation
-    ? `\n• 【需確認後執行門禁 (Confirmation Gate)】: 本任務勾選「需確認後再執行」（requiresConfirmation: true），目前處於待擬定計劃階段！請僅進行需求分析與擬定具體可行的執行計劃 (executionPlan)，並呼叫 PUT http://localhost:3030/api/tasks/${task.id} 回寫 executionPlan（維持 status: in_progress），嚴禁未獲使用者授權前直接實作代碼或推進 review！計劃同時寫入 build-plan Handoff Contract；確認後階段二直接依契約委派，不重新分析。請於回覆中提示使用者於儀表板審閱並點選「確認並執行」。`
+    ? `\n• 【需確認後執行門禁】: 目前待擬定執行計劃！請僅分析需求並呼叫 PUT http://localhost:3030/api/tasks/${task.id} 回寫 executionPlan（維持 status: in_progress，同時寫入 build-plan Handoff Contract），嚴禁直接實作或推進 review。`
     : '';
 
   const deliveryText = isPendingPlanCreation
-    ? `擬定執行計劃並以 PUT http://localhost:3030/api/tasks/${task.id} 回寫 executionPlan (維持 in_progress 待使用者審閱確認)，請勿直接實作代碼或推進 review。`
-    : `完成後以結構化 JSON 呼叫 PUT http://localhost:3030/api/tasks/${task.id} 推進 review（推薦欄位：objective, rootCause, resolution, keyChanges, testCommand, exitCode, testSummary, executionLog；後端支援各別名欄位智慧提取與自動組裝）。`;
+    ? `PUT http://localhost:3030/api/tasks/${task.id} 回寫 executionPlan (維持 in_progress 待確認)，勿實作或推進 review。`
+    : `PUT http://localhost:3030/api/tasks/${task.id} 傳入結構化 JSON (objective, rootCause, resolution, keyChanges, testCommand, exitCode, testSummary, executionLog) 推進 review。`;
 
   return `================================================================================\n` +
     `[${triggerType}] 任務開工通知${isPendingPlanCreation ? '（待擬定執行計劃）' : ''}：[${task.id}] ${task.title}\n` +
