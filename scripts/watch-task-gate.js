@@ -44,6 +44,26 @@ function loadAgentProviderAdapter() {
   };
 }
 const { formatTierStrategy, resolveProvider } = loadAgentProviderAdapter();
+
+function loadGitNexusDetector() {
+  const candidates = [
+    path.resolve(__dirname, '../src/server/gitnexusDetector'),
+    path.join(__dirname, 'gitnexusDetector'),
+    path.join(USER_HOME, 'projects/task-dashboard/src/server/gitnexusDetector')
+  ];
+  for (const c of candidates) {
+    try {
+      if (fs.existsSync(c) || fs.existsSync(c + '.js')) {
+        return require(c);
+      }
+    } catch (e) {}
+  }
+  return {
+    detectProjectGitNexus: () => ({ hasGitNexus: false }),
+    formatGitNexusGuidance: () => ''
+  };
+}
+const { formatGitNexusGuidance } = loadGitNexusDetector();
 const DEFAULT_APP_SUPPORT_DIR = process.env.TASK_DASHBOARD_DATA_DIR || path.join(USER_HOME, 'Library/Application Support/TaskDashboard');
 
 // 解析命令列參數 (例如 node watch-task-gate.js --agent=antigravity --tier=micro,standard 或 --conversationId=conv_123)
@@ -288,6 +308,8 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
 
   const tier = determineTaskTier(task);
   const strategyText = formatTierStrategy(tier, resolveProvider(task));
+  const gitnexusLine = projPath ? formatGitNexusGuidance(projPath) : '';
+  const gitnexusText = gitnexusLine ? `\n${gitnexusLine}` : '';
 
   if (p && Array.isArray(p.skills) && p.skills.length > 0) {
     let matched = [];
@@ -342,7 +364,7 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
   return `================================================================================\n` +
     `[${triggerType}] 任務開工通知${isPendingPlanCreation ? '（待擬定執行計劃）' : ''}：[${task.id}] ${task.title}\n` +
     `• 專案: ${task.project || '預設'}${projPath ? ` (${projPath})` : ''}\n` +
-    `• 需求: ${cleanDesc}${feedbackText}${confirmationText}${prioritySkillText}${implSkillsText}${verifySkillsText}\n` +
+    `• 需求: ${cleanDesc}${feedbackText}${confirmationText}${prioritySkillText}${implSkillsText}${verifySkillsText}${gitnexusText}\n` +
     `${strategyText}\n` +
     `${ruleText}\n` +
     `• 交付方式: ${deliveryText}\n` +

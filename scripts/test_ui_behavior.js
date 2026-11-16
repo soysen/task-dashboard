@@ -524,6 +524,14 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
   assert(allUiContent.includes('if (Array.isArray(newTasks)) {\n          setTasks(newTasks);\n        }'), 'loadData 必須於 newTasks 為空陣列時也能即時清空 tasks 避免殘留舊任務');
   console.log('  ✅ TASK-187 Commit 即時封存與前端畫面同步防禦驗證通過');
 
+  // 21. 驗證 Tier 分流過濾切換器與 --tier 指令產生契約
+  assert(htmlContent.includes('id="btnTierFilter_all"'), 'index.html 必須包含 #btnTierFilter_all');
+  assert(htmlContent.includes('id="btnTierFilter_fast"'), 'index.html 必須包含 #btnTierFilter_fast');
+  assert(htmlContent.includes('id="btnTierFilter_heavy"'), 'index.html 必須包含 #btnTierFilter_heavy');
+  assert(allUiContent.includes('function selectDesktopTierFilter('), 'app.js 必須實作 selectDesktopTierFilter');
+  assert(allUiContent.includes('--tier=micro,standard') && allUiContent.includes('--tier=heavy'), 'updateAiPromptDisplay 必須支援輸出 --tier=micro,standard 與 --tier=heavy');
+  console.log('  ✅ Tier 分流切換器與 --tier Prompt 生成契約驗證通過');
+
   console.log('🎉 所有前端核心互動邏輯與防禦機制測試通過！\n');
 })().catch(err => {
   console.error(err);

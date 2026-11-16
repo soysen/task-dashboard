@@ -136,6 +136,53 @@ function testAgentProviderAdapter() {
 
   console.log('  ✅ determineTaskTier 複雜任務升級為 heavy 與哨兵 Brief 行數/規範驗證通過');
 
+  // 5. 驗證 GitNexus 動態偵測與跨專案 worklog 狀態字典解析
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const { detectProjectGitNexus, formatGitNexusGuidance } = require('../src/server/gitnexusDetector');
+  const { resolveWorklogStatusLabel } = require('../src/server/worklogParser');
+
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'td-phase1-test-'));
+  try {
+    const noGnProj = path.join(tmpRoot, 'plain-proj');
+    fs.mkdirSync(noGnProj, { recursive: true });
+    assert.equal(detectProjectGitNexus(noGnProj).hasGitNexus, false, '無 .gitnexus 目錄時應回傳 false');
+    assert.equal(formatGitNexusGuidance(noGnProj), '', '無 GitNexus 專案不得輸出圖譜指示');
+    assert.equal(resolveWorklogStatusLabel(noGnProj, 'in_progress'), 'in_progress', '預設專案維持 in_progress');
+    assert.equal(resolveWorklogStatusLabel(noGnProj, 'review'), 'review', '預設專案維持 review');
+
+    const wrapperProj = path.join(tmpRoot, 'wrapper-proj');
+    fs.mkdirSync(path.join(wrapperProj, '.gitnexus'), { recursive: true });
+    fs.writeFileSync(path.join(wrapperProj, '.gitnexus', 'run.cjs'), '// stub');
+    const wrapperInfo = detectProjectGitNexus(wrapperProj);
+    assert.equal(wrapperInfo.hasGitNexus, true, '有 run.cjs 時應偵測為 hasGitNexus');
+    assert.equal(wrapperInfo.commandPrefix, 'node .gitnexus/run.cjs', '應採用本地 run.cjs');
+    assert.equal(wrapperInfo.repoFlag, '--repo .', 'wrapper 模式應帶 --repo .');
+    const wrapperLine = formatGitNexusGuidance(wrapperProj);
+    assert(wrapperLine.includes('node .gitnexus/run.cjs query') && !/subagent/i.test(wrapperLine), '指示必須含 query 且不含 Subagent');
+
+    const globalGnProj = path.join(tmpRoot, 'my-curation-app');
+    fs.mkdirSync(path.join(globalGnProj, '.gitnexus'), { recursive: true });
+    fs.writeFileSync(path.join(globalGnProj, '.gitnexus', 'meta.json'), JSON.stringify({ lastCommit: 'abc1234' }));
+    const globalInfo = detectProjectGitNexus(globalGnProj);
+    assert.equal(globalInfo.commandPrefix, 'npx gitnexus', '無 run.cjs 時應採用 npx gitnexus');
+    assert.equal(globalInfo.repoFlag, '-r my-curation-app', '無 run.cjs 時應自動補 -r <repo> 防多倉衝突');
+
+    const dictProj = path.join(tmpRoot, 'dict-proj');
+    fs.mkdirSync(path.join(dictProj, '.github', 'harness'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dictProj, '.github', 'harness', 'harness-status-dictionary.md'),
+      '# 狀態字典\n- 未開始：...\n- 進行中：...\n- 已完成：...\n'
+    );
+    assert.equal(resolveWorklogStatusLabel(dictProj, 'in_progress'), '進行中', '中文狀態字典專案應輸出 進行中');
+    assert.equal(resolveWorklogStatusLabel(dictProj, 'review'), '進行中', '中文狀態字典專案於 review 階段應維持 進行中');
+    assert.equal(resolveWorklogStatusLabel(dictProj, 'done'), '已完成', '中文狀態字典專案於 done 應輸出 已完成');
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+  console.log('  ✅ GitNexus 動態偵測與跨專案 worklog 狀態字典解析驗證通過');
+
   console.log('🎉 所有 Agent Provider Adapter 單元測試順利通過！');
 }
 

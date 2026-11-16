@@ -891,9 +891,32 @@ function scanProjectWorklogAndPlan(projPath, taskId, preloadedTasks = null) {
   };
 }
 
+/**
+ * 依據受管專案之 harness-status-dictionary.md 自動解析對應的 Status 枚舉字詞
+ * @param {string} projPath
+ * @param {'in_progress'|'review'|'done'} state
+ * @returns {string}
+ */
+function resolveWorklogStatusLabel(projPath, state = 'in_progress') {
+  if (projPath) {
+    const dictPath = path.join(projPath, '.github', 'harness', 'harness-status-dictionary.md');
+    if (fs.existsSync(dictPath)) {
+      try {
+        const dict = fs.readFileSync(dictPath, 'utf8');
+        if (dict.includes('進行中') && !dict.includes('in_progress')) {
+          return state === 'done' ? '已完成' : '進行中';
+        }
+      } catch (e) {}
+    }
+  }
+  if (state === 'done') return '已完成';
+  return state;
+}
+
 // 當任務進入進行中 (in_progress) 時，及時同步更新專案的 agent-status.md 與 build-plan.md
 function syncProjectWorklogForActiveTask(projPath, task) {
   if (!projPath || !fs.existsSync(projPath) || !task || !task.id) return false;
+  const activeStatusLabel = resolveWorklogStatusLabel(projPath, 'in_progress');
 
   const todayStr = new Date().toISOString().split('T')[0];
   const isRedo = !!(task.feedback && task.feedback.trim());
@@ -923,7 +946,7 @@ function syncProjectWorklogForActiveTask(projPath, task) {
           let updated = `## Active Task\n\n` +
             `- ID: ${task.id}\n` +
             `- Title: ${task.title}\n` +
-            `- Status: in_progress\n` +
+            `- Status: ${activeStatusLabel}\n` +
             `- Last updated: ${todayStr}\n` +
             `- Goal: ${goalText}\n` +
             `- Route: ${routeText}\n` +
@@ -955,7 +978,7 @@ function syncProjectWorklogForActiveTask(projPath, task) {
           `## Active Task\n\n` +
           `- ID: ${task.id}\n` +
           `- Title: ${task.title}\n` +
-          `- Status: in_progress\n` +
+          `- Status: ${activeStatusLabel}\n` +
           `- Last updated: ${todayStr}\n` +
           `- Goal: ${goalText}\n` +
           `- Route: ${routeText}\n` +
@@ -1013,7 +1036,7 @@ function syncProjectWorklogForActiveTask(projPath, task) {
           const isPlanDone = /^- Status:\s*done/mi.test(planContent);
           if (!isPlanDone) {
             if (/^- Status:.*$/m.test(planContent)) {
-              planContent = planContent.replace(/^- Status:.*$/m, `- Status: in_progress`);
+              planContent = planContent.replace(/^- Status:.*$/m, `- Status: ${activeStatusLabel}`);
             }
 
             planContent = planContent.replace(/(## 任務卡[\s\S]*?)(## |$)/, (match, cardSection, nextHeading) => {
@@ -1072,7 +1095,7 @@ function syncProjectWorklogForActiveTask(projPath, task) {
           }
 
           const newPlanContent = `# Build Plan: [${task.id}] ${task.title}\n\n` +
-            `- Status: in_progress\n` +
+            `- Status: ${activeStatusLabel}\n` +
             `- Skill Route: ${routeText}\n` +
             `- Feature Name: ${task.title}\n\n` +
             `## 任務卡 (Task Card)\n\n` +
@@ -1173,6 +1196,7 @@ function syncProjectWorklogOnReview(projPath, task) {
   if (!projPath || !fs.existsSync(projPath) || !task || !task.id) return false;
   const todayStr = new Date().toISOString().split('T')[0];
   const evidenceStr = extractObjectiveEvidence(task);
+  const reviewStatusLabel = resolveWorklogStatusLabel(projPath, 'review');
 
   const statusPath = path.join(projPath, '.github', 'worklog', 'agent-status.md');
   if (fs.existsSync(statusPath)) {
@@ -1184,7 +1208,7 @@ function syncProjectWorklogOnReview(projPath, task) {
       if (isTargetTask) {
         if (hasActiveHeader) {
           content = content.replace(/(## Active Task[\s\S]*?)(## |$)/, (match, activeSection, nextHeading) => {
-            let updated = activeSection.replace(/- Status:.*$/m, `- Status: review`);
+            let updated = activeSection.replace(/- Status:.*$/m, `- Status: ${reviewStatusLabel}`);
             updated = updated.replace(/- Last updated:.*$/m, `- Last updated: ${todayStr}`);
             return updated + nextHeading;
           });
@@ -1199,7 +1223,7 @@ function syncProjectWorklogOnReview(projPath, task) {
           });
         } else {
           if (/- Status:.*$/m.test(content)) {
-            content = content.replace(/- Status:.*$/m, `- Status: review`);
+            content = content.replace(/- Status:.*$/m, `- Status: ${reviewStatusLabel}`);
           }
           if (/- (?:Last updated|LastUpdated):.*$/mi.test(content)) {
             content = content.replace(/- (?:Last updated|LastUpdated):.*$/mi, `- Last updated: ${todayStr}`);
@@ -1293,6 +1317,7 @@ function syncProjectWorklogOnDone(projPath, task) {
 
 
 module.exports = {
+  resolveWorklogStatusLabel,
   resolveTaskSkillRoute,
   parseAgentStatusContent,
   parseBuildPlanContent,

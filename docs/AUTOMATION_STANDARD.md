@@ -76,8 +76,8 @@ flowchart TD
 | 階層 (Tier) | 適用場景 / 判定規則 | Phase 1 規劃 | Phase 2 實作 (Executor) | Phase 3 驗收 (Verifier) |
 | :--- | :--- | :--- | :--- | :--- |
 | **`micro`** | 文案錯字、註解微調、格式化、純小範圍樣式，或標註 `tier:micro` | 主 Agent 評估改動範圍 | 主 Agent **原地實作，不啟動 Subagent** | 主 Agent 本地測試 + `harness:check` exit 0 |
-| **`standard`** | 一般功能開發、局部 Bug 修復、單元測試補齊，或推斷不出之預設 | **Orchestrator**：0 讀碼第 1 步 `exit_plan_mode` 交棒；**傳統單階段**：撰寫 `Handoff Contract` | **Orchestrator 後半場 / Hydrogen**：由內建執行階段（`Hydrogen`）直接切片讀碼與實作（免降級外開 `flash`）；**傳統單階段**：指派單一輕量 Subagent 依契約實作 | 主 Agent 依驗收標準審查 diff，執行 harness 後送出 payload 推進 review |
-| **`heavy`** | 跨模組重構、資料庫遷移、`riskDoor === "one-way"`、含 `orchestrator`/`cross-model-review` 或 `>=3` 領域技能標籤、或「根據文件規劃/串接 API」 | **Orchestrator**：0 讀碼第 1 步交棒後半場讀取需求並拆解 `Handoff Contract` Slices | **內建執行階段 (`Hydrogen`)** 逐片實作；若切片過大須隔離 Context，輔以 Subagent（優先 `Model: "inherit"` 或輕量檔位）分擔 | 主 Agent 審查 diff 並驗收推進 review；若 `riskDoor === "one-way"` 或含 `cross-model-review` 另開獨立 **Reasoning Verifier**（如 Pro、Opus、o1）審核 |
+| **`standard`** | 一般功能開發、局部 Bug 修復、單元測試補齊，或推斷不出之預設 | **Orchestrator**：0 讀碼第 1 步 `exit_plan_mode` 交棒；**傳統單階段**：撰寫 `Handoff Contract` | **Orchestrator 後半場 / Hydrogen**：由內建執行階段（`Hydrogen`）先跑 GitNexus（若專案已建置且索引過期則先 `analyze`）再直接切片實作（免降級外開 Subagent）；**傳統單階段**：指派單一輕量 Subagent 依契約實作 | 主 Agent 依驗收標準審查 diff，執行 harness 後送出 payload 推進 review |
+| **`heavy`** | 跨模組重構、資料庫遷移、`riskDoor === "one-way"`、含 `orchestrator`/`cross-model-review` 或 `>=3` 領域技能標籤、或「根據文件規劃/串接 API」 | **Orchestrator**：0 讀碼第 1 步交棒後半場讀取需求、跑 GitNexus 分析並拆解 `Handoff Contract` Slices | **內建執行階段 (`Hydrogen`)** 逐片實作；若切片過大須隔離 Context，優先以 `Model: "inherit"` 子代理（或傳統單階段輕量檔位）分擔 | 主 Agent 審查 diff 並驗收推進 review；若 `riskDoor === "one-way"` 或含 `cross-model-review` 另開獨立 **Reasoning Verifier**（如 Pro、Opus、o1）審核 |
 
 - **階層推斷優先序**：
   1. 顯式指定：`task.tier` 為 `micro`、`standard`、`heavy` 之一時直接採用。

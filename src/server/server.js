@@ -22,6 +22,10 @@ const {
   formatTierStrategy
 } = require('./agentProviderAdapter');
 const {
+  detectProjectGitNexus,
+  formatGitNexusGuidance
+} = require('./gitnexusDetector');
+const {
   resolveTaskSkillRoute,
   parseAgentStatusContent,
   parseBuildPlanContent,
@@ -284,7 +288,8 @@ function scanProjectGithubInfo(projPath) {
       command: '',
       files: []
     },
-    docs: []
+    docs: [],
+    gitnexus: detectProjectGitNexus(projPath)
   };
 
   if (!projPath || !fs.existsSync(projPath)) return info;
@@ -1458,6 +1463,8 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
   const feedbackSection = task.feedback ? '\n• 【最高優先 Feedback】: ' + task.feedback : '';
   const tier = determineTaskTier(task);
   const subagentGuidance = formatTierStrategy(tier, resolveProvider(task)) + '\n';
+  const gitnexusLine = formatGitNexusGuidance(projPath);
+  const gitnexusGuidance = gitnexusLine ? gitnexusLine + '\n' : '';
 
   const isPendingPlanCreation = Boolean(task.requiresConfirmation && (!task.executionPlan || !task.executionPlan.trim()));
   const confirmationGuidance = isPendingPlanCreation
@@ -1471,6 +1478,7 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
     skillsSection +
     docsSection +
     '【3-Phase Gate 規範】：\n' +
+    gitnexusGuidance +
     subagentGuidance +
     confirmationGuidance +
     '1. Pre-Flight: 優先滿足 Feedback，檢閱規範並執行前置驗證（' + harnessCmd + '）；若任務勾選需確認後再執行且未具備執行計劃，必須先產出完整執行計劃回寫 executionPlan 供確認；若需求包含【最新需求覆蓋】，其內容具備最高優先權，衝突處一律覆蓋舊有描述；面對 > 500 行大檔嚴禁整檔閱讀，必須以 grep-n 先定位後切片 30-50 行，檢索上限 2 次避免 Loop。\n' +

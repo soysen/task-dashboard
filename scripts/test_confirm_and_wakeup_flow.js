@@ -12,12 +12,13 @@
  */
 
 const assert = require('assert');
-const { spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
+const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const os = require('os');
 
-const PORT = Number(process.env.TEST_PORT || process.env.PORT || 3030);
+const PORT = Number(process.env.TEST_PORT || 3041);
 
 function httpRequest(options, postData = null) {
   return new Promise((resolve, reject) => {
@@ -40,29 +41,48 @@ function httpRequest(options, postData = null) {
   });
 }
 
-async function run() {
-  console.log('🚀 開始進行「確認並執行」與「哨兵喚醒」端到端驗證流程...\n');
-
-  // 0. 若環境中已有測試殘留之 in_progress 任務，先將其標為 done 確保測試隔離性
-  const existingRes = await httpRequest({
-    hostname: 'localhost',
-    port: PORT,
-    path: '/api/tasks',
-    method: 'GET'
-  });
-  if (existingRes.data && Array.isArray(existingRes.data)) {
-    for (const t of existingRes.data) {
-      if (t.status === 'in_progress' && (t.assignedAgent === 'test-flow-agent' || (t.title && t.title.includes('驗證確認並執行')))) {
-        await httpRequest({
-          hostname: 'localhost',
-          port: PORT,
-          path: `/api/tasks/${t.id}`,
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' }
-        }, { ...t, status: 'done' });
-      }
-    }
+async function waitForServer(port, timeoutMs = 6000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await httpRequest({ hostname: '127.0.0.1', port, path: '/api/tasks', method: 'GET' });
+      if (res.status === 200) return;
+    } catch (e) {}
+    await new Promise(r => setTimeout(r, 150));
   }
+  throw new Error(`隔離測試伺服器未能於 ${timeoutMs}ms 內在 port ${port} 啟動`);
+}
+
+async function run() {
+  console.log('🚀 開始進行「確認並執行」與「哨兵喚醒」端到端驗證流程 (完全隔離模式)...\n');
+
+  const tmpDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'td-wakeup-data-'));
+  const tmpProjDir = fs.mkdtempSync(path.join(os.tmpdir(), 'td-wakeup-proj-'));
+  fs.writeFileSync(path.join(tmpDataDir, 'tasks.json'), '[]', 'utf8');
+  fs.writeFileSync(path.join(tmpDataDir, 'settings.json'), JSON.stringify({ enableCliAgent: false, initialized: true }, null, 2), 'utf8');
+  fs.writeFileSync(path.join(tmpDataDir, 'projects.json'), JSON.stringify([
+    {
+      id: 'task-dashboard',
+      name: 'task-dashboard-isolated',
+      path: tmpProjDir,
+      skills: [
+        { id: 'context-engineering', label: 'context-engineering', path: '.github/skills/context-engineering' },
+        { id: 'code-review-and-quality', label: 'code-review-and-quality', path: '.github/skills/code-review-and-quality' }
+      ],
+      harness: { hasHarness: true, command: 'npm run harness:check' }
+    }
+  ], null, 2), 'utf8');
+
+  // 為 watch-task-gate.js 設定隔離環境變數
+  process.env.TASK_DASHBOARD_DATA_DIR = tmpDataDir;
+
+  const serverProc = spawn('node', [path.resolve(__dirname, '../src/server/server.js')], {
+    env: { ...process.env, PORT: String(PORT), TASK_DASHBOARD_DATA_DIR: tmpDataDir },
+    stdio: 'ignore'
+  });
+
+  try {
+    await waitForServer(PORT);
 
   // 1. 建立測試任務
   const testTaskPayload = {
@@ -260,6 +280,11 @@ async function run() {
   console.log('  ✅ [Case 4 - Priority & One-Way] 通過：門禁自動升級與顯式優先序完全合規\n');
 
   console.log('🎉 全部步驟與 TD-H1 分級路由驗證成功！\n');
+  } finally {
+    try { serverProc.kill('SIGKILL'); } catch (e) {}
+    fs.rmSync(tmpDataDir, { recursive: true, force: true });
+    fs.rmSync(tmpProjDir, { recursive: true, force: true });
+  }
 }
 
 run().catch(err => {

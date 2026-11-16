@@ -291,19 +291,29 @@ import {
     }
 
     let currentDesktopAgentTarget = 'antigravity';
+    let currentDesktopTierFilter = 'all';
 
-    function selectDesktopAgentTarget(target) {
-      currentDesktopAgentTarget = target;
-      const targets = ['universal', 'antigravity', 'claude', 'codex', 'copilot'];
-      targets.forEach(t => {
-        const btn = document.getElementById(`btnAgentTarget_${t}`);
+    function updateToggleGroupStyles(ids, activeKey, prefix) {
+      ids.forEach(t => {
+        const btn = document.getElementById(`${prefix}_${t}`);
         if (!btn) return;
-        if (t === target) {
+        if (t === activeKey) {
           btn.className = 'flex-1 py-1 px-1.5 rounded-md text-center transition bg-white dark:bg-slate-900 text-purple-700 dark:text-purple-300 shadow-xs font-bold';
         } else {
           btn.className = 'flex-1 py-1 px-1.5 rounded-md text-center transition text-slate-600 dark:text-slate-400 hover:text-purple-600 font-medium';
         }
       });
+    }
+
+    function selectDesktopAgentTarget(target) {
+      currentDesktopAgentTarget = target;
+      updateToggleGroupStyles(['universal', 'antigravity', 'claude', 'codex', 'copilot'], target, 'btnAgentTarget');
+      updateAiPromptDisplay();
+    }
+
+    function selectDesktopTierFilter(tierFilter) {
+      currentDesktopTierFilter = tierFilter || 'all';
+      updateToggleGroupStyles(['all', 'fast', 'heavy'], currentDesktopTierFilter, 'btnTierFilter');
       updateAiPromptDisplay();
     }
 
@@ -352,32 +362,36 @@ import {
 
       const sharedInstructions = `
 
-【開工指示 (Reactive Wakeup - 0 讀碼秒交棒 & Hydrogen 實作調度)】：
+【開工指示 (Reactive Wakeup - 0 讀碼秒交棒 & Hydrogen/GitNexus 調度)】：
 1. Orchestrator 前半場 0 讀碼秒交棒鐵律（嚴防高階規劃模型燒額度）：
    • 若主視窗選用 ${adapter.nativeOrchestrator}：被哨兵喚醒後，前半場（Planning 階段）嚴禁呼叫 read_file / grep 去讀業務碼、doc 需求文件或 SKILL.md！除非任務勾選需確認 (requiresConfirmation: true)，否則必須「0 讀碼、第 1 步直接呼叫 exit_plan_mode」把控制權交給後半場的內建執行模型（${adapter.directExecutor}）！
-   • 交棒至後半場（或主視窗本來就直接選用 ${adapter.directExecutor}）後，才開始讀取哨兵指定的目標檔案（>500 行以 grep -n 切片 30~50 行）與【指定專案 Skills】。
+   • 交棒至後半場（或主視窗本來就直接選用 ${adapter.directExecutor}）後：若哨兵列出【專案 Code Graph (先圖譜後讀檔)】，須先依指示執行 GitNexus（索引過期先 analyze）鎖定呼叫鏈與受影響檔案，再針對目標行號以 grep -n 切片（30~50 行）讀取並載入【指定專案 Skills】。
 2. 依哨兵「執行策略 (Tier)」與模型特性實作：
    • micro / standard：於後半場內建執行階段（${adapter.directExecutor}）直接切片實作與驗證（免再降級外開 flash）；僅在傳統單階段高階模型下才外開 ${adapter.fastExecutor}。
-   • heavy：於執行階段拆解為獨立 Slices 寫入 Handoff Contract 逐片實作（若切片過大需隔離 Context，可呼叫 ${adapter.subagentMechanism} 並以 Model: "inherit" 或 ${adapter.fastExecutor} 分擔）；若屬 riskDoor === "one-way" 或含 cross-model-review，完畢後再指派獨立 ${adapter.verifier} 載入【專案驗證 Skills】審核把關。
+   • heavy：於執行階段拆解為獨立 Slices 寫入 Handoff Contract 逐片實作（若切片過大需隔離 Context，優先呼叫 ${adapter.subagentMechanism} 並以 Model: "inherit" 分擔，僅純探勘或傳統單階段模型才用 ${adapter.fastExecutor}）；若屬 riskDoor === "one-way" 或含 cross-model-review，完畢後再指派獨立 ${adapter.verifier} 載入【專案驗證 Skills】審核把關。
 3. API-First 交付與重啟：完成驗證與 Pre-Commit 預檢後，以結構化 JSON 呼叫 PUT http://localhost:3030/api/tasks/<id> 推進 review（diff、commitMessage 與報告皆由後端自動產生，勿手寫 tasks.json）。推入 review 後再次背景執行上述 node 指令重新待命。`;
+
+      const tierFlag = currentDesktopTierFilter === 'fast'
+        ? ' --tier=micro,standard'
+        : (currentDesktopTierFilter === 'heavy' ? ' --tier=heavy' : '');
 
       let promptText = '';
       if (currentDesktopAgentTarget === 'antigravity') {
         promptText = `在背景執行指令啟動哨兵待命 (0 Token，專屬認領 Antigravity 任務)：
-node "${gateScriptPath}" --agent=antigravity${sharedInstructions}`;
+node "${gateScriptPath}" --agent=antigravity${tierFlag}${sharedInstructions}`;
       } else if (currentDesktopAgentTarget === 'claude') {
         promptText = `使用 bash/execute_command 背景啟動哨兵待命 (0 Token，專屬認領 Claude 任務)：
-node "${gateScriptPath}" --agent=claude${sharedInstructions}`;
+node "${gateScriptPath}" --agent=claude${tierFlag}${sharedInstructions}`;
       } else if (currentDesktopAgentTarget === 'codex') {
         promptText = `在終端背景執行指令啟動哨兵待命 (0 Token，專屬認領 Codex 任務)：
-node "${gateScriptPath}" --agent=codex${sharedInstructions}`;
+node "${gateScriptPath}" --agent=codex${tierFlag}${sharedInstructions}`;
       } else if (currentDesktopAgentTarget === 'copilot') {
         promptText = `在終端背景執行指令啟動哨兵待命 (0 Token，專屬認領 Copilot 任務)：
-node "${gateScriptPath}" --agent=copilot${sharedInstructions}`;
+node "${gateScriptPath}" --agent=copilot${tierFlag}${sharedInstructions}`;
       } else {
         // universal
         promptText = `在終端工具背景執行以下指令啟動哨兵待命 (0 Token，通用認領所有任務)：
-node "${gateScriptPath}"${sharedInstructions}`;
+node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
       }
 
       const promptEl = document.getElementById('aiPromptTextDisplay');
@@ -1105,6 +1119,7 @@ export {
   loadData,
   renderCliAgentBadge,
   selectDesktopAgentTarget,
+  selectDesktopTierFilter,
   updateAiPromptDisplay,
   copyAiInspectionPrompt,
   chooseFolderNative,
@@ -1155,6 +1170,7 @@ if (typeof window !== "undefined") {
   window.loadData = loadData;
   window.renderCliAgentBadge = renderCliAgentBadge;
   window.selectDesktopAgentTarget = selectDesktopAgentTarget;
+  window.selectDesktopTierFilter = selectDesktopTierFilter;
   window.updateAiPromptDisplay = updateAiPromptDisplay;
   window.copyAiInspectionPrompt = copyAiInspectionPrompt;
   window.chooseFolderNative = chooseFolderNative;

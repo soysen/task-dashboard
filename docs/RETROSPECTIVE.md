@@ -19,6 +19,7 @@
 10. [⚡️ 2026-10-21 確認並執行 (Confirmation Gate) 徹底解鎖、進程活體死鎖偵測與哨兵即時喚醒閉環技術回顧 (TASK-130 ~ TASK-134)](#10-2026-10-21-確認並執行-confirmation-gate-徹底解鎖進程活體死鎖偵測與哨兵即時喚醒閉環技術回顧-task-130--task-134)
 11. [🎨 2026-10-22 待確認執行計劃 HTML 視覺化排版、審閱意見輸入解鎖與跨專案 5GSA 錯誤導頁重構技術回顧 (TASK-135 ~ TASK-138)](#11-2026-10-22-待確認執行計劃-html-視覺化排版審閱意見輸入解鎖與跨專案-5gsa-錯誤導頁重構技術回顧-task-135--task-138)
 12. [🚀 2026-11-06 全面架構減稅、Subagent 零讀碼路由、TD-H1~TD-H5 治理防線與 Confirmation Gate / Harness Log 深度閉環技術覆盤 (TASK-162 ~ TASK-180)](#12-2026-11-06-全面架構減稅subagent-零讀碼路由td-h1td-h5-治理防線與-confirmation-gate--harness-log-深度閉環技術覆盤-task-162--task-180)
+13. [🎯 2026-11-16 跨平台三態開工引擎演進、Orchestrator 0 讀碼秒交棒與 Hydrogen 實作實戰覆盤](#13-2026-11-16-跨平台三態開工引擎演進orchestrator-0-讀碼秒交棒與-hydrogen-實作實戰覆盤)
 
 ---
 
@@ -824,6 +825,72 @@ flowchart LR
 
 ---
 *Retrospective Report updated at 2026-11-06 by Antigravity (TASK-180).*
+
+---
+
+## 13. 🎯 2026-11-16 跨平台三態開工引擎演進、Orchestrator 0 讀碼秒交棒與 Hydrogen 實作實戰覆盤
+
+### 13.1 當日異動總覽 (Commits: `d1706de` → `efb961b` → `66f774e`)
+
+本日因應實戰環境新增 **Orchestrator（原生雙階段 Plan→Execute）** 與 **Hydrogen（高速執行模型）**，對 Task Dashboard 開工引擎、跨平台 Provider 適配層與 `watch-task-gate.js` 哨兵進行了三輪快速迭代並完成原生 App 重建打包：
+
+| Commit | 類型 / 範疇 | 核心異動內容 | 涵蓋檔案 |
+| :--- | :--- | :--- | :--- |
+| **`d1706de`** | `feat(engine)` | 建立跨平台三態能力描述（`nativeOrchestrator` / `directExecutor`）；修復 `resolveProvider()` 串接 `assignedAgent`/`assignee` 及 `All`/`Universal`/`Orchestrator`/`Hydrogen` 映射；哨兵新增 `--tier` 過濾與角色認領；前端 `updateAiPromptDisplay()` 移除 `flash/pro` 硬編碼並於 `#formAssignee` 新增 `All` | `agentProviderAdapter.js`、`watch-task-gate.js`、`app.js`、`index.html`、`AUTOMATION_STANDARD.md`、`SKILL.md`、`test_agent_provider_adapter.js` |
+| **`efb961b`** | `fix(engine)` | 針對 `TASK-208` 實戰中發生「未拆單直接讀碼消耗 10% Argon 額度」問題，強化 `determineTaskTier()`（識別 `orchestrator`/`cross-model-review`/多領域標籤與文件規劃/串接 API 關鍵字自動升為 `heavy`），並在命中指定 Skills 時隱藏全量實作 Skills 清單降噪 | `agentProviderAdapter.js`、`watch-task-gate.js`、`feedbackManager.js`、`app.js`、`AUTOMATION_STANDARD.md`、`SKILL.md`、`test_agent_provider_adapter.js` |
+| **`66f774e`** | `feat(engine)` | 釐清 `invoke_subagent` 的 `Model` Schema 僅支援 `inherit`/`flash_lite`/`flash`/`pro`、無法直接指定 `hydrogen`，將調度策略收斂為「**Orchestrator 前半場 0 讀碼第 1 步 `exit_plan_mode` 秒交棒 ➔ 後半場內建 `Hydrogen` 讀檔實作**」，`heavy` 切片隔離優先支援 `Model: "inherit"` | `agentProviderAdapter.js`、`watch-task-gate.js`、`app.js`、`AUTOMATION_STANDARD.md`、`SKILL.md`、`test_agent_provider_adapter.js` |
+
+---
+
+### 13.2 實戰演進軌跡：從假設衝突到邊界收斂
+
+```mermaid
+flowchart LR
+    A["d1706de: 放寬 Phase 1 切片定位與三態適配"] --> B["實戰 TASK-208: Orchestrator 前半場連讀檔案燒掉 10% 額度"]
+    B --> C["efb961b: 禁止主對話讀業務碼 + 強化 heavy 升級判定"]
+    C --> D["邊界釐清: invoke_subagent 寫死 flash 會降級且用不到 Hydrogen"]
+    D --> E["66f774e: 前半場 0 讀碼 1 步 exit_plan_mode 交棒內建 Hydrogen"]
+    E --> F["實戰 TASK-209: Step #33~#34 0 讀碼交棒，Hydrogen 順利完成並合併"]
+```
+
+---
+
+### 13.3 深度覆盤：Keep（亮點）與 Problem（痛點與根因）
+
+#### 🌟 Keep（成效良好、經實戰驗證之優勢）
+1. **「0 讀碼 1 步 `exit_plan_mode`」成功壓低高階規劃模型消耗**：
+   - 在 `66f774e` 上線與同步 `watch-task-gate.js` 後，實測跨專案任務 `TASK-209`（`service-web-curation-admin` 生日禮重複領取報表）之對話軌跡，Planning 階段於 Step #33 ~ #34 僅花 **1 步且 0 次讀檔** 即呼叫 `exit_plan_mode` 退場，隨後全程由內建執行階段（`Hydrogen/Fast Execution Mode`）接手讀取規格、執行 GitNexus 評估、TDD 開發並成功合併至 `develop`（`411533e` / `999c9fc`）。
+2. **`resolveProvider()` 欄位斷鏈修復與跨平台中立**：
+   - 串接 `task.assignedAgent` / `task.assignee` 與 `All` (`generic`) 選項，確保前端切換不同 Agent 或指派 `All` 時，哨兵與開工 Prompt 皆能輸出對應平台（Antigravity、Claude、Codex、Copilot、Generic）的原生能力描述。
+3. **`determineTaskTier()` 與指定 Skills 降噪見效**：
+   - 納入 `orchestrator`、`cross-model-review`、多領域標籤（`>= 3`）與「根據文件 / 規劃執行 / 串接 API / 跨模組」關鍵字後，成功將 `TASK-209` 由誤判的 `standard` 精準升級為 `heavy`；命中指定 Skills 時不再傾倒全量 11 項實作 Skills。
+
+#### ⚠️ Problem（本日暴露之痛點與根因）
+1. **痛點一：低估原生 `Orchestrator` `plan_execute_protocol` 的「預讀傾向」（`TASK-208` 消耗 10% 額度）**
+   - **根因**：`d1706de` 將原本「主 Agent 零讀碼」改為「Phase 1 精準切片定位」，誘導 `Orchestrator` 前半場（Argon）在呼叫 `exit_plan_mode` 前連續讀入 `doc/request.md`、多份 Skills 與業務程式碼，造成高階模型 Context 重覆重算。
+   - **教訓**：對無須人類事先確認（`requiresConfirmation: false`）的自動化開工，原生雙階段的前半場只應作為「0 讀碼極速閘門」，所有檔案閱讀必須延後至後半場或子代理中進行。
+2. **痛點二：`invoke_subagent` Schema 限制導致 `flash` 與 `Hydrogen` 錯位**
+   - **根因**：`invoke_subagent` 的 `Model` 參數僅開放 `inherit` / `flash_lite` / `flash` / `pro` 四種選項。若 Prompt 強制要求派給 `flash Subagent`，在 `Hydrogen` 視窗或 `Orchestrator` 後半場反而會將任務降級回舊版 `Flash`，無法發揮 `Hydrogen` 實作能力。
+   - **教訓**：調度規範必須貼齊底層工具契約——透過「前半場 0 讀碼秒交棒」釋放 `Orchestrator` 內建 `Hydrogen`，並在需要隔離 `heavy` 切片時優先採用 `Model: "inherit"`。
+3. **痛點三：測試腳本對本機執行環境的隔離不足**
+   - **現象**：`scripts/test_confirm_and_wakeup_flow.js` 預設直接呼叫 `http://localhost:3030`，若本機恰好有真實任務進行中（如 `TASK-209`），會產生測試污染風險；另 `scripts/test_server.sh` 測試建立第 5 筆任務並呼叫 `DELETE /api/tasks/TASK-005` 時，會誤刪主倉庫追蹤的 `.github/harness/plan/task-005-build-plan.md`。
+4. **痛點四：跨專案 `agent-status.md` 狀態字典摩擦與沙盒 `git push` 限制**
+   - **現象**：`TASK-209` 實戰回顧顯示，Task Dashboard 寫入的 `- Status: in_progress` 與受管專案 `harness-cli.js` 字典（`進行中` / `in progress` / `idle`）存在差異，導致目標專案初期 `test:harness` 報錯；此外，受限於 Agent 環境無法存取 `osxkeychain` 憑證，本地 3 個 Commit 需由使用者於本機終端手動 `git push`。
+
+---
+
+### 13.4 🎯 下一步行動建議 (Action Items / Try)
+
+1. **Action Item 1：徹底隔離 `test_confirm_and_wakeup_flow.js` 與 `test_server.sh` 之測試副作用**
+   - 為 `test_confirm_and_wakeup_flow.js` 建立獨立 `TEST_PORT` 與暫存 `TASK_DASHBOARD_DATA_DIR`，避免與本機 `localhost:3030` 真實任務互相干擾。
+   - 修正 `test_server.sh` 中測試 `DELETE /api/tasks/:id` 的任務編號或目標專案路徑，避免刪除真實倉庫內已追蹤的 `.github/harness/plan/task-005-build-plan.md`。
+2. **Action Item 2：跨專案 `agent-status.md` 狀態字詞相容適配**
+   - 在 `projects.json` 或 `worklogParser.js` 評估增加狀態字詞映射選項（如依專案需求輸出 `進行中` 或 `in_progress`），消除跨專案 Harness 檢核摩擦。
+3. **Action Item 3：追蹤 `Orchestrator 0 讀碼交棒 ➔ Hydrogen` 與 `Model: "inherit"` 成本表現**
+   - 持續觀察後續跨模組任務在 `heavy` 分級下的 Token 耗用與單次交付通過率，必要時針對超多檔案修改強制加上「`heavy` 超過 N 檔改以 `Model: "inherit"` 子代理切片隔離」閾值。
+
+---
+*Retrospective Report updated at 2026-11-16.*
 
 
 

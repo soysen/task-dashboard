@@ -95,9 +95,18 @@ if [ -n "$TASK_ID" ]; then
 fi
 
 echo "  [6.5/7] 測試 任務放棄、刪除與 Git Diff 預覽 API ..."
-if [ -n "$TASK_ID" ]; then
+DUMMY_DIR="/tmp/test-git-discard-repo-$$"
+mkdir -p "$DUMMY_DIR"
+git -C "$DUMMY_DIR" init > /dev/null 2>&1
+git -C "$DUMMY_DIR" commit --allow-empty -m "init" > /dev/null 2>&1
+curl -s -f -X POST "http://localhost:$TEST_PORT/api/projects" -H "Content-Type: application/json" -d "{\"id\":\"test-discard-repo\",\"name\":\"test-discard-repo\",\"path\":\"$DUMMY_DIR\"}" > /dev/null 2>&1
+
+ISOLATED_TASK=$(curl -s -f -X POST "http://localhost:$TEST_PORT/api/tasks" -H "Content-Type: application/json" -d '{"title":"測試放棄與刪除隔離任務","project":"test-discard-repo","status":"in_progress"}')
+ISOLATED_TASK_ID=$(echo "$ISOLATED_TASK" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)
+
+if [ -n "$ISOLATED_TASK_ID" ]; then
   # 測試 GET /api/tasks/:id/git-status
-  GIT_STATUS_RES=$(curl -s -f "http://localhost:$TEST_PORT/api/tasks/$TASK_ID/git-status")
+  GIT_STATUS_RES=$(curl -s -f "http://localhost:$TEST_PORT/api/tasks/$ISOLATED_TASK_ID/git-status")
   if echo "$GIT_STATUS_RES" | grep -q '"taskId"'; then
     echo "    ✅ /api/tasks/:id/git-status 查詢正常"
   else
@@ -106,7 +115,7 @@ if [ -n "$TASK_ID" ]; then
   fi
 
   # 測試 POST /api/tasks/:id/abandon
-  ABANDON_RES=$(curl -s -f -X POST "http://localhost:$TEST_PORT/api/tasks/$TASK_ID/abandon" -H "Content-Type: application/json" -d '{"discardChanges":false,"reason":"測試放棄"}')
+  ABANDON_RES=$(curl -s -f -X POST "http://localhost:$TEST_PORT/api/tasks/$ISOLATED_TASK_ID/abandon" -H "Content-Type: application/json" -d '{"discardChanges":false,"reason":"測試放棄"}')
   if echo "$ABANDON_RES" | grep -q '"abandoned"'; then
     echo "    ✅ /api/tasks/:id/abandon 放棄任務成功"
   else
@@ -115,7 +124,7 @@ if [ -n "$TASK_ID" ]; then
   fi
 
   # 測試 DELETE /api/tasks/:id
-  DELETE_RES=$(curl -s -f -X DELETE "http://localhost:$TEST_PORT/api/tasks/$TASK_ID" -H "Content-Type: application/json" -d '{"discardChanges":false}')
+  DELETE_RES=$(curl -s -f -X DELETE "http://localhost:$TEST_PORT/api/tasks/$ISOLATED_TASK_ID" -H "Content-Type: application/json" -d '{"discardChanges":false}')
   if echo "$DELETE_RES" | grep -q '"deleted"'; then
     echo "    ✅ DELETE /api/tasks/:id 刪除任務成功"
   else
@@ -124,14 +133,9 @@ if [ -n "$TASK_ID" ]; then
   fi
 
   # 測試 DELETE /api/tasks/:id 帶有 discardChanges: true (包含 git add -N 與 untracked 檔案)
-  DUMMY_DIR="/tmp/test-git-discard-repo-$$"
-  mkdir -p "$DUMMY_DIR"
-  git -C "$DUMMY_DIR" init > /dev/null 2>&1
-  git -C "$DUMMY_DIR" commit --allow-empty -m "init" > /dev/null 2>&1
   echo "dummy" > "$DUMMY_DIR/file.txt"
   git -C "$DUMMY_DIR" add -N "$DUMMY_DIR/file.txt"
   echo "untracked" > "$DUMMY_DIR/untracked.txt"
-  curl -s -f -X POST "http://localhost:$TEST_PORT/api/projects" -H "Content-Type: application/json" -d "{\"id\":\"test-discard-repo\",\"name\":\"test-discard-repo\",\"path\":\"$DUMMY_DIR\"}" > /dev/null 2>&1
   DISCARD_TASK=$(curl -s -f -X POST "http://localhost:$TEST_PORT/api/tasks" -H "Content-Type: application/json" -d "{\"title\":\"測試 discard\",\"project\":\"test-discard-repo\",\"status\":\"in_progress\"}")
   DISCARD_TASK_ID=$(echo "$DISCARD_TASK" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)
   DELETE_DISCARD_RES=$(curl -s -f -X DELETE "http://localhost:$TEST_PORT/api/tasks/$DISCARD_TASK_ID" -H "Content-Type: application/json" -d '{"discardChanges":true}')
@@ -143,6 +147,10 @@ if [ -n "$TASK_ID" ]; then
     exit 1
   fi
   rm -rf "$DUMMY_DIR"
+else
+  rm -rf "$DUMMY_DIR"
+  echo "    ❌ 建立隔離測試任務失敗: $ISOLATED_TASK"
+  exit 1
 fi
 
 echo "  [6.6/7] 測試 POST /api/tasks/:id/commit 遇 pre-commit 阻斷保持原狀態並回傳 400 與成功 commit 封存流程 ..."
