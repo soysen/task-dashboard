@@ -4,7 +4,7 @@ description: "優化 AI 代理人於 Task Dashboard 的上下文結構與規範�
 argument-hint: "描述要優化的上下文範圍或規則設定"
 user-invocable: true
 freedom: medium
-models-tested: [flash, sonnet, opus]
+models-tested: [orchestrator, hydrogen, flash, sonnet, opus]
 ---
 
 # 上下文工程 (Context Engineering)
@@ -21,7 +21,7 @@ models-tested: [flash, sonnet, opus]
 2. **[MUST] 檢索上限防止迴圈 (Max 2 Inspections)**：同一檔案相同區塊最多檢索 2 次；確定關鍵邏輯後立即進入實作與測試驗證，嚴防原地循環。
 3. **[MUST] 優先滿足 Feedback**：若任務帶有 `task.feedback`，必須視為最高優先權目標，不因其他上下文干擾而偏離。
 4. **[MUST] SSOT 隔離防污染**：禁止將任何執行時資料寫入專案內 `data/` 範本，避免污染 Git 上下文。
-5. **[MUST] Planner→Executor 交接與 3-Tier 動態調度**：在支援 Subagent 的環境下，Planner 只讀一次 → 交接契約 → flash Executor 禁讀重複文件。依 3-Tier 路由（micro 原地實作；standard/heavy 指派單一 flash Executor 設定 Workspace: "inherit" 僅依契約實作，主 Agent 審查 diff，僅 one-way 另開獨立 Verifier）隔離上下文。
+5. **[MUST] 三態自適應調度與上下文隔離**：依任務階層與運行模式動態調度——**原生 Plan→Execute 雙階段**（如 Orchestrator / Plan Mode）由規劃階段精準切片定位後直接交棒內建執行階段落地（免外開實作 Subagent）；**單階段委派**由 Planner 只讀一次並寫入 Handoff Contract 指派單一輕量 Executor（`Workspace: "inherit"`）禁讀重複文件；**輕量模型直行**（如 Hydrogen / Haiku）對 `micro` 與一般 `standard` 採單線程 Fast-Track 實作；僅 `riskDoor === "one-way"` 另開獨立深度推理 Verifier。
 
 ## 適用時機與豁免規則
 - **適用時機**：探索大型檔案結構、規劃任務執行前置檢閱、遭遇 Token 消耗過大、排查重複呼叫迴圈，或具備 Subagent 環境欲隔離實作與審查負載時。
@@ -57,5 +57,5 @@ models-tested: [flash, sonnet, opus]
 - [ ] 檢索目標檔案前，已先用 `grep -n` 鎖定行號，避免整檔載入。
 - [ ] 相同片段檢索不超過 2 次，避免陷入 Loop。
 - [ ] 保持 Single Source of Truth，未污染倉庫範本。
-- [ ] 支援 Subagent 時已遵循 Planner 只讀一次 → 交接契約 → flash Executor 禁讀重複文件（Workspace: "inherit"）。
+- [ ] 已依運行模式落實三態自適應調度（原生 Plan→Execute 雙階段交棒 / Handoff Contract 子代理隔離 / 輕量模型單線程直行），未重複啟動多餘 Subagent。
 - [ ] 程式碼修改完成後，已執行 `npm run harness:check` 與 `npm test`。

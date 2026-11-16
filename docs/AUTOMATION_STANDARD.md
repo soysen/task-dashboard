@@ -66,13 +66,18 @@ flowchart TD
 ```
 
 ### Subagent 風險分級與跨平台通用調度規範 (Universal 3-Tier Risk Routing)
-為消除無差別啟動雙 Subagent 所產生的固定外殼稅與重複 Context 負擔，主 Agent 扮演高階 **Planner**（執行 Phase 1 分析並擬定 Handoff Contract），依據任務階層 (`tier`)、單雙向門禁 (`riskDoor`) 與目標 AI 平台（Antigravity、Claude Code、OpenAI Codex、VS Code Copilot）進行動態分流指派：
+為消除無差別啟動雙 Subagent 所產生的固定外殼稅與重複 Context 負擔，依據任務階層 (`tier`)、單雙向門禁 (`riskDoor`)、目標 AI 平台（Antigravity、Claude Code、OpenAI Codex、VS Code Copilot）以及當前運行的**三態自適應執行模式**進行動態分流：
+
+#### 三態自適應執行模式 (Execution Profiles)
+1. **原生雙階段模式 (Native Plan→Execute)**：如 Antigravity `Orchestrator`、Claude Code `Plan Mode`、Copilot/Cursor `Plan→Act`。規劃階段可依 `grep -n` 精準切片唯讀定位目標程式與執行 GitNexus 影響評估，擬定計畫後直接交棒給**同對話內建執行階段**落地實作與驗證，**免重複寫外部 Handoff Contract 或另開實作 Subagent**，徹底避免三層套娃浪費。
+2. **單階段委派模式 (Delegated Subagent)**：無原生雙階段切換的傳統單階段主力模型。主 Agent 執行一次 Phase 1 並寫入 `Handoff Contract`，指派單一輕量執行子代理（`Workspace: "inherit"`）僅依契約實作並禁讀重複專案文件。
+3. **輕量高速直行模式 (Direct Fast Executor)**：如 Antigravity `Hydrogen` / `Flash`、Claude `Haiku` 或單行程 CLI 模式。對 `micro` 與一般 `standard` 任務採單線程 Fast-Track 直接「切片定位 ➔ 最小範圍修改 ➔ Harness 驗證 ➔ API 交付」，免建外部交接契約與子代理。
 
 | 階層 (Tier) | 適用場景 / 判定規則 | Phase 1 規劃 | Phase 2 實作 (Executor) | Phase 3 驗收 (Verifier) |
 | :--- | :--- | :--- | :--- | :--- |
 | **`micro`** | 文案錯字、註解微調、格式化、純小範圍樣式，或標註 `tier:micro` | 主 Agent 評估改動範圍 | 主 Agent **原地實作，不啟動 Subagent** | 主 Agent 本地測試 + `harness:check` exit 0 |
-| **`standard`** | 一般功能開發、局部 Bug 修復、單元測試補齊，或推斷不出之預設 | 主 Agent 執行一次 Phase 1，擬定 `Handoff Contract` 寫入 build-plan，更新 agent-status `## Delegation` | 指派單一 **Fast / Balanced Executor**（如 Flash、Sonnet、Codex Worker 或 Copilot Fast Subagent，設定 `Workspace: "inherit"`）僅依契約實作 | 主 Agent 依契約驗收標準審查 diff，執行 harness 後送出 payload 推進 review |
-| **`heavy`** | 跨模組重構、破壞性變更、資料庫遷移，或 `riskDoor === "one-way"` | 主 Agent 規劃切片並擬定 `Handoff Contract` 寫入 build-plan，更新 agent-status `## Delegation` | 指派單一 **Executor Subagent** 逐片實作 | 主 Agent 審查 diff 並驗收推進 review；僅 `riskDoor === "one-way"` 另開獨立 **Reasoning Verifier**（如 Pro、Opus、o1 或 Copilot Reasoning Subagent）審核 |
+| **`standard`** | 一般功能開發、局部 Bug 修復、單元測試補齊，或推斷不出之預設 | 主 Agent 執行一次 Phase 1（唯讀切片定位）；單階段委派時寫入 `Handoff Contract` 與 `## Delegation` | **原生雙階段**：直接交棒內建執行階段落地（免外開 Subagent）；**輕量直行**：單線程依序實作；**單階段委派**：指派單一 **Fast / Balanced Executor**（`Workspace: "inherit"`）依契約實作 | 主 Agent 依驗收標準審查 diff，執行 harness 後送出 payload 推進 review |
+| **`heavy`** | 跨模組重構、破壞性變更、資料庫遷移，或 `riskDoor === "one-way"` | 主 Agent 規劃切片並評估影響；單階段委派時寫入 `Handoff Contract` 與 `## Delegation` | **原生雙階段**：交棒內建執行階段逐片落地（免外開實作 Subagent）；**單階段委派**：指派單一 **Executor Subagent** 逐片實作 | 主 Agent 審查 diff 並驗收推進 review；僅 `riskDoor === "one-way"` 另開獨立 **Reasoning Verifier**（如 Pro、Opus、o1 或 Copilot Reasoning Subagent）審核 |
 
 - **階層推斷優先序**：
   1. 顯式指定：`task.tier` 為 `micro`、`standard`、`heavy` 之一時直接採用。

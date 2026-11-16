@@ -311,14 +311,51 @@ import {
       const configDir = (settings.dataDirectoryPath || settings.defaultDataDir || '~/Library/Application Support/TaskDashboard').replace(/\/+$/, '');
       const gateScriptPath = `${configDir}/watch-task-gate.js`;
 
+      const targetAdapterMap = {
+        antigravity: {
+          nativeOrchestrator: 'Orchestrator (Plan→Execute 原生雙階段)',
+          fastExecutor: 'flash Subagent (Workspace: "inherit")',
+          directExecutor: 'Hydrogen / Fast 直行模式',
+          verifier: 'pro Verifier (Model: "pro", Workspace: "inherit")'
+        },
+        claude: {
+          nativeOrchestrator: 'Claude Plan Mode (Plan→Act)',
+          fastExecutor: 'Haiku Subagent (claude-3-5-haiku)',
+          directExecutor: 'Haiku / Sonnet 單線程直行',
+          verifier: 'Opus / Thinking Verifier (claude-3-opus)'
+        },
+        codex: {
+          nativeOrchestrator: 'Codex Plan→Act 雙階段',
+          fastExecutor: 'Worker Subagent (gpt-4o-mini)',
+          directExecutor: 'Codex Mini 單線程直行',
+          verifier: 'Reasoner Verifier (o1 / o3-mini)'
+        },
+        copilot: {
+          nativeOrchestrator: 'Copilot Plan→Agent 雙階段',
+          fastExecutor: 'Copilot Subagent (Fast / Default Agent Mode)',
+          directExecutor: 'Copilot Fast 單線程直行',
+          verifier: 'Copilot Verifier (OpenAI o1 Reasoning Mode)'
+        },
+        universal: {
+          nativeOrchestrator: 'Native Plan→Execute 原生雙階段模式',
+          fastExecutor: 'Executor Subagent (Fast / 輕量檔位)',
+          directExecutor: 'Fast Direct 輕量直行模式',
+          verifier: 'Verifier Subagent (Reasoning / 深度推理檔位)'
+        }
+      };
+      const adapter = targetAdapterMap[currentDesktopAgentTarget] || targetAdapterMap.universal;
+
       const sharedInstructions = `
 
-【開工指示 (Reactive Wakeup - Skill Router 模式)】：
-1. 主 Agent 作為純 Skill Router（零讀碼調度）：喚醒後只讀哨兵 Brief 與專案 AGENTS.md，不預讀業務原始碼、歷史 build-plan、tasks-archived.json 或 harness 原始碼。（若勾選需確認且無執行計劃，先擬定執行計劃回寫 executionPlan 保持 in_progress 供確認；若有 feedback 視為最高優先）。
-2. 依哨兵輸出的「執行策略 (Tier)」與「專案 Skills」分流指派：
+【開工指示 (Reactive Wakeup - 三態自適應調度)】：
+1. Phase 1 精準切片定位（免盲讀）：喚醒後讀取哨兵 Brief 與專案 AGENTS.md，不預讀歷史 build-plan、tasks-archived.json 或無關原始碼；對目標檔案一律先以 grep -n 定位後切片 30~50 行（檢索上限 2 次）。（若勾選需確認且無執行計劃，先擬定計劃回寫 executionPlan 保持 in_progress 供確認；若有 feedback 或【最新需求覆蓋】視為最高優先）。
+2. 依哨兵「執行策略 (Tier)」、當前模型特性與【專案 Skills】自適應調度（免雙重子代理稅）：
    • micro: 主 Agent 原地直接實作與驗證，不啟動 Subagent。
-   • standard: 主 Agent 從哨兵列出的【專案實作 Skills】挑選對應 Skill，指派單一 flash Subagent (Workspace: "inherit") 載入該專案 SKILL.md 完成實作與關聯測試（預設免啟動第二個 Subagent；僅在跨多檔、具 feedback 或需補驗時才按需指派驗證 Subagent）。
-   • heavy: 先指派 flash Subagent (Workspace: "inherit") 載入【專案實作 Skills】實作，再指派 pro Subagent (Workspace: "inherit") 載入【專案驗證 Skills】與專案驗證指令獨立審核把關。
+   • standard / heavy:
+     - 原生雙階段模式（如 ${adapter.nativeOrchestrator}）：於 Plan 階段完成切片定位與規劃後，直接交棒內建執行階段載入【專案實作 Skills】落地實作與驗證，免再外開實作 Subagent。
+     - 單階段委派模式：寫入 Handoff Contract 後，指派單一 ${adapter.fastExecutor} 載入【專案實作 Skills】依契約實作（Executor 禁重讀專案架構文件）。
+     - 輕量直行模式（如 ${adapter.directExecutor}）：於單一執行緒內載入【專案實作 Skills】按切片依序完成實作與驗證。
+     - 高風險把關：僅在 riskDoor === "one-way" 時，額外啟動獨立 ${adapter.verifier} 載入【專案驗證 Skills】進行深度推理審核。
 3. API-First 交付與重啟：以結構化 JSON 呼叫 PUT http://localhost:3030/api/tasks/<id> 推進 review（diff、commitMessage 與報告皆由後端自動產生，勿手動收集或手寫 tasks.json；僅伺服器未啟動時才直接寫檔）。requestCommitGen 時依工作區全量 diff 產出 commitMessage 並重置 flag。推入 review 後再次背景執行上述 node 指令重新待命。`;
 
       let promptText = '';

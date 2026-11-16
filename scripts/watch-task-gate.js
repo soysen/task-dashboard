@@ -32,21 +32,31 @@ function loadAgentProviderAdapter() {
     } catch (e) {}
   }
   return {
-    resolveProvider: () => ({ name: 'antigravity', fastExecutor: 'flash Subagent (Workspace: "inherit")' }),
+    resolveProvider: () => ({
+      name: 'antigravity',
+      fastExecutor: 'flash Subagent (Workspace: "inherit")',
+      reasoningVerifier: 'pro Verifier (Model: "pro", Workspace: "inherit")',
+      nativeOrchestrator: 'Orchestrator (Plan→Execute 原生雙階段)',
+      directExecutor: 'Hydrogen / Fast 直行模式'
+    }),
     formatTierStrategy: (tier) => `• 執行策略 (Tier: ${tier})`
   };
 }
 const { formatTierStrategy, resolveProvider } = loadAgentProviderAdapter();
 const DEFAULT_APP_SUPPORT_DIR = process.env.TASK_DASHBOARD_DATA_DIR || path.join(USER_HOME, 'Library/Application Support/TaskDashboard');
 
-// 解析命令列參數 (例如 node watch-task-gate.js --agent=antigravity 或 --conversationId=conv_123)
+// 解析命令列參數 (例如 node watch-task-gate.js --agent=antigravity --tier=micro,standard 或 --conversationId=conv_123)
 let targetAgent = '';
+let targetTiers = [];
 let claimerId = process.env.CONVERSATION_ID || '';
 process.argv.slice(2).forEach(arg => {
   if (arg.startsWith('--agent=')) {
     targetAgent = arg.slice(8).trim().toLowerCase();
   } else if (arg.startsWith('-a=')) {
     targetAgent = arg.slice(3).trim().toLowerCase();
+  } else if (arg.startsWith('--tier=') || arg.startsWith('--tiers=')) {
+    const raw = arg.split('=')[1] || '';
+    targetTiers = raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
   } else if (arg.startsWith('--conversation=') || arg.startsWith('--conversationId=')) {
     claimerId = arg.split('=')[1].trim();
   } else if (arg.startsWith('--claimer=')) {
@@ -127,11 +137,38 @@ function findActionableTask() {
     const tasks = JSON.parse(content);
     return tasks.find(t => {
       if (!t) return false;
-      // 若哨兵指定了 --agent，檢查任務的 assignee / assignedAgent 是否符合
+      const taskTier = determineTaskTier(t);
+      // 若哨兵指定了 --agent，檢查任務的 assignee / assignedAgent 與能力角色是否符合
       if (targetAgent) {
         const taskAgent = (t.assignedAgent || t.assignee || '').trim().toLowerCase();
-        // 若任務有明確指定 agent 且不相符，跳過不認領（未指定或設為 all 則通用認領）
-        if (taskAgent && taskAgent !== 'all' && taskAgent !== targetAgent) {
+        const isGenericTaskAgent = !taskAgent || taskAgent === 'all' || taskAgent === 'universal';
+        const isPlannerRole = targetAgent === 'orchestrator' || targetAgent === 'planner';
+        const isFastRole = targetAgent === 'hydrogen' || targetAgent === 'fast' || targetAgent === 'direct';
+
+        if (isPlannerRole) {
+          if (!isGenericTaskAgent && taskAgent !== 'antigravity' && taskAgent !== targetAgent) {
+            return false;
+          }
+          if (!t.requestCommitGen && taskTier !== 'standard' && taskTier !== 'heavy' && t.requiresConfirmation !== true) {
+            return false;
+          }
+        } else if (isFastRole) {
+          if (!isGenericTaskAgent && taskAgent !== 'antigravity' && taskAgent !== targetAgent) {
+            return false;
+          }
+          if (!t.requestCommitGen && (t.requiresConfirmation || t.riskDoor === 'one-way' || (taskTier !== 'micro' && taskTier !== 'standard'))) {
+            return false;
+          }
+        } else {
+          // 若任務有明確指定 agent 且不相符，跳過不認領（未指定或設為 all / universal 則通用認領）
+          if (!isGenericTaskAgent && taskAgent !== targetAgent) {
+            return false;
+          }
+        }
+      }
+      // 若哨兵顯式指定 --tier 過濾，非 Commit 產出請求時僅認領指定階層任務
+      if (targetTiers.length > 0 && !t.requestCommitGen) {
+        if (!targetTiers.includes(taskTier)) {
           return false;
         }
       }
@@ -285,7 +322,7 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
     `• 專案: ${task.project || '預設'}${projPath ? ` (${projPath})` : ''}\n` +
     `• 需求: ${cleanDesc}${feedbackText}${confirmationText}${prioritySkillText}${implSkillsText}${verifySkillsText}\n` +
     `${strategyText}\n` +
-    `• 執行規範: 遵循 ${STANDARD_DOC} 3-Phase Gate；Phase 1 僅由主 Agent 執行一次；若需求包含【最新需求覆蓋】一律以其為最高優先；Executor 只讀 Handoff Contract，禁止重讀專案文件；Phase 3 驗收必須包含專案 Pre-Commit 預檢（若專案具備 .git/hooks/pre-commit 須執行通過）；僅跑受影響測試 + 專案 harness（無關基線紅燈僅註記）。\n` +
+    `• 執行規範: 遵循 ${STANDARD_DOC} 3-Phase Gate；Phase 1 僅執行一次（>500 行大檔以 grep-n 切片定位）；若需求含【最新需求覆蓋】以其為最高優先；原生雙階段模式直接交棒內建執行階段落地，委派模式之 Executor 只讀 Handoff Contract 禁重讀專案文件；Phase 3 驗收須包含專案 Pre-Commit 預檢與專案 harness（無關基線紅燈僅註記）。\n` +
     `• 交付方式: ${deliveryText}\n` +
     `================================================================================`;
 }
