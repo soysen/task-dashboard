@@ -20,6 +20,7 @@
 ## 平台標準與能力路標 (Navigation Roadmaps)
 - **平台執行標準 (3-Phase Gate & 3-Tier Routing)**：參閱 [`docs/AUTOMATION_STANDARD.md`](docs/AUTOMATION_STANDARD.md)。
 - **架構狀態機與門禁規範**：參閱 [`docs/STATE_MACHINE_RFC.md`](docs/STATE_MACHINE_RFC.md)。
+- **高頻避坑熱區 (<=30行)**：參閱 [`docs/LESSONS.md`](docs/LESSONS.md)。
 - **專案 Skills 模組**：參閱 `.github/skills/`。
 
 <!-- gitnexus:start -->

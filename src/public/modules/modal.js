@@ -625,8 +625,10 @@ import { selectedArchiveTaskIds, loadArchivedTasks, openArchiveModal, closeArchi
       const btnRetro = document.getElementById('btnExtractRetro');
       if (btnRetro) {
         const hasFeedbackHistory = normalizeLogText(task.description).includes('--- 【歷次審查意見 / Feedback 記錄】 ---');
-        btnRetro.classList.toggle('hidden', !hasFeedbackHistory);
-        btnRetro.classList.toggle('inline-flex', hasFeedbackHistory);
+        const hasMultiFixRounds = Number(task.fixRoundCount || 0) >= 2 || Boolean(task.needsHuman);
+        const showRetro = hasFeedbackHistory || hasMultiFixRounds;
+        btnRetro.classList.toggle('hidden', !showRetro);
+        btnRetro.classList.toggle('inline-flex', showRetro);
       }
 
       // 規範：在“進行中”之後的任務 (非 todo / 新增)，textarea 高度根據內容動態調整，避免內容較少時佔據大片無效空白
@@ -969,6 +971,17 @@ import { selectedArchiveTaskIds, loadArchivedTasks, openArchiveModal, closeArchi
         }
       }
 
+      const btnMergeWorktree = document.getElementById('btnMergeWorktreeModal');
+      if (btnMergeWorktree) {
+        const hasWorktreeBranch = Boolean(currentModalEditingTask && (currentModalEditingTask.worktreePath || currentModalEditingTask.branchName));
+        if (taskId && hasWorktreeBranch && (status === 'review' || status === 'done')) {
+          btnMergeWorktree.classList.remove('hidden');
+          btnMergeWorktree.title = `執行 Worktree 安全合併至 ${currentModalEditingTask.baseBranch || '來源分支'} (Rebase → 重驗 → Squash / PR)`;
+        } else {
+          btnMergeWorktree.classList.add('hidden');
+        }
+      }
+
       const btnConfirmAndExecute = document.getElementById('btnConfirmAndExecute');
       const modalConfirmBadge = document.getElementById('modalConfirmationBadge');
       const reqConfirmWrapper = document.getElementById('formRequiresConfirmationWrapper');
@@ -1144,6 +1157,43 @@ import { selectedArchiveTaskIds, loadArchivedTasks, openArchiveModal, closeArchi
       }
     }
 
+    async function mergeWorktreeFromTaskModal(event, confirmOneWayMerge = false) {
+      if (event) event.stopPropagation();
+      const taskId = document.getElementById('formTaskId').value;
+      if (!taskId) return;
+      const btn = document.getElementById('btnMergeWorktreeModal');
+      await withButtonLoading(btn, '合併中...', async () => {
+        try {
+          const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/merge`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ confirmOneWayMerge })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (data && data.requiresConfirmation && !confirmOneWayMerge) {
+            const ok = window.confirm(data.error || 'One-Way 高風險任務確認本地 Squash 合併？');
+            if (ok) {
+              await mergeWorktreeFromTaskModal(null, true);
+            }
+            return;
+          }
+          if (!res.ok) {
+            throw new Error(data.error || `合併失敗 (${res.status})`);
+          }
+          if (data.action === 'pr_pushed') {
+            showToast(`已推分支 ${data.branchName} 並準備 PR${data.prUrl ? `: ${data.prUrl}` : ''}`);
+          } else {
+            showToast(`任務 ${taskId} 已安全合併至 ${data.baseBranch || '來源分支'} 並封存！`);
+          }
+          closeModal();
+          await loadData();
+        } catch (err) {
+          showToast(`Worktree 合併失敗: ${err.message}`);
+          await loadData();
+        }
+      });
+    }
+
     async function saveTask(e) {
       e.preventDefault();
       const btnSubmit = document.getElementById('btnSubmitTask');
@@ -1183,7 +1233,8 @@ import { selectedArchiveTaskIds, loadArchivedTasks, openArchiveModal, closeArchi
           feedback,
           conversationId,
           requiresConfirmation,
-          executionPlan
+          executionPlan,
+          ...(currentModalEditingTask && (currentModalEditingTask.status === 'needs_human' || currentModalEditingTask.needsHuman) && status !== 'needs_human' ? { resetCircuitBreaker: true } : {})
         };
 
         try {
@@ -1928,20 +1979,22 @@ import { selectedArchiveTaskIds, loadArchivedTasks, openArchiveModal, closeArchi
       const files = (task.modifiedFiles && task.modifiedFiles.length > 0)
         ? task.modifiedFiles.map(f => typeof f === 'string' ? f : (f.path || f)).join(', ')
         : '（無明細）';
+      const fixRounds = Number(task.fixRoundCount || 0);
+      const todayStr = new Date().toISOString().slice(0, 10);
 
-      const prompt = `【/retro 經驗沉澱與規範自癒】
+      const prompt = `【/retro 經驗沉澱與 LESSONS 熱區升格淘汰】
 • 目標專案: ${projName} (${projPath})
-• 任務 ID: [${task.id}] ${task.title}
+• 任務 ID: [${task.id}] ${task.title} (退回輪次: ${fixRounds})
 • 異動檔案: ${files}
 
 【歷次審查退回原因 / 踩坑歷史】：
 ${feedbackHistory}
 
-【提煉目標】：
-請檢視上述退回原因與本次任務最終修復內容，將此次踩坑防錯經驗沉澱為專案規範，並分流更新：
-1. 若屬自動化可防護之語法/格式/命名問題：補充至目標專案 scripts/harness_check.sh 或 Linter/Hook。
-2. 若屬架構設計/邊界約束/不可變原則：沉澱至 .github/skills/ 相關 SKILL.md 或 CLAUDE.md。
-請提出具體修改提案並直接套用至目標檔案。`;
+【提煉與升格淘汰規則】：
+1. 優先提煉 1 行高頻避坑規則寫入 \`docs/LESSONS.md\`（格式：\`- [${todayStr}] 教訓與避坑規則\`，嚴格維持總行數 <= 30 行）。
+2. 同類教訓升格淘汰：若同類教訓於 \`docs/LESSONS.md\` 或歷次退回已出現 >= 2 次，**強制升格**至 \`scripts/harness_check.sh\` 確定性檢查或 \`AGENTS.md\` 永久規則，並從 \`docs/LESSONS.md\` 移除該行（保持熱區精簡）。
+3. 深度長篇復盤如有需要僅追加至 \`docs/RETROSPECTIVE.md\`，不刪除既有歷史紀錄。
+請提出具體修改並執行驗證 (npm run harness:check)。`;
 
       copyToClipboard(prompt, '已複製 /retro 規範提煉提示詞！');
     }
@@ -2013,6 +2066,7 @@ export {
   executeTaskActionConfirmed,
   deleteCurrentTask,
   extractRetroPrompt,
+  mergeWorktreeFromTaskModal,
   closeModal
 };
 
@@ -2053,6 +2107,7 @@ if (typeof window !== "undefined") {
   window.copyResumePromptFromModal = copyResumePromptFromModal;
   window.updateModalButtonState = updateModalButtonState;
   window.openCommitModalFromTaskModal = openCommitModalFromTaskModal;
+  window.mergeWorktreeFromTaskModal = mergeWorktreeFromTaskModal;
   window.saveTask = saveTask;
   window.toggleFormRequiresConfirmation = toggleFormRequiresConfirmation;
   window.confirmAndExecuteTask = confirmAndExecuteTask;

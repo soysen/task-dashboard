@@ -101,12 +101,12 @@ function formatTierStrategy(tier, providerOrName = null) {
 
   if (tier === 'heavy') {
     const swarmSuffix = provider.nativeSwarm
-      ? `；平行切片或 cross-model-review 可開 swarm（Coordinator 不寫碼，實作派 gemini-4-hydrogen-medium/low 或 gemini-3.8-flash-medium + workspace:"share"；審查禁 inherit，先查 swarm({action:"models",all:true}) 依額度選 claude-opus-5-5-high→gemini-4-argon-high，無額度再 fallback ${provider.reasoningVerifier}，僅傳規格/git diff/測試輸出）。`
-      : '。';
+      ? `；平行切片或 cross-model-review 可開 swarm（Coordinator 不寫碼，實作派 gemini-4-hydrogen-medium/low 或 gemini-3.8-flash-medium + workspace:"share"；審查禁 inherit，先查 swarm({action:"models",all:true}) 依額度選 claude-opus-5-5-high→gemini-4-argon-high，無額度再 fallback ${provider.reasoningVerifier}，僅傳規格/git diff/測試輸出，並要求顯性揭露 assumptions/deviations/unverified）。`
+      : '（審查須附 assumptions/deviations/unverified）。';
     return `• 執行策略 (Tier: heavy Planner→Executor 切片): ${provider.nativeOrchestrator} 0 讀碼第 1 步立即交棒內建執行階段 (${provider.directExecutor}) 拆寫 Handoff Contract 逐片實作（大切片優先 Model: "inherit"，備援 ${provider.fastExecutor}）；含 cross-model-review 或 riskDoor one-way 另開 ${provider.reasoningVerifier}${swarmSuffix}`;
   }
 
-  return `• 執行策略 (Tier: standard Planner→Executor): ${provider.nativeOrchestrator} 0 讀碼第 1 步直接交棒內建執行階段 (${provider.directExecutor}) 實作；直接用 ${provider.directExecutor} 原地切片（免降級）；單階段高階模式寫 Handoff Contract 派單一 ${provider.fastExecutor}。`;
+  return `• 執行策略 (Tier: standard Planner→Executor): ${provider.nativeOrchestrator} 0 讀碼第 1 步直接交棒內建執行階段 (${provider.directExecutor}) 實作；直接用 ${provider.directExecutor} 原地切片（免降級）；單階段高階模式寫 Handoff Contract 派單一 ${provider.fastExecutor}，交付須顯性揭露 assumptions/deviations/unverified。`;
 }
 
 module.exports = {

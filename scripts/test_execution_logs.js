@@ -437,6 +437,87 @@ async function main() {
     assert(h2Task6Updated.executionLog.includes('npm test 通過'), 'Phase 3 必須包含真實驗證');
     assert(!h2Task6Updated.executionLog.includes('未提供前置檢閱細節'), '絕對不可出現未提供假字眼');
     console.log('  ✅ TD-H2 Case 6: Markdown 段落智慧提取 Phase 1~3 驗證通過');
+
+    // TD-S3: Handoff 隱含決策欄位顯性化 & 單卡 2 輪失敗熔斷 (needs_human)
+    console.log('Testing TD-S3: Handoff Disclosures & Max 2 Fix Rounds Circuit Breaker...');
+    const handoffReport = autoAssembleExecutionReport(
+      { title: 'Handoff 揭露測試' },
+      {
+        objective: '測試 Handoff 欄位渲染',
+        rootCause: 'Proxy 預設超時未顯性揭露',
+        resolution: '加入 timeout 參數並記錄假設',
+        assumptions: ['假設本地測試伺服器支援 30 秒長連線'],
+        deviations: ['未修改原生 main.m 僅調整 server.js'],
+        unverified: ['真實推播網路斷線重連未實機測試'],
+        testCommand: 'npm test',
+        exitCode: 0
+      }
+    );
+    assert(handoffReport.includes('Handoff 隱含決策與邊界揭露'), '執行報告必須呈現 Handoff Disclosures 區塊');
+    assert(handoffReport.includes('假設 (Assumptions)'), '必須呈現 Assumptions');
+    assert(handoffReport.includes('偏離簡報處 (Deviations)'), '必須呈現 Deviations');
+    assert(handoffReport.includes('無法驗證項 (Unverified)'), '必須呈現 Unverified');
+    assert(handoffReport.includes('假設本地測試伺服器支援 30 秒長連線'), '必須包含實際假設文字');
+
+    // 建立任務測試 2 輪退回熔斷
+    const cbTask = await (await request('/api/tasks', 'POST', {
+      title: 'TD-S3 2輪熔斷測試任務',
+      project: 'logs',
+      status: 'in_progress'
+    })).json();
+
+    // 第 1 次送審 -> 第 1 次退回 (fixRoundCount = 1, 維持 in_progress)
+    await request(`/api/tasks/${cbTask.id}`, 'PUT', {
+      status: 'review',
+      objective: '第 1 輪實作',
+      rootCause: '測試第 1 輪',
+      resolution: '補齊程式',
+      assumptions: ['假設第 1 輪相容舊介面'],
+      testCommand: 'npm test',
+      exitCode: 0
+    });
+    const reject1 = await (await request(`/api/tasks/${cbTask.id}`, 'PUT', {
+      status: 'in_progress',
+      feedback: '第 1 輪退回：邊界條件不足'
+    })).json();
+    assert.equal(reject1.fixRoundCount, 1, '第 1 輪退回 fixRoundCount 應為 1');
+    assert.equal(reject1.status, 'in_progress', '第 1 輪退回仍可繼續 in_progress 修復');
+
+    // 第 2 次送審 -> 第 2 次退回 (fixRoundCount = 2, 自動鎖定 needs_human)
+    await request(`/api/tasks/${cbTask.id}`, 'PUT', {
+      status: 'review',
+      objective: '第 2 輪修復',
+      rootCause: '測試第 2 輪',
+      resolution: '再次修復',
+      testCommand: 'npm test',
+      exitCode: 0
+    });
+    const reject2 = await (await request(`/api/tasks/${cbTask.id}`, 'PUT', {
+      status: 'in_progress',
+      feedback: '第 2 輪退回：仍未修復根因'
+    })).json();
+    assert.equal(reject2.fixRoundCount, 2, '第 2 輪退回 fixRoundCount 應為 2');
+    assert.equal(reject2.status, 'needs_human', '達 2 輪退回必須自動鎖定 status: needs_human');
+    assert.equal(reject2.needsHuman, true, '達 2 輪退回必須標記 needsHuman: true');
+
+    // 確認 task-events.jsonl 已記錄 fix_round_circuit_break
+    const cbEvents = fs.readFileSync(eventsFile, 'utf8');
+    assert(cbEvents.includes('fix_round_circuit_break'), 'task-events.jsonl 必須記錄 fix_round_circuit_break');
+
+    // 確認哨兵 watch-task-gate.js 不會再喚醒此 needs_human 任務
+    const prevGateDir = process.env.TASK_DASHBOARD_DATA_DIR;
+    process.env.TASK_DASHBOARD_DATA_DIR = dataDir;
+    try {
+      const { findActionableTask, isTaskCircuitBroken } = require('./watch-task-gate');
+      assert.equal(isTaskCircuitBroken(reject2), true, 'isTaskCircuitBroken 必須判定熔斷任務為 true');
+      const allTasksNow = JSON.parse(fs.readFileSync(path.join(dataDir, 'tasks.json'), 'utf8'));
+      const nonCbTasks = allTasksNow.filter(t => t.id === cbTask.id);
+      fs.writeFileSync(path.join(dataDir, 'tasks.json'), JSON.stringify(nonCbTasks, null, 2));
+      assert.equal(findActionableTask(), null, '哨兵絕對不可喚醒 needs_human 熔斷任務');
+    } finally {
+      process.env.TASK_DASHBOARD_DATA_DIR = prevGateDir;
+    }
+    console.log('  ✅ TD-S3 Handoff 顯性揭露與 2 輪退回自動熔斷 needs_human 驗證通過');
   } finally {
     server.kill('SIGTERM');
     await serverClosed;

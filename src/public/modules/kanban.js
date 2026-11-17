@@ -147,11 +147,14 @@ import {
           const isInProgress = t.status === 'in_progress';
           const isReviewStatus = t.status === 'review';
           const isDoneStatus = t.status === 'done';
+          const isNeedsHuman = t.status === 'needs_human' || t.needsHuman === true;
           const projSkills = (t.projectSkills && Array.isArray(t.projectSkills)) ? t.projectSkills : (proj && Array.isArray(proj.skills) ? proj.skills : []);
           const hasGrillMe = projSkills.some(s => (s.id === 'grill-me' || s.label === 'grill-me'));
           const isPendingConfirm = (t.status === 'in_progress' && t.requiresConfirmation);
 
-          const cardStatusAccent = isPendingConfirm
+          const cardStatusAccent = isNeedsHuman
+            ? 'border-l-[3px] border-l-rose-500'
+            : isPendingConfirm
             ? 'border-l-[3px] border-l-amber-500'
             : isInProgress
               ? 'border-l-[3px] border-l-sky-500'
@@ -182,6 +185,11 @@ import {
                   <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-200 font-mono truncate max-w-[115px] whitespace-nowrap" title="${escapeHtml(projName)}">
                      ${escapeHtml(projName)}
                   </span>
+                  ${isNeedsHuman ? `
+                    <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100/90 dark:bg-rose-950/70 text-rose-800 dark:text-rose-300 font-mono flex items-center gap-0.5 whitespace-nowrap flex-shrink-0" title="單卡連續失敗或退回達 ${t.fixRoundCount || 2} 輪，已熔斷暫停自動喚醒，請由人類接手">
+                      🛑 需人類接手
+                    </span>
+                  ` : ''}
                   ${t.riskDoor === 'one-way' ? `
                     <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 dark:bg-rose-950/70 dark:text-rose-300 font-mono whitespace-nowrap flex-shrink-0" title="${escapeHtml((t.riskReasons || []).join('; ') || '單向門高風險：不可逆或跨模組重大變更')}">
                       🚨 單向門

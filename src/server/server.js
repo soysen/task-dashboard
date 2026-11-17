@@ -14,7 +14,8 @@ const {
   validateExecutionLog,
   calculateRiskDoor,
   autoAssembleExecutionReport,
-  determineTaskTier
+  determineTaskTier,
+  normalizeDisclosureList
 } = require('./feedbackManager');
 const {
   PROVIDER_MATRIX,
@@ -45,8 +46,10 @@ const {
   formatCommitMessage,
   buildCommitAgentPrompt,
   parseAgentCommitOutput,
+  getGitBranchInfo,
   createTaskWorktree,
-  removeTaskWorktree
+  removeTaskWorktree,
+  mergeTaskWorktree
 } = require('./services/gitService');
 const {
   recordCliRun,
@@ -76,8 +79,16 @@ const {
   readTasks,
   writeTasks,
   syncToMarkdown,
+  normalizeTaskScope,
   getNextTaskId
 } = require('./services/taskStorage');
+
+function resolveTaskGitWorkDir(task, projPath) {
+  if (task && task.worktreePath && fs.existsSync(task.worktreePath)) {
+    return task.worktreePath;
+  }
+  return projPath;
+}
 
 const PORT = process.env.PORT || 3030;
 const USER_HOME = process.env.HOME || os.homedir();
@@ -567,6 +578,18 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
     return;
   }
 
+  // TD-S3: 單卡 2 輪失敗熔斷守門 (needs_human 鎖定期間嚴禁自動啟動 CLI)
+  if (task.status === 'needs_human' || task.needsHuman === true || (Number(task.fixRoundCount || 0) >= 2 && task.resetCircuitBreaker !== true)) {
+    console.warn(`🛑 [Circuit Breaker] 任務 ${taskId} 已達 2 輪失敗熔斷 (needs_human)，停止自動啟動 CLI Agent。`);
+    appendTaskEvent({
+      taskId,
+      type: 'fix_round_circuit_break',
+      reason: 'cli_dispatch_blocked',
+      fixRoundCount: Number(task.fixRoundCount || 0)
+    });
+    return;
+  }
+
   // 檢查每日運行上限熔斷 (Pulse Quota Circuit Breaker)
   const dailyRunCap = Number(settings.dailyCliRunCap) > 0 ? Number(settings.dailyCliRunCap) : 30;
   if (getCliRunsToday() >= dailyRunCap) {
@@ -683,19 +706,27 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
     args = ['-c', buildCliCommand(rawCliCmd, promptText)];
   }
 
-  // 檢查是否啟用 Git Worktree 隔離模式
+  // 檢查是否啟用 Git Worktree 隔離模式並鎖定 baseBranch / baseCommit
   let execPath = projPath;
   let worktreeCreated = false;
   if (settings.cliIsolation === 'worktree') {
     try {
-      const wt = createTaskWorktree(projPath, taskId);
+      const wt = createTaskWorktree(projPath, taskId, { baseBranch: task.baseBranch });
       execPath = wt.worktreePath;
       task.worktreePath = wt.worktreePath;
       task.branchName = wt.branchName;
+      task.baseBranch = wt.baseBranch;
+      task.baseCommit = wt.baseCommit;
       worktreeCreated = true;
-      console.log(' [CLI Agent Worktree] 已為任務 ' + taskId + ' 建立隔離工作區: ' + execPath + ' (分支: ' + wt.branchName + ')');
+      console.log(' [CLI Agent Worktree] 已為任務 ' + taskId + ' 建立隔離工作區: ' + execPath + ' (分支: ' + wt.branchName + ', 基線: ' + wt.baseBranch + '@' + (wt.baseCommit || '').slice(0, 7) + ')');
     } catch (wtErr) {
       console.warn('⚠️ [CLI Agent Worktree] 建立隔離工作區失敗，回退至主目錄: ' + wtErr.message);
+    }
+  } else if (!task.baseBranch) {
+    const branchInfo = getGitBranchInfo(projPath);
+    if (branchInfo.branch) {
+      task.baseBranch = branchInfo.branch;
+      task.baseCommit = branchInfo.commit;
     }
   }
 
@@ -933,24 +964,43 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
               broadcastSse('task-error', { taskId, error: reasonMsg });
               setTimeout(() => executeTaskWithCliAgent(taskId), 5000);
             } else {
+              const nextFixRound = Number(curTask.fixRoundCount || 0) + 1;
+              curTask.fixRoundCount = nextFixRound;
               const failLog = '\n[' + new Date().toISOString() + '] ❌ CLI Agent 執行失敗 (' + reasonMsg + ')，無有效變更產出。\n' +
                 'Exit code: ' + code + ', Signal: ' + (signal || 'none') + '\n' +
                 '----------------------------------------\n';
               curTask.executionLog = (curTask.executionLog || '') + failLog;
               const isWorktreeOrResume = (settings.cliIsolation === 'worktree' || settings.enableCliResume === true);
-              curTask.status = isWorktreeOrResume ? 'in_progress' : 'todo';
-              curTask.liveStatus = {
-                text: 'CLI 異常中斷 (' + reasonMsg + ')，已保留工作區狀態',
-                resumable: isWorktreeOrResume
-              };
+              if (nextFixRound >= 2) {
+                curTask.status = 'needs_human';
+                curTask.needsHuman = true;
+                curTask.claimedBy = null;
+                curTask.claimedAt = null;
+                curTask.liveStatus = {
+                  text: `連續失敗達 ${nextFixRound} 輪，已觸發 2 輪熔斷鎖定 needs_human`,
+                  resumable: false
+                };
+                appendTaskEvent({
+                  taskId,
+                  type: 'fix_round_circuit_break',
+                  fixRoundCount: nextFixRound,
+                  reason: reasonMsg
+                });
+              } else {
+                curTask.status = isWorktreeOrResume ? 'in_progress' : 'todo';
+                curTask.liveStatus = {
+                  text: 'CLI 異常中斷 (' + reasonMsg + ')，已保留工作區狀態',
+                  resumable: isWorktreeOrResume
+                };
+              }
               curTask._retryCount = 0;
               writeTasks(updatedTasks);
               syncToMarkdown(updatedTasks);
               broadcastSse('task-error', { taskId, error: reasonMsg });
-              console.error(' [CLI Agent 引擎] 任務 ' + taskId + ' 執行中斷，' + (isWorktreeOrResume ? '保留 in_progress 狀態供斷點續跑。' : '回退至 todo。'));
+              console.error(' [CLI Agent 引擎] 任務 ' + taskId + ' 執行中斷，狀態: ' + curTask.status);
             }
           }
-        });
+        }, { baseCommit: task.baseCommit, baseBranch: task.baseBranch });
       };
       if (logStream.closed) {
         finalizeRun();
@@ -982,7 +1032,8 @@ function reconcileTasks() {
     if (!activeCliProcesses.has(t.id)) {
       const proj = projects.find(p => p.id === t.project);
       const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, t.project || '');
-      collectGitDiff(projPath, customEnv, (modifiedList, diffContent) => {
+      const gitTargetDir = resolveTaskGitWorkDir(t, projPath);
+      collectGitDiff(gitTargetDir, customEnv, (modifiedList, diffContent) => {
         const freshTasks = readTasks();
         const target = freshTasks.find(item => item.id === t.id && item.status === 'in_progress');
         if (!target) return;
@@ -1874,9 +1925,29 @@ function runNativeFolderPicker(promptText, callback) {
           requiresConfirmation: data.requiresConfirmation === true,
           executionPlan: data.executionPlan || '',
           tier: data.tier || '',
+          riskDoor: data.riskDoor || '',
+          riskReasons: Array.isArray(data.riskReasons) ? data.riskReasons : undefined,
+          scope: data.scope !== undefined ? normalizeTaskScope(data.scope) : undefined,
+          baseBranch: data.baseBranch || '',
+          baseCommit: data.baseCommit || '',
+          fixRoundCount: Number(data.fixRoundCount || 0),
+          needsHuman: data.needsHuman === true,
+          assumptions: data.assumptions !== undefined ? normalizeDisclosureList(data.assumptions) : undefined,
+          deviations: data.deviations !== undefined ? normalizeDisclosureList(data.deviations) : undefined,
+          unverified: data.unverified !== undefined ? normalizeDisclosureList(data.unverified) : undefined,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
+        if (newTask.status === 'in_progress' && !newTask.baseBranch) {
+          const projectsForBase = readProjects();
+          const projForBase = projectsForBase.find(p => p.id === newTask.project);
+          const projPathForBase = projForBase ? projForBase.path : path.join(PROJECTS_ROOT, newTask.project || '');
+          const branchInfo = getGitBranchInfo(projPathForBase);
+          if (branchInfo.branch) {
+            newTask.baseBranch = branchInfo.branch;
+            newTask.baseCommit = branchInfo.commit;
+          }
+        }
         tasks.push(newTask);
         writeTasks(tasks);
 
@@ -1981,16 +2052,32 @@ function runNativeFolderPicker(promptText, callback) {
 
           // 檢驗 exitCode：若顯式傳入非 0 exitCode，嚴格拒絕推進 review
           if (data.exitCode !== undefined && data.exitCode !== null && Number(data.exitCode) !== 0) {
-            appendTaskEvent({
-              taskId,
-              type: 'review_gate_rejected',
-              shimId: 'GATE-001',
-              reason: `exitCode ${data.exitCode} is non-zero`
-            });
+            const curRounds = Number(tasks[index].fixRoundCount || 0);
+            if (curRounds >= 2) {
+              tasks[index].status = 'needs_human';
+              tasks[index].needsHuman = true;
+              tasks[index].claimedBy = null;
+              tasks[index].claimedAt = null;
+              writeTasks(tasks);
+              appendTaskEvent({
+                taskId,
+                type: 'fix_round_circuit_break',
+                fixRoundCount: curRounds,
+                reason: `exitCode ${data.exitCode} failed after ${curRounds} fix rounds`
+              });
+            } else {
+              appendTaskEvent({
+                taskId,
+                type: 'review_gate_rejected',
+                shimId: 'GATE-001',
+                reason: `exitCode ${data.exitCode} is non-zero`
+              });
+            }
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
               error: 'Review gate failed: exitCode is non-zero, verification must pass before review promotion.',
-              reason: `Exit code is ${data.exitCode}, verification failed.`
+              reason: `Exit code is ${data.exitCode}, verification failed.`,
+              needsHuman: curRounds >= 2
             }));
             return;
           }
@@ -2019,23 +2106,57 @@ function runNativeFolderPicker(promptText, callback) {
           consumeTaskFeedback(tasks[index]);
         }
 
+        // TD-S3: 單卡 2 輪失敗熔斷 (由 review 退回時累計 fixRoundCount，達 2 輪立即鎖定 needs_human)
+        const isReviewRejection = prevStatus === 'review' && (data.status === 'in_progress' || data.status === 'todo');
+        let circuitBreakerTriggered = false;
+        if (isReviewRejection) {
+          const nextFixRound = Number(prevTaskBeforeUpdate.fixRoundCount || 0) + 1;
+          data.fixRoundCount = nextFixRound;
+          if (nextFixRound >= 2) {
+            data.status = 'needs_human';
+            data.needsHuman = true;
+            data.claimedBy = null;
+            data.claimedAt = null;
+            circuitBreakerTriggered = true;
+          }
+        }
+        if (data.resetCircuitBreaker === true) {
+          data.fixRoundCount = 0;
+          data.needsHuman = false;
+        } else if (prevStatus === 'needs_human' && data.status === 'in_progress' && data.fixRoundCount === undefined && data.needsHuman !== false) {
+          data.status = 'needs_human';
+          data.needsHuman = true;
+          data.claimedBy = null;
+          data.claimedAt = null;
+        }
+
+        const normalizedScope = data.scope !== undefined ? normalizeTaskScope(data.scope) : tasks[index].scope;
+        const normalizedAssumptions = data.assumptions !== undefined ? normalizeDisclosureList(data.assumptions) : tasks[index].assumptions;
+        const normalizedDeviations = data.deviations !== undefined ? normalizeDisclosureList(data.deviations) : tasks[index].deviations;
+        const normalizedUnverified = data.unverified !== undefined ? normalizeDisclosureList(data.unverified) : tasks[index].unverified;
+
         tasks[index] = {
           ...tasks[index],
           ...data,
           id: taskId,
+          scope: normalizedScope,
+          assumptions: normalizedAssumptions,
+          deviations: normalizedDeviations,
+          unverified: normalizedUnverified,
           tags: Array.isArray(data.tags) ? data.tags : (data.tags ? data.tags.split(',').map(s => s.trim()).filter(Boolean) : tasks[index].tags),
           dependencies: data.dependencies !== undefined ? (Array.isArray(data.dependencies) ? data.dependencies : [data.dependencies]) : (tasks[index].dependencies || []),
           modifiedFiles: Array.isArray(data.modifiedFiles) ? data.modifiedFiles : (tasks[index].modifiedFiles || []),
           updatedAt: new Date().toISOString()
         };
+        delete tasks[index].resetCircuitBreaker;
 
         if (data.claimedBy !== undefined && data.claimedBy !== prevTaskBeforeUpdate.claimedBy) {
           tasks[index].claimedBy = data.claimedBy || null;
           tasks[index].claimedAt = data.claimedBy ? new Date().toISOString() : null;
         }
 
-        // 若狀態切換為 todo 或非 in_progress，清除認領鎖定
-        if (tasks[index].status === 'todo') {
+        // 若狀態切換為 todo 或 needs_human（非 in_progress），清除認領鎖定
+        if (tasks[index].status === 'todo' || tasks[index].status === 'needs_human') {
           tasks[index].claimedBy = null;
           tasks[index].claimedAt = null;
         }
@@ -2077,6 +2198,16 @@ function runNativeFolderPicker(promptText, callback) {
         writeTasks(tasks);
 
         // [Append-only Event Log] 紀錄狀態轉移與認領事件
+        if (circuitBreakerTriggered) {
+          appendTaskEvent({
+            taskId,
+            type: 'fix_round_circuit_break',
+            fixRoundCount: tasks[index].fixRoundCount,
+            fromStatus: prevStatus,
+            toStatus: 'needs_human',
+            feedback: data.feedback || ''
+          });
+        }
         if (prevStatus !== tasks[index].status) {
           appendTaskEvent({
             taskId,
@@ -2134,17 +2265,31 @@ function runNativeFolderPicker(promptText, callback) {
             }
             tasks[index].feedback = '';
           }
+          // TD-S2: 若尚未記錄來源 baseBranch / baseCommit，於開工時鎖定
+          if (!tasks[index].baseBranch) {
+            const projectsForBase = readProjects();
+            const projForBase = projectsForBase.find(p => p.id === tasks[index].project);
+            const projPathForBase = projForBase ? projForBase.path : path.join(PROJECTS_ROOT, tasks[index].project || '');
+            const branchInfo = getGitBranchInfo(projPathForBase);
+            if (branchInfo.branch) {
+              tasks[index].baseBranch = branchInfo.branch;
+              tasks[index].baseCommit = branchInfo.commit;
+            }
+          }
           writeTasks(tasks);
-          executeTaskWithCliAgent(taskId);
+          if (tasks[index].status === 'in_progress') {
+            executeTaskWithCliAgent(taskId);
+          }
         }
 
-        // 若狀態切換為 review 或 done（無論是手動拖曳、驗收結案或 API 呼叫），自動補齊目標專案的 Git Diff 與 Commit Message
+        // 若狀態切換為 review 或 done（無論是手動拖曳、驗收結案或 API 呼叫），自動補齊目標專案 (或 Worktree) 的 Git Diff 與 Commit Message
         if ((tasks[index].status === 'review' || tasks[index].status === 'done') && prevStatus !== tasks[index].status) {
           const projects = readProjects();
           const proj = projects.find(p => p.id === tasks[index].project);
           const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, tasks[index].project || '');
+          const gitTargetDir = resolveTaskGitWorkDir(tasks[index], projPath);
           const customEnv = buildCustomEnv();
-          collectGitDiff(projPath, customEnv, (modifiedList, diffContent) => {
+          collectGitDiff(gitTargetDir, customEnv, (modifiedList, diffContent) => {
             const freshTasks = readTasks();
             const freshTask = freshTasks.find(t => t.id === taskId);
             if (freshTask) {
@@ -2175,7 +2320,7 @@ function runNativeFolderPicker(promptText, callback) {
               syncToMarkdown(freshTasks);
               console.log(' [開工引擎] 任務 ' + taskId + ' 自動收集 Git 變更 (' + modifiedList.length + ' 個檔案) 與 Commit 訊息完畢！');
             }
-          });
+          }, { baseCommit: tasks[index].baseCommit, baseBranch: tasks[index].baseBranch });
         }
 
         const projects = readProjects();
@@ -2351,6 +2496,155 @@ function runNativeFolderPicker(promptText, callback) {
     return;
   }
 
+  // TD-S2: 序列化 Worktree Done & Merge 管線 (依 projectPath 互斥鎖排隊：Rebase → 基線變動重驗 → Squash / PR → 清理)
+  if (pathname.match(/^\/api\/tasks\/([^/]+)\/merge$/) && req.method === 'POST') {
+    const taskId = decodeURIComponent(pathname.split('/')[3] || '').trim();
+    let reqBody = '';
+    req.on('data', chunk => { reqBody += chunk; });
+    req.on('end', async () => {
+      let reqData = {};
+      try {
+        if (reqBody.trim()) reqData = JSON.parse(reqBody);
+      } catch (e) {}
+
+      const tasks = readTasks();
+      const task = tasks.find(t => t.id === taskId);
+      if (!task) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Task not found' }));
+        return;
+      }
+
+      const projects = readProjects();
+      const proj = projects.find(p => p.id === task.project || p.name === task.project);
+      let projPath = (proj && proj.path) || task.projectPath || path.join(PROJECTS_ROOT, task.project || '');
+      if (typeof projPath === 'string' && projPath.startsWith('~')) {
+        projPath = path.join(USER_HOME, projPath.slice(1));
+      }
+      projPath = path.resolve(projPath);
+
+      let verifyCommand = (reqData.verifyCommand || (proj && proj.harness && proj.harness.command) || '').trim();
+      if (!verifyCommand) {
+        try {
+          const pkgFile = path.join(projPath, 'package.json');
+          if (fs.existsSync(pkgFile)) {
+            const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+            if (pkg && pkg.scripts && pkg.scripts.test && !String(pkg.scripts.test).includes('no test specified')) {
+              verifyCommand = 'npm test';
+            }
+          }
+        } catch (e) {}
+      }
+
+      const taskSnapshot = {
+        ...task,
+        commitMessage: (reqData.subject || reqData.body)
+          ? { subject: reqData.subject || task.commitMessage?.subject || '', body: reqData.body !== undefined ? reqData.body : (task.commitMessage?.body || '') }
+          : task.commitMessage
+      };
+
+      try {
+        const mergeResult = await mergeTaskWorktree({
+          repoPath: projPath,
+          taskId,
+          task: taskSnapshot,
+          worktreePath: reqData.worktreePath || task.worktreePath,
+          branchName: reqData.branchName || task.branchName,
+          baseBranch: reqData.baseBranch || task.baseBranch,
+          baseCommit: reqData.baseCommit || task.baseCommit,
+          verifyCommand,
+          confirmOneWayMerge: reqData.confirmOneWayMerge === true,
+          mode: reqData.mode || '',
+          customEnv: buildCustomEnv()
+        });
+
+        const freshTasks = readTasks();
+        const freshIdx = freshTasks.findIndex(t => t.id === taskId);
+        const nowIso = new Date().toISOString();
+
+        if (mergeResult.status === 'conflict') {
+          if (freshIdx !== -1) {
+            freshTasks[freshIdx].mergeStatus = 'conflict';
+            freshTasks[freshIdx].status = 'in_progress';
+            freshTasks[freshIdx].feedback = `Rebase 至 ${mergeResult.baseBranch} 發生衝突，已中止 rebase；請於 worktree 內解決衝突並重試。`;
+            freshTasks[freshIdx].updatedAt = nowIso;
+            writeTasks(freshTasks);
+          }
+          appendTaskEvent({ taskId, type: 'merge_conflict', baseBranch: mergeResult.baseBranch, branchName: mergeResult.branchName });
+          broadcastSse('task-update', { taskId, status: 'in_progress', mergeStatus: 'conflict' });
+          res.writeHead(409, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(mergeResult));
+          return;
+        }
+
+        if (mergeResult.status === 'verification_failed') {
+          if (freshIdx !== -1) {
+            freshTasks[freshIdx].mergeStatus = 'verification_failed';
+            freshTasks[freshIdx].executionLog = (freshTasks[freshIdx].executionLog || '') +
+              `\n[${nowIso}] ❌ [Merge Re-Verify Failed] 基線 ${mergeResult.baseBranch} 已前進，重驗失敗 (exit ${mergeResult.exitCode}):\n${mergeResult.output || ''}\n`;
+            freshTasks[freshIdx].updatedAt = nowIso;
+            writeTasks(freshTasks);
+          }
+          appendTaskEvent({ taskId, type: 'merge_verification_failed', baseBranch: mergeResult.baseBranch, exitCode: mergeResult.exitCode });
+          res.writeHead(422, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(mergeResult));
+          return;
+        }
+
+        if (mergeResult.status === 'dirty_main_workspace' || mergeResult.status === 'one_way_requires_confirmation') {
+          res.writeHead(409, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(mergeResult));
+          return;
+        }
+
+        if (mergeResult.action === 'pr_pushed') {
+          if (freshIdx !== -1) {
+            freshTasks[freshIdx].mergeStatus = 'pr_ready';
+            freshTasks[freshIdx].prUrl = mergeResult.prUrl || '';
+            freshTasks[freshIdx].updatedAt = nowIso;
+            writeTasks(freshTasks);
+          }
+          appendTaskEvent({ taskId, type: 'merge_pr_pushed', baseBranch: mergeResult.baseBranch, branchName: mergeResult.branchName, prUrl: mergeResult.prUrl });
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(mergeResult));
+          return;
+        }
+
+        if (mergeResult.merged) {
+          if (freshIdx !== -1) {
+            freshTasks[freshIdx].status = 'archived';
+            freshTasks[freshIdx].mergeStatus = 'merged';
+            freshTasks[freshIdx].mergedAt = nowIso;
+            freshTasks[freshIdx].mergeCommit = mergeResult.mergeCommit;
+            freshTasks[freshIdx].worktreePath = null;
+            freshTasks[freshIdx].updatedAt = nowIso;
+            writeTasks(freshTasks);
+          }
+          gitProjectsStatusCache = { timestamp: 0, data: null };
+          appendTaskEvent({
+            taskId,
+            type: 'worktree_merged',
+            baseBranch: mergeResult.baseBranch,
+            mergeCommit: mergeResult.mergeCommit,
+            baseMoved: mergeResult.baseMoved,
+            reVerified: mergeResult.reVerified
+          });
+          broadcastSse('task-update', { taskId, status: 'archived', mergeStatus: 'merged' });
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ...mergeResult, taskId, archived: true }));
+          return;
+        }
+
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(mergeResult));
+      } catch (mergeErr) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, merged: false, error: mergeErr.message }));
+      }
+    });
+    return;
+  }
+
   // 透過 Agent / Skill 產生 Commit Message
   if (pathname.match(/^\/api\/tasks\/([^/]+)\/generate-commit$/) && (req.method === 'POST' || req.method === 'GET')) {
     const taskId = decodeURIComponent(pathname.split('/')[3] || '').trim();
@@ -2365,12 +2659,13 @@ function runNativeFolderPicker(promptText, callback) {
     const projects = readProjects();
     const proj = projects.find(p => p.id === task.project);
     const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, task.project || '');
+    const gitTargetDir = resolveTaskGitWorkDir(task, projPath);
     const commitSkill = findProjectCommitSkill(projPath);
 
     let bodyData = {};
     const executeGen = () => {
-      // 取得當前專案的最新 diff 與 modifiedFiles
-      collectGitDiff(projPath, buildCustomEnv(), (modifiedFiles, diffContent) => {
+      // 取得當前專案 (或 Worktree) 的最新 diff 與 modifiedFiles
+      collectGitDiff(gitTargetDir, buildCustomEnv(), (modifiedFiles, diffContent) => {
         const mergedModified = (modifiedFiles && modifiedFiles.length > 0) ? modifiedFiles : (task.modifiedFiles || []);
 
         const isLegacyDescCopy = task.commitMessage && task.description && task.commitMessage.body && task.commitMessage.body.trim() === task.description.trim();
@@ -2710,22 +3005,23 @@ function runNativeFolderPicker(promptText, callback) {
     const projects = readProjects();
     const proj = projects.find(p => p.id === task.project);
     const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, task.project || '');
+    const gitTargetDir = resolveTaskGitWorkDir(task, projPath);
 
     let hasDiff = false;
     let summary = '';
     let files = [];
     let diffStat = '';
     try {
-      if (fs.existsSync(projPath) && fs.existsSync(path.join(projPath, '.git'))) {
-        const statusOutput = execSync('git status --porcelain', { cwd: projPath, encoding: 'utf8', timeout: 3000 }).trim();
+      if (fs.existsSync(gitTargetDir) && (fs.existsSync(path.join(gitTargetDir, '.git')) || task.worktreePath)) {
+        const statusOutput = execSync('git status --porcelain', { cwd: gitTargetDir, encoding: 'utf8', timeout: 3000 }).trim();
         if (statusOutput.length > 0) {
           hasDiff = true;
           summary = statusOutput;
           files = statusOutput.split('\n').map(l => l.trim()).filter(Boolean).map(l => l.replace(/^[A-Z?]+\s+/, ''));
           try {
-            diffStat = execSync('git diff --stat HEAD', { cwd: projPath, encoding: 'utf8', timeout: 3000 }).trim();
+            diffStat = execSync('git diff --stat HEAD', { cwd: gitTargetDir, encoding: 'utf8', timeout: 3000 }).trim();
           } catch (e) {
-            try { diffStat = execSync('git diff --stat', { cwd: projPath, encoding: 'utf8', timeout: 3000 }).trim(); } catch (e2) {}
+            try { diffStat = execSync('git diff --stat', { cwd: gitTargetDir, encoding: 'utf8', timeout: 3000 }).trim(); } catch (e2) {}
           }
         }
       }

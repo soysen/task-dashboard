@@ -279,7 +279,86 @@ async function run() {
   assert.equal(determineTaskTier(overrideTask), 'micro', '顯式 tier 優先於標題關鍵字');
   console.log('  ✅ [Case 4 - Priority & One-Way] 通過：門禁自動升級與顯式優先序完全合規\n');
 
-  console.log('🎉 全部步驟與 TD-H1 分級路由驗證成功！\n');
+  // 8. TD-S1: 驗證跨卡隔離互斥 (cliIsolation: none) 與 allowedFiles 交集阻斷 (worktree/share)
+  console.log('Step 8: 驗證 TD-S1 同 Repo 互斥序列、allowedFiles 交集阻斷與 outOfScope/STOP AND ASK...');
+  const { findActionableTask, hasAllowedFilesOverlap } = require('./watch-task-gate');
+
+  const s1DataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'td-s1-data-'));
+  const prevDataDirEnv = process.env.TASK_DASHBOARD_DATA_DIR;
+  try {
+    process.env.TASK_DASHBOARD_DATA_DIR = s1DataDir;
+    const repoA = path.join(s1DataDir, 'repo-a');
+    const repoB = path.join(s1DataDir, 'repo-b');
+    fs.mkdirSync(repoA, { recursive: true });
+    fs.mkdirSync(repoB, { recursive: true });
+    fs.writeFileSync(path.join(s1DataDir, 'projects.json'), JSON.stringify([
+      { id: 'proj-a', name: 'proj-a', path: repoA },
+      { id: 'proj-b', name: 'proj-b', path: repoB }
+    ]), 'utf8');
+
+    // Case A: cliIsolation = 'none' 時，同 Repo 已有活躍 in_progress 任務，第二張卡必須暫緩喚醒；跨專案可平行
+    fs.writeFileSync(path.join(s1DataDir, 'settings.json'), JSON.stringify({ cliIsolation: 'none' }), 'utf8');
+    fs.writeFileSync(path.join(s1DataDir, 'tasks.json'), JSON.stringify([
+      { id: 'TASK-A1', title: 'RepoA 活躍任務', project: 'proj-a', status: 'in_progress', claimedBy: `other-sentinel-${process.pid}`, claimedAt: new Date().toISOString() },
+      { id: 'TASK-A2', title: 'RepoA 第二張等待卡', project: 'proj-a', status: 'in_progress' }
+    ]), 'utf8');
+    assert.equal(findActionableTask(), null, '同 Repo (cliIsolation=none) 已有活躍 in_progress 任務時，第二張卡必須被互斥阻斷');
+
+    fs.writeFileSync(path.join(s1DataDir, 'tasks.json'), JSON.stringify([
+      { id: 'TASK-A1', title: 'RepoA 活躍任務', project: 'proj-a', status: 'in_progress', claimedBy: `other-sentinel-${process.pid}`, claimedAt: new Date().toISOString() },
+      { id: 'TASK-A2', title: 'RepoA 第二張等待卡', project: 'proj-a', status: 'in_progress' },
+      { id: 'TASK-B1', title: 'RepoB 平行任務', project: 'proj-b', status: 'in_progress' }
+    ]), 'utf8');
+    const crossProjPicked = findActionableTask();
+    assert.equal(crossProjPicked && crossProjPicked.id, 'TASK-B1', '跨專案 (proj-b) 任務不受 proj-a 互斥鎖影響，應正常喚醒');
+    console.log('  ✅ [TD-S1 Case A] 同 Repo 互斥與跨專案平行驗證通過');
+
+    // Case B: cliIsolation = 'worktree' / workspace: 'share' 時，allowedFiles 有交集者阻斷，無交集者可喚醒
+    fs.writeFileSync(path.join(s1DataDir, 'settings.json'), JSON.stringify({ cliIsolation: 'worktree' }), 'utf8');
+    fs.writeFileSync(path.join(s1DataDir, 'tasks.json'), JSON.stringify([
+      {
+        id: 'TASK-W1', title: 'Worktree 任務 1', project: 'proj-a', status: 'in_progress',
+        claimedBy: `other-sentinel-${process.pid}`, claimedAt: new Date().toISOString(),
+        scope: { allowedFiles: ['src/server/server.js', 'src/server/feedbackManager.js'], outOfScope: ['src/public/'] }
+      },
+      {
+        id: 'TASK-W2', title: 'Worktree 交集衝突任務', project: 'proj-a', status: 'in_progress',
+        workspace: 'share',
+        scope: { allowedFiles: ['src/server/server.js'], outOfScope: ['docs/'] }
+      },
+      {
+        id: 'TASK-W3', title: 'Worktree 無交集平行任務', project: 'proj-a', status: 'in_progress',
+        workspace: 'share',
+        scope: { allowedFiles: ['src/public/modules/modal.js'], outOfScope: ['src/server/'] }
+      }
+    ]), 'utf8');
+    assert.equal(hasAllowedFilesOverlap(
+      { scope: { allowedFiles: ['src/server/server.js'] } },
+      { scope: { allowedFiles: ['src/server/'] } }
+    ), true, '目錄前綴與檔案應判定為 allowedFiles 交集');
+    const disjointPicked = findActionableTask();
+    assert.equal(disjointPicked && disjointPicked.id, 'TASK-W3', 'allowedFiles 有交集的 TASK-W2 應被阻斷，無交集的 TASK-W3 應被喚醒');
+    console.log('  ✅ [TD-S1 Case B] Worktree allowedFiles 交集阻斷與無交集平行驗證通過');
+
+    // Case C: 喚醒簡報固定帶出 outOfScope 與 STOP AND ASK 條件
+    const scopedBrief = formatWakeupBrief({
+      id: 'TASK-S-BRIEF',
+      title: '範圍檢查簡報測試',
+      project: 'proj-a',
+      tier: 'micro',
+      scope: { allowedFiles: ['docs/LESSONS.md'], outOfScope: ['src/server/server.js'] }
+    }, 'WAKEUP_IMMEDIATE');
+    assert(scopedBrief.includes('outOfScope'), '喚醒簡報必須固定帶出 outOfScope');
+    assert(scopedBrief.includes('src/server/server.js'), '喚醒簡報必須呈現任務指定的 outOfScope 項目');
+    assert(scopedBrief.includes('STOP AND ASK'), '喚醒簡報必須包含 STOP AND ASK 條件');
+    assert(scopedBrief.split('\n').length <= 15, `含 scope 簡報仍須 <= 15 行，實際: ${scopedBrief.split('\n').length}`);
+    console.log('  ✅ [TD-S1 Case C] outOfScope 與 STOP AND ASK 簡報契約驗證通過\n');
+  } finally {
+    process.env.TASK_DASHBOARD_DATA_DIR = prevDataDirEnv;
+    fs.rmSync(s1DataDir, { recursive: true, force: true });
+  }
+
+  console.log('🎉 全部步驟與 TD-H1 / TD-S1 分級互斥驗證成功！\n');
   } finally {
     try { serverProc.kill('SIGKILL'); } catch (e) {}
     fs.rmSync(tmpDataDir, { recursive: true, force: true });

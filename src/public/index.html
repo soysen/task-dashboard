@@ -632,6 +632,7 @@
                     <option value="in_progress"> 進行中 (In Progress)</option>
                     <option value="review"> 待驗收 (Review / Verify)</option>
                     <option value="done"> 已完成 (Done)</option>
+                    <option value="needs_human"> 🛑 需人類接手 (2輪熔斷)</option>
                   </select>
                 </div>
 
@@ -987,6 +988,9 @@
             </button>
             <button type="button" id="btnApproveTask" onclick="approveTaskAsDone()" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-emerald-500/25 transition flex items-center gap-1.5">
               <i data-lucide="check-circle" class="w-4 h-4"></i> 驗收通過
+            </button>
+            <button type="button" id="btnMergeWorktreeModal" onclick="mergeWorktreeFromTaskModal(event)" class="hidden bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-md shadow-sky-500/20 transition flex items-center gap-1.5" title="執行 Worktree 序列化安全合併 (Rebase → 重驗 → Squash / PR)">
+              <i data-lucide="git-merge" class="w-3.5 h-3.5"></i> Done & Merge
             </button>
             <button type="button" id="btnCommitTaskModal" onclick="openCommitModalFromTaskModal(event)" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-md shadow-emerald-500/20 transition flex items-center gap-1.5" title="以專案 Commit Skill / Agent 產出並提交 Git Commit">
               <i data-lucide="git-commit" class="w-3.5 h-3.5"></i> Commit

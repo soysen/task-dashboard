@@ -121,8 +121,16 @@ function resolveDataDir() {
   return DEFAULT_APP_SUPPORT_DIR;
 }
 
-const DATA_DIR = resolveDataDir();
-const TASKS_FILE = path.join(DATA_DIR, 'tasks.json');
+function getDataDir() {
+  return resolveDataDir();
+}
+
+function getTasksFile() {
+  return path.join(getDataDir(), 'tasks.json');
+}
+
+const DATA_DIR = getDataDir();
+const TASKS_FILE = getTasksFile();
 
 function resolveStandardDoc() {
   if (process.env.TASK_DASHBOARD_STANDARD_DOC && process.env.TASK_DASHBOARD_STANDARD_DOC.trim()) {
@@ -151,13 +159,124 @@ function isPidAlive(pid) {
   }
 }
 
+function readJsonSafe(filePath, fallback) {
+  try {
+    if (fs.existsSync(filePath)) {
+      return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    }
+  } catch (e) {}
+  return fallback;
+}
+
+function normalizeScopePath(p) {
+  return String(p || '').trim().replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
+}
+
+function hasAllowedFilesOverlap(taskA, taskB) {
+  const listA = Array.isArray(taskA?.scope?.allowedFiles) ? taskA.scope.allowedFiles.map(normalizeScopePath).filter(Boolean) : [];
+  const listB = Array.isArray(taskB?.scope?.allowedFiles) ? taskB.scope.allowedFiles.map(normalizeScopePath).filter(Boolean) : [];
+  if (listA.length === 0 || listB.length === 0) return false;
+  for (const a of listA) {
+    for (const b of listB) {
+      if (a === b || a.startsWith(b + '/') || b.startsWith(a + '/')) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function isPendingUserConfirmation(task) {
+  return Boolean(task && task.requiresConfirmation && task.executionPlan && String(task.executionPlan).trim().length > 0);
+}
+
+function isTaskCircuitBroken(task) {
+  if (!task) return false;
+  if (task.status === 'needs_human' || task.needsHuman === true) return true;
+  if (Number(task.fixRoundCount || 0) >= 2 && task.resetCircuitBreaker !== true) return true;
+  return false;
+}
+
+function isClaimAlive(task, selfClaimerId = null) {
+  if (!task || !task.claimedBy || !task.claimedAt) return false;
+  if (selfClaimerId && task.claimedBy === selfClaimerId) return false;
+  const pidMatch = String(task.claimedBy).match(/-(\d+)$/);
+  const isOwnerAlive = pidMatch ? isPidAlive(pidMatch[1]) : true;
+  if (!isOwnerAlive) return false;
+  const claimAgeMs = Date.now() - new Date(task.claimedAt).getTime();
+  const CLAIM_TTL_MS = 15 * 60 * 1000;
+  return !isNaN(claimAgeMs) && claimAgeMs < CLAIM_TTL_MS;
+}
+
+function isClaimDead(task) {
+  if (!task || !task.claimedBy) return false;
+  const pidMatch = String(task.claimedBy).match(/-(\d+)$/);
+  return pidMatch ? !isPidAlive(pidMatch[1]) : false;
+}
+
+function resolveTaskRepoKey(task, projects) {
+  if (!task) return '';
+  if (Array.isArray(projects)) {
+    const proj = projects.find(item => item && (item.id === task.project || item.name === task.project));
+    if (proj && proj.path) {
+      let resolved = proj.path.trim();
+      if (resolved.startsWith('~')) resolved = path.join(USER_HOME, resolved.slice(1));
+      return path.resolve(resolved);
+    }
+  }
+  if (task.projectPath) {
+    let resolved = String(task.projectPath).trim();
+    if (resolved.startsWith('~')) resolved = path.join(USER_HOME, resolved.slice(1));
+    return path.resolve(resolved);
+  }
+  return task.project ? `project:${task.project}` : '';
+}
+
+function hasRepoConflict(task, taskIndex, allTasks, projects, settings) {
+  const repoKey = resolveTaskRepoKey(task, projects);
+  if (!repoKey) return false;
+
+  const isolationMode = String(task.isolation || (settings && settings.cliIsolation) || 'none').trim().toLowerCase();
+  const isIsolated = isolationMode === 'worktree' || task.workspace === 'share' || Boolean(task.worktreePath);
+
+  for (let idx = 0; idx < allTasks.length; idx++) {
+    const other = allTasks[idx];
+    if (!other || other.id === task.id || other.status !== 'in_progress') continue;
+    if (isPendingUserConfirmation(other) || isTaskCircuitBroken(other)) continue;
+
+    const otherRepoKey = resolveTaskRepoKey(other, projects);
+    if (otherRepoKey !== repoKey) continue;
+
+    const otherActivelyClaimed = isClaimAlive(other, null);
+    const otherIsCliRunning = other.assignee === 'CLI';
+    const otherIsAheadUnclaimed = idx < taskIndex && !isClaimDead(other);
+    const isOccupant = otherActivelyClaimed || otherIsCliRunning || Boolean(other.worktreePath) || otherIsAheadUnclaimed;
+    if (!isOccupant) continue;
+
+    if (!isIsolated) {
+      return true;
+    }
+    if (hasAllowedFilesOverlap(task, other)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function findActionableTask() {
   try {
-    if (!fs.existsSync(TASKS_FILE)) return null;
-    const content = fs.readFileSync(TASKS_FILE, 'utf8');
-    const tasks = JSON.parse(content);
-    return tasks.find(t => {
+    const dataDir = getDataDir();
+    const tasksFile = path.join(dataDir, 'tasks.json');
+    if (!fs.existsSync(tasksFile)) return null;
+    const tasks = readJsonSafe(tasksFile, null);
+    if (!Array.isArray(tasks)) return null;
+    const projects = readJsonSafe(path.join(dataDir, 'projects.json'), []);
+    const settings = readJsonSafe(path.join(dataDir, 'settings.json'), {});
+
+    return tasks.find((t, idx) => {
       if (!t) return false;
+      if (!t.requestCommitGen && isTaskCircuitBroken(t)) return false;
+
       const taskTier = determineTaskTier(t);
       // 若哨兵指定了 --agent，檢查任務的 assignee / assignedAgent 與能力角色是否符合
       if (targetAgent) {
@@ -196,20 +315,13 @@ function findActionableTask() {
       if (t.requestCommitGen === true) return true;
       if (t.status === 'in_progress') {
         // Conversation Lock 判定：若已被其他活躍視窗認領（15 分鐘內有效），則跳過避免雙重喚醒搶單
-        if (t.claimedBy && t.claimedBy !== claimerId && t.claimedAt) {
-          const pidMatch = String(t.claimedBy).match(/-(\d+)$/);
-          const isOwnerAlive = pidMatch ? isPidAlive(pidMatch[1]) : true;
-          if (isOwnerAlive) {
-            const claimAgeMs = Date.now() - new Date(t.claimedAt).getTime();
-            const CLAIM_TTL_MS = 15 * 60 * 1000;
-            if (!isNaN(claimAgeMs) && claimAgeMs < CLAIM_TTL_MS) {
-              return false;
-            }
-          }
+        if (isClaimAlive(t, claimerId)) {
+          return false;
         }
         // 若任務勾選需確認後再執行，且已經產出完整執行計劃，則處於「待確認」等待使用者審閱並點擊「確認並執行」，哨兵暫不喚醒開工
-        const isPendingUserConfirmation = t.requiresConfirmation && t.executionPlan && t.executionPlan.trim().length > 0;
-        if (isPendingUserConfirmation) return false;
+        if (isPendingUserConfirmation(t)) return false;
+        // TD-S1: 跨卡同 Repo 互斥與 allowedFiles 交集阻斷
+        if (hasRepoConflict(t, idx, tasks, projects, settings)) return false;
         return true;
       }
       return false;
@@ -285,8 +397,9 @@ const IGNORE_SKILL_IDS = ['retrospective-and-learnings', 'git-commit', 'git-work
 function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
   let projPath = '';
   let p = null;
+  const dataDir = getDataDir();
   try {
-    const projFile = path.join(DATA_DIR, 'projects.json');
+    const projFile = path.join(dataDir, 'projects.json');
     if (fs.existsSync(projFile)) {
       const projs = JSON.parse(fs.readFileSync(projFile, 'utf8'));
       p = projs.find(item => item.id === task.project);
@@ -357,14 +470,22 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
     ? `\n• 【需確認後執行門禁】: 目前待擬定執行計劃！請僅分析需求並呼叫 PUT http://localhost:3030/api/tasks/${task.id} 回寫 executionPlan（維持 status: in_progress，同時寫入 build-plan Handoff Contract），嚴禁直接實作或推進 review。`
     : '';
 
+  const allowedList = Array.isArray(task.scope?.allowedFiles) ? task.scope.allowedFiles.filter(Boolean) : [];
+  const outList = Array.isArray(task.scope?.outOfScope) ? task.scope.outOfScope.filter(Boolean) : [];
+  const scopeParts = [];
+  if (allowedList.length > 0) scopeParts.push(`允許: ${allowedList.join(', ')}`);
+  scopeParts.push(`outOfScope: ${outList.length > 0 ? outList.join(', ') : '未授權跨模組/跨專案檔案'}`);
+  const scopeLine = `• 邊界與 STOP AND ASK: ${scopeParts.join(' | ')}；觸及 outOfScope、規格衝突或連續失敗立即停下詢問人類。`;
+
   const deliveryText = isPendingPlanCreation
     ? `PUT http://localhost:3030/api/tasks/${task.id} 回寫 executionPlan (維持 in_progress 待確認)，勿實作或推進 review。`
-    : `PUT http://localhost:3030/api/tasks/${task.id} 傳入結構化 JSON (objective, rootCause, resolution, keyChanges, testCommand, exitCode, testSummary, executionLog) 推進 review。`;
+    : `PUT http://localhost:3030/api/tasks/${task.id} 傳入結構化 JSON (objective, rootCause, resolution, keyChanges, testCommand, exitCode, testSummary, assumptions, deviations, unverified, executionLog) 推進 review。`;
 
   return `================================================================================\n` +
     `[${triggerType}] 任務開工通知${isPendingPlanCreation ? '（待擬定執行計劃）' : ''}：[${task.id}] ${task.title}\n` +
     `• 專案: ${task.project || '預設'}${projPath ? ` (${projPath})` : ''}\n` +
     `• 需求: ${cleanDesc}${feedbackText}${confirmationText}${prioritySkillText}${implSkillsText}${verifySkillsText}${gitnexusText}\n` +
+    `${scopeLine}\n` +
     `${strategyText}\n` +
     `${ruleText}\n` +
     `• 交付方式: ${deliveryText}\n` +
@@ -373,15 +494,17 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
 
 function claimTaskAndLogEvent(task) {
   try {
-    if (!fs.existsSync(TASKS_FILE)) return;
-    const tasks = JSON.parse(fs.readFileSync(TASKS_FILE, 'utf8'));
+    const dataDir = getDataDir();
+    const tasksFile = path.join(dataDir, 'tasks.json');
+    if (!fs.existsSync(tasksFile)) return;
+    const tasks = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
     const t = tasks.find(item => item && item.id === task.id);
     if (t) {
       t.claimedBy = claimerId;
       t.claimedAt = new Date().toISOString();
-      fs.writeFileSync(TASKS_FILE, JSON.stringify(tasks, null, 2), 'utf8');
+      fs.writeFileSync(tasksFile, JSON.stringify(tasks, null, 2), 'utf8');
 
-      const eventsFile = path.join(DATA_DIR, 'task-events.jsonl');
+      const eventsFile = path.join(dataDir, 'task-events.jsonl');
       const entry = {
         timestamp: new Date().toISOString(),
         taskId: t.id,
@@ -397,7 +520,10 @@ function claimTaskAndLogEvent(task) {
 module.exports = {
   determineTaskTier,
   formatWakeupBrief,
-  findActionableTask
+  findActionableTask,
+  hasAllowedFilesOverlap,
+  hasRepoConflict,
+  isTaskCircuitBroken
 };
 
 if (require.main === module) {

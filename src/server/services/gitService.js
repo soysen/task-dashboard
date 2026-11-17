@@ -1,24 +1,44 @@
 const fs = require('fs');
 const path = require('path');
-const { exec, execSync } = require('child_process');
+const { exec, execSync, execFileSync } = require('child_process');
 
 const GIT_COMMIT_TYPES = ['feat', 'fix', 'refactor', 'perf', 'test', 'chore', 'docs', 'style', 'ci', 'build'];
+const repoMergeQueues = new Map();
 
 /**
  * 收集目標專案工作區的全量 Git Diff (包含追蹤檔案與未追蹤新增檔案)
  * @param {string} projPath
  * @param {Object} customEnv
  * @param {Function} callback (modifiedList, diffResult) => void
+ * @param {Object} [options]
  */
-function collectGitDiff(projPath, customEnv, callback) {
+function collectGitDiff(projPath, customEnv, callback, options = {}) {
   if (!projPath || !fs.existsSync(projPath)) {
     return callback([], '');
   }
 
+  const collectCommittedRangeDiff = () => {
+    const baseRef = options && (options.baseCommit || options.baseBranch);
+    if (!baseRef) return callback([], '');
+    try {
+      const filesRaw = execFileSync('git', ['-C', projPath, 'diff', '--name-only', `${baseRef}..HEAD`], {
+        env: customEnv, encoding: 'utf8', timeout: 10000
+      }).trim();
+      if (!filesRaw) return callback([], '');
+      const files = filesRaw.split('\n').map(s => s.trim()).filter(Boolean);
+      const diffText = execFileSync('git', ['-C', projPath, 'diff', `${baseRef}..HEAD`], {
+        env: customEnv, encoding: 'utf8', timeout: 15000, maxBuffer: 20 * 1024 * 1024
+      });
+      return callback(files, diffText || '');
+    } catch (e) {
+      return callback([], '');
+    }
+  };
+
   const statusCmd = 'git -C "' + projPath + '" status --porcelain -uall';
   exec(statusCmd, { env: customEnv, timeout: 10000, maxBuffer: 20 * 1024 * 1024 }, (statusErr, statusStdout) => {
     if (statusErr || !statusStdout || !statusStdout.trim()) {
-      return callback([], '');
+      return collectCommittedRangeDiff();
     }
 
     const lines = statusStdout.split('\n').filter(l => l.trim().length > 0);
@@ -489,18 +509,65 @@ function parseAgentCommitOutput(rawOutput, fallbackObj) {
 }
 
 /**
- * 為任務建立獨立的 Git Worktree 隔離工作區
+ * 取得指定 Git 目錄當前的分支名稱與 HEAD Commit SHA
+ * @param {string} repoPath
+ * @returns {{ branch: string, commit: string }}
+ */
+function getGitBranchInfo(repoPath) {
+  if (!repoPath || !fs.existsSync(repoPath)) return { branch: '', commit: '' };
+  try {
+    const branch = execFileSync('git', ['-C', repoPath, 'rev-parse', '--abbrev-ref', 'HEAD'], {
+      encoding: 'utf8',
+      timeout: 5000
+    }).trim();
+    const commit = execFileSync('git', ['-C', repoPath, 'rev-parse', '--verify', 'HEAD'], {
+      encoding: 'utf8',
+      timeout: 5000
+    }).trim();
+    return { branch: branch === 'HEAD' ? '' : branch, commit };
+  } catch (e) {
+    return { branch: '', commit: '' };
+  }
+}
+
+/**
+ * 依專案路徑加互斥鎖序列化執行非同步合併操作
+ * @param {string} repoPath
+ * @param {Function} fn
+ * @returns {Promise<*>}
+ */
+function withRepoMergeLock(repoPath, fn) {
+  const key = path.resolve(String(repoPath || ''));
+  const prev = repoMergeQueues.get(key) || Promise.resolve();
+  const next = prev.then(() => fn(), () => fn());
+  repoMergeQueues.set(key, next.catch(() => {}));
+  return next;
+}
+
+/**
+ * 為任務建立獨立的 Git Worktree 隔離工作區並鎖定來源 baseBranch/baseCommit
  * @param {string} repoPath 原始專案目錄
  * @param {string} taskId 任務 ID (例如 TASK-166)
- * @returns {{ worktreePath: string, branchName: string }}
+ * @param {Object} [options]
+ * @returns {{ worktreePath: string, branchName: string, baseBranch: string, baseCommit: string }}
  */
-function createTaskWorktree(repoPath, taskId) {
+function createTaskWorktree(repoPath, taskId, options = {}) {
   if (!repoPath || !fs.existsSync(repoPath) || !fs.existsSync(path.join(repoPath, '.git'))) {
     throw new Error('目標路徑非 Git 儲存庫，無法建立 Worktree: ' + repoPath);
   }
   const cleanRepo = repoPath.replace(/\/+$/, '');
   const worktreePath = `${cleanRepo}.worktrees/${taskId}`;
   const branchName = `td/${taskId}`;
+
+  const headInfo = getGitBranchInfo(cleanRepo);
+  const baseBranch = (options && options.baseBranch) ? String(options.baseBranch).trim() : (headInfo.branch || 'main');
+  let baseCommit = headInfo.commit || '';
+  try {
+    baseCommit = execFileSync('git', ['-C', cleanRepo, 'rev-parse', '--verify', baseBranch], {
+      encoding: 'utf8',
+      timeout: 5000
+    }).trim();
+  } catch (e) {}
 
   // 1. 防禦性清理：prune 與刪除同名殘留分支/目錄
   try { execSync('git -C "' + cleanRepo + '" worktree prune', { encoding: 'utf8', timeout: 5000, stdio: 'ignore' }); } catch (e) {}
@@ -513,32 +580,36 @@ function createTaskWorktree(repoPath, taskId) {
   }
   try { execSync('git -C "' + cleanRepo + '" branch -D "' + branchName + '"', { encoding: 'utf8', timeout: 5000, stdio: 'ignore' }); } catch (e) {}
 
-  // 2. 建立目錄並透過 git worktree add 開新分支
+  // 2. 建立目錄並透過 git worktree add 從鎖定的 baseCommit/baseBranch 開新分支
   const parentDir = path.dirname(worktreePath);
   if (!fs.existsSync(parentDir)) {
     fs.mkdirSync(parentDir, { recursive: true });
   }
 
-  execSync('git -C "' + cleanRepo + '" worktree add -b "' + branchName + '" "' + worktreePath + '"', {
+  const startPoint = baseCommit || baseBranch || 'HEAD';
+  execFileSync('git', ['-C', cleanRepo, 'worktree', 'add', '-b', branchName, worktreePath, startPoint], {
     encoding: 'utf8',
     timeout: 15000,
     stdio: 'ignore'
   });
 
-  return { worktreePath, branchName };
+  return { worktreePath, branchName, baseBranch, baseCommit };
 }
 
 /**
  * 清理並移除任務關聯的 Git Worktree 隔離工作區與分支
  * @param {string} repoPath 原始專案目錄
  * @param {string} taskId 任務 ID
+ * @param {string|Object} [branchOrOptions]
  * @returns {boolean}
  */
-function removeTaskWorktree(repoPath, taskId) {
+function removeTaskWorktree(repoPath, taskId, branchOrOptions = '') {
   if (!repoPath || !fs.existsSync(repoPath)) return false;
   const cleanRepo = repoPath.replace(/\/+$/, '');
-  const worktreePath = `${cleanRepo}.worktrees/${taskId}`;
-  const branchName = `td/${taskId}`;
+  const customBranchName = typeof branchOrOptions === 'string' ? branchOrOptions : (branchOrOptions && branchOrOptions.branchName) || '';
+  const customWorktreePath = (typeof branchOrOptions === 'object' && branchOrOptions && branchOrOptions.worktreePath) || '';
+  const worktreePath = customWorktreePath || `${cleanRepo}.worktrees/${taskId}`;
+  const branchName = customBranchName || `td/${taskId}`;
 
   try {
     execSync('git -C "' + cleanRepo + '" worktree remove --force "' + worktreePath + '"', {
@@ -571,6 +642,307 @@ function removeTaskWorktree(repoPath, taskId) {
   return true;
 }
 
+/**
+ * 序列化安全合併管線：Rebase → 基線變動重驗 → Squash / PR 分流 → 清理
+ * @param {Object} options
+ * @returns {Promise<Object>}
+ */
+async function mergeTaskWorktree(options = {}) {
+  const {
+    repoPath,
+    taskId,
+    task = {},
+    worktreePath: explicitWorktreePath,
+    branchName: explicitBranchName,
+    baseBranch: explicitBaseBranch,
+    baseCommit: explicitBaseCommit,
+    verifyCommand = '',
+    confirmOneWayMerge = false,
+    mode = '',
+    customEnv = process.env
+  } = options;
+
+  if (!repoPath || !fs.existsSync(repoPath) || !fs.existsSync(path.join(repoPath, '.git'))) {
+    return { success: false, merged: false, status: 'not_git_repo', error: '目標專案非 Git 儲存庫' };
+  }
+
+  const cleanRepo = repoPath.replace(/\/+$/, '');
+  const worktreePath = explicitWorktreePath || task.worktreePath || `${cleanRepo}.worktrees/${taskId}`;
+  const branchName = explicitBranchName || task.branchName || `td/${taskId}`;
+
+  return withRepoMergeLock(cleanRepo, async () => {
+    if (!fs.existsSync(worktreePath)) {
+      return {
+        success: false,
+        merged: false,
+        status: 'worktree_missing',
+        error: `找不到任務 ${taskId} 的 Worktree 隔離工作區 (${worktreePath})`
+      };
+    }
+
+    const mainHead = getGitBranchInfo(cleanRepo);
+    const baseBranch = (explicitBaseBranch || task.baseBranch || mainHead.branch || 'main').trim();
+    let currentBaseSha = '';
+    try {
+      currentBaseSha = execFileSync('git', ['-C', cleanRepo, 'rev-parse', '--verify', baseBranch], {
+        encoding: 'utf8',
+        env: customEnv,
+        timeout: 5000
+      }).trim();
+    } catch (e) {
+      return {
+        success: false,
+        merged: false,
+        status: 'base_branch_missing',
+        error: `找不到來源分支 ${baseBranch}`
+      };
+    }
+
+    let baseCommit = (explicitBaseCommit || task.baseCommit || '').trim();
+    if (!baseCommit) {
+      try {
+        baseCommit = execFileSync('git', ['-C', worktreePath, 'merge-base', 'HEAD', baseBranch], {
+          encoding: 'utf8',
+          env: customEnv,
+          timeout: 5000
+        }).trim();
+      } catch (e) {
+        baseCommit = currentBaseSha;
+      }
+    }
+
+    // 1. 檢查主工作區是否有未提交髒狀態；若當前切在 baseBranch 且髒污則立即阻斷
+    const mainStatus = execFileSync('git', ['-C', cleanRepo, 'status', '--porcelain'], {
+      encoding: 'utf8',
+      env: customEnv,
+      timeout: 5000
+    }).trim();
+    const isMainOnBase = mainHead.branch === baseBranch;
+    if (isMainOnBase && mainStatus.length > 0) {
+      return {
+        success: false,
+        merged: false,
+        status: 'dirty_main_workspace',
+        baseBranch,
+        error: `主工作區目前位於 ${baseBranch} 分支且有未提交變更，已阻斷合併以避免覆蓋本地變更。`
+      };
+    }
+
+    // 2. 若 worktree 內有尚未 commit 的變更，先在隔離分支建立 WIP commit 以便 rebase
+    const wtStatus = execFileSync('git', ['-C', worktreePath, 'status', '--porcelain'], {
+      encoding: 'utf8',
+      env: customEnv,
+      timeout: 5000
+    }).trim();
+    const defaultSubject = (task.commitMessage && task.commitMessage.subject)
+      ? task.commitMessage.subject.trim()
+      : `feat(${String(taskId || 'task').toLowerCase()}): ${task.title || 'Update task'}`;
+    const defaultBody = (task.commitMessage && task.commitMessage.body) ? task.commitMessage.body.trim() : '';
+
+    if (wtStatus.length > 0) {
+      try {
+        execFileSync('git', ['-C', worktreePath, 'add', '-A'], { env: customEnv, timeout: 10000, stdio: 'ignore' });
+        const commitArgs = ['-C', worktreePath, 'commit', '-m', defaultSubject];
+        if (defaultBody) commitArgs.push('-m', defaultBody);
+        execFileSync('git', commitArgs, { encoding: 'utf8', env: customEnv, timeout: 30000 });
+      } catch (commitErr) {
+        const errOut = [commitErr.stderr, commitErr.stdout, commitErr.message].filter(Boolean).join('\n');
+        return {
+          success: false,
+          merged: false,
+          status: 'commit_failed',
+          error: `Worktree 暫存變更提交失敗: ${errOut}`
+        };
+      }
+    }
+
+    // 3. 於 worktree 內執行 git rebase <baseBranch>；衝突立即 abort，絕不污染 baseBranch
+    try {
+      execFileSync('git', ['-C', worktreePath, 'rebase', baseBranch], {
+        encoding: 'utf8',
+        env: customEnv,
+        timeout: 30000
+      });
+    } catch (rebaseErr) {
+      try {
+        execFileSync('git', ['-C', worktreePath, 'rebase', '--abort'], {
+          encoding: 'utf8',
+          env: customEnv,
+          timeout: 10000,
+          stdio: 'ignore'
+        });
+      } catch (abortErr) {}
+      return {
+        success: false,
+        merged: false,
+        conflict: true,
+        status: 'conflict',
+        baseBranch,
+        branchName,
+        error: `Rebase 至 ${baseBranch} 發生衝突，已立即執行 git rebase --abort，${baseBranch} 未受任何污染。`
+      };
+    }
+
+    // 4. 若 baseBranch 最新 SHA 不等於 baseCommit，強制於 Rebase 後的 worktree 重跑驗證命令 (0 LLM Token)
+    const baseMoved = Boolean(baseCommit && currentBaseSha && currentBaseSha !== baseCommit);
+    let reVerified = false;
+    if (baseMoved && verifyCommand && String(verifyCommand).trim()) {
+      try {
+        execSync(String(verifyCommand).trim(), {
+          cwd: worktreePath,
+          env: customEnv,
+          encoding: 'utf8',
+          timeout: 120000
+        });
+        reVerified = true;
+      } catch (verifyErr) {
+        const verifyOut = [verifyErr.stdout, verifyErr.stderr, verifyErr.message].filter(Boolean).join('\n');
+        return {
+          success: false,
+          merged: false,
+          status: 'verification_failed',
+          baseMoved: true,
+          baseBranch,
+          baseCommit,
+          currentBaseSha,
+          exitCode: verifyErr.status || 1,
+          output: verifyOut,
+          error: `基線分支 ${baseBranch} 已前進，於 Rebase 後之 worktree 重跑驗證 (${verifyCommand}) 失敗，已阻斷合併。`
+        };
+      }
+    }
+
+    // 5. 依風險門分流合併：one-way 預設 push 分支開 PR 或須顯式確認才本地合併
+    const riskDoor = (task && task.riskDoor) || 'two-way';
+    if (riskDoor === 'one-way' && !confirmOneWayMerge && mode !== 'squash') {
+      let hasOrigin = false;
+      try {
+        const remotes = execFileSync('git', ['-C', worktreePath, 'remote'], { encoding: 'utf8', env: customEnv, timeout: 5000 });
+        hasOrigin = remotes.split('\n').map(r => r.trim()).includes('origin');
+      } catch (e) {}
+
+      if (hasOrigin && mode !== 'local-confirm') {
+        try {
+          execFileSync('git', ['-C', worktreePath, 'push', '-u', 'origin', branchName], {
+            encoding: 'utf8',
+            env: customEnv,
+            timeout: 30000
+          });
+          let prUrl = '';
+          try {
+            prUrl = execFileSync('gh', ['pr', 'create', '--base', baseBranch, '--head', branchName, '--title', defaultSubject, '--body', defaultBody || `Task ${taskId}`], {
+              cwd: worktreePath,
+              encoding: 'utf8',
+              env: customEnv,
+              timeout: 20000
+            }).trim();
+          } catch (ghErr) {}
+          return {
+            success: true,
+            merged: false,
+            action: 'pr_pushed',
+            status: 'pr_ready',
+            branchName,
+            baseBranch,
+            prUrl,
+            baseMoved,
+            reVerified
+          };
+        } catch (pushErr) {}
+      }
+
+      return {
+        success: false,
+        merged: false,
+        requiresConfirmation: true,
+        status: 'one_way_requires_confirmation',
+        branchName,
+        baseBranch,
+        baseMoved,
+        reVerified,
+        error: `One-Way 高風險任務預設採推分支開 PR；若確定要本地 Squash 合併至 ${baseBranch}，請傳入 confirmOneWayMerge: true。`
+      };
+    }
+
+    // 6. Squash Merge：於 worktree 壓縮為單一原子 Commit
+    const rebasedHead = execFileSync('git', ['-C', worktreePath, 'rev-parse', '--verify', 'HEAD'], {
+      encoding: 'utf8',
+      env: customEnv,
+      timeout: 5000
+    }).trim();
+
+    if (rebasedHead === currentBaseSha) {
+      removeTaskWorktree(cleanRepo, taskId, { branchName, worktreePath });
+      return {
+        success: true,
+        merged: true,
+        alreadyUpToDate: true,
+        status: 'merged',
+        strategy: 'squash',
+        baseBranch,
+        baseCommit,
+        mergeCommit: currentBaseSha,
+        baseMoved,
+        reVerified
+      };
+    }
+
+    execFileSync('git', ['-C', worktreePath, 'reset', '--soft', currentBaseSha], {
+      encoding: 'utf8',
+      env: customEnv,
+      timeout: 10000
+    });
+
+    const stagedChanges = execFileSync('git', ['-C', worktreePath, 'diff', '--cached', '--name-only'], {
+      encoding: 'utf8',
+      env: customEnv,
+      timeout: 5000
+    }).trim();
+
+    let squashedSha = currentBaseSha;
+    if (stagedChanges.length > 0) {
+      const squashArgs = ['-C', worktreePath, 'commit', '-m', defaultSubject];
+      if (defaultBody) squashArgs.push('-m', defaultBody);
+      execFileSync('git', squashArgs, { encoding: 'utf8', env: customEnv, timeout: 30000 });
+      squashedSha = execFileSync('git', ['-C', worktreePath, 'rev-parse', '--verify', 'HEAD'], {
+        encoding: 'utf8',
+        env: customEnv,
+        timeout: 5000
+      }).trim();
+
+      // 7. 推進本地 baseBranch：主工作區在同一分支且乾淨時 ff-only；在別的分支或有未提交變更時用 git fetch . HEAD:<baseBranch>
+      if (isMainOnBase) {
+        execFileSync('git', ['-C', cleanRepo, 'merge', '--ff-only', squashedSha], {
+          encoding: 'utf8',
+          env: customEnv,
+          timeout: 15000
+        });
+      } else {
+        execFileSync('git', ['-C', worktreePath, 'fetch', '.', `HEAD:refs/heads/${baseBranch}`], {
+          encoding: 'utf8',
+          env: customEnv,
+          timeout: 15000
+        });
+      }
+    }
+
+    // 8. 清理 worktree 與暫存分支
+    removeTaskWorktree(cleanRepo, taskId, { branchName, worktreePath });
+
+    return {
+      success: true,
+      merged: true,
+      status: 'merged',
+      strategy: 'squash',
+      baseBranch,
+      baseCommit,
+      mergeCommit: squashedSha,
+      baseMoved,
+      reVerified
+    };
+  });
+}
+
 module.exports = {
   collectGitDiff,
   discardGitChanges,
@@ -579,6 +951,9 @@ module.exports = {
   formatCommitMessage,
   buildCommitAgentPrompt,
   parseAgentCommitOutput,
+  getGitBranchInfo,
+  withRepoMergeLock,
   createTaskWorktree,
-  removeTaskWorktree
+  removeTaskWorktree,
+  mergeTaskWorktree
 };

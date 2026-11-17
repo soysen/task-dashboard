@@ -315,6 +315,14 @@ function formatStructuredExecutionLog(rawLog = '', options = {}) {
 - 驗證說明: ${p3}${rawTail ? `\n\n--- 執行詳細記錄 / 原生驗證輸出 ---\n${rawTail}` : ''}`;
 }
 
+function normalizeDisclosureList(val) {
+  if (!val) return [];
+  const rawArr = Array.isArray(val) ? val : (typeof val === 'string' ? val.split('\n') : [val]);
+  return rawArr
+    .map(item => (typeof item === 'string' ? item : normalizeLogText(item)).trim())
+    .filter(Boolean);
+}
+
 /**
  * 建立標準結構之任務執行報告 (Task Execution Report)
  * @param {Object} reportInfo
@@ -327,6 +335,9 @@ function buildTaskExecutionReport(reportInfo = {}) {
     resolution = '',
     keyChanges = [],
     feedbackAddressed = '',
+    assumptions = [],
+    deviations = [],
+    unverified = [],
     verification = {},
     rawLog = ''
   } = reportInfo;
@@ -356,6 +367,26 @@ function buildTaskExecutionReport(reportInfo = {}) {
   if (normalizedFeedbackAddressed.trim().length > 0) {
     lines.push('## 3. 歷次審查因應 (Feedback Addressed)');
     lines.push(`- ${normalizedFeedbackAddressed.trim()}`);
+    lines.push('');
+  }
+
+  const normAssumptions = normalizeDisclosureList(assumptions);
+  const normDeviations = normalizeDisclosureList(deviations);
+  const normUnverified = normalizeDisclosureList(unverified);
+  if (normAssumptions.length > 0 || normDeviations.length > 0 || normUnverified.length > 0) {
+    lines.push('## Handoff 隱含決策與邊界揭露 (Handoff Disclosures)');
+    if (normAssumptions.length > 0) {
+      lines.push('- **假設 (Assumptions)**：');
+      normAssumptions.forEach(item => lines.push(`  - ${item}`));
+    }
+    if (normDeviations.length > 0) {
+      lines.push('- **偏離簡報處 (Deviations)**：');
+      normDeviations.forEach(item => lines.push(`  - ${item}`));
+    }
+    if (normUnverified.length > 0) {
+      lines.push('- **無法驗證項 (Unverified)**：');
+      normUnverified.forEach(item => lines.push(`  - ${item}`));
+    }
     lines.push('');
   }
 
@@ -598,12 +629,19 @@ function autoAssembleExecutionReport(task = {}, payload = {}, options = {}) {
     }
   }
 
+  const assumptions = normalizeDisclosureList(payload.assumptions !== undefined ? payload.assumptions : task.assumptions);
+  const deviations = normalizeDisclosureList(payload.deviations !== undefined ? payload.deviations : task.deviations);
+  const unverified = normalizeDisclosureList(payload.unverified !== undefined ? payload.unverified : task.unverified);
+
   return buildTaskExecutionReport({
     objective,
     rootCause,
     resolution,
     keyChanges,
     feedbackAddressed,
+    assumptions,
+    deviations,
+    unverified,
     verification,
     rawLog
   });
@@ -670,5 +708,6 @@ module.exports = {
   validateExecutionLog,
   calculateRiskDoor,
   autoAssembleExecutionReport,
-  determineTaskTier
+  determineTaskTier,
+  normalizeDisclosureList
 };

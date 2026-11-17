@@ -480,6 +480,20 @@ function writeTasks(tasks) {
   }
 }
 
+function normalizeTaskScope(rawScope) {
+  if (!rawScope || typeof rawScope !== 'object') {
+    return { allowedFiles: [], outOfScope: [] };
+  }
+  const normalizeList = (val) => {
+    const arr = Array.isArray(val) ? val : (typeof val === 'string' ? val.split(/[\n,]/) : []);
+    return Array.from(new Set(arr.map(item => String(item || '').trim()).filter(Boolean)));
+  };
+  return {
+    allowedFiles: normalizeList(rawScope.allowedFiles),
+    outOfScope: normalizeList(rawScope.outOfScope)
+  };
+}
+
 function getNextTaskId(tasks) {
   let maxId = 0;
   const inspectList = (list) => {
@@ -520,5 +534,6 @@ module.exports = {
   readTasks,
   writeTasks,
   syncToMarkdown,
+  normalizeTaskScope,
   getNextTaskId
 };

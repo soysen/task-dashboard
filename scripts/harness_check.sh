@@ -12,6 +12,7 @@ FILES=(
   "AGENTS.md"
   "HARNESS.md"
   "README.md"
+  "docs/LESSONS.md"
   "src/native/main.m"
   "src/server/server.js"
   "src/public/index.html"
@@ -140,5 +141,14 @@ if grep -rnE "再以 pro 審核把關|再用 pro 審核把關|回寫 tasks\.json
   exit 1
 fi
 echo "    ✅ Skill Router 提示與 Context Engineering 規範無舊版雙階殘留"
+
+# 9. 檢驗高頻教訓熱區 docs/LESSONS.md 行數上限 (<= 30 行)
+echo "  [9/9] 檢驗 docs/LESSONS.md 熱區行數守門 (<= 30 行)..."
+LESSONS_LINES=$(wc -l < "$PROJECT_DIR/docs/LESSONS.md" | tr -d ' ')
+if [ "$LESSONS_LINES" -gt 30 ]; then
+  echo "❌ docs/LESSONS.md 行數達 $LESSONS_LINES 行 (硬上限 30 行)！請將重複 >= 2 次之教訓升格至 harness_check.sh 或 AGENTS.md 並移除該行。"
+  exit 1
+fi
+echo "    ✅ docs/LESSONS.md ($LESSONS_LINES 行) 符合 <= 30 行熱區上限"
 
 echo "🎉 Harness Check 通過！專案處於健康且合規狀態。"

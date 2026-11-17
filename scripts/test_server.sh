@@ -697,6 +697,167 @@ try {
 })();
 '
 
+echo "  [8.6/9] 測試 TD-S2 baseBranch 鎖定、Rebase 衝突中止、基線變動重驗與序列化 Squash 合併..."
+TEST_PORT=$TEST_PORT node -e '
+(async () => {
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const os = require("os");
+const { execSync } = require("child_process");
+const { createTaskWorktree, mergeTaskWorktree } = require("./src/server/services/gitService");
+const base = `http://localhost:${process.env.TEST_PORT || "3031"}`;
+
+const tempRepo = fs.mkdtempSync(path.join(os.tmpdir(), "td-s2-merge-test-"));
+try {
+  execSync("git init -q -b main", { cwd: tempRepo });
+  execSync("git config user.name \"Test\"", { cwd: tempRepo });
+  execSync("git config user.email \"test@example.com\"", { cwd: tempRepo });
+  fs.writeFileSync(path.join(tempRepo, "app.txt"), "line1\nline2\n");
+  fs.writeFileSync(path.join(tempRepo, "other.txt"), "base\n");
+  execSync("git add -A && git commit -q -m \"init\"", { cwd: tempRepo });
+  const initSha = execSync("git rev-parse HEAD", { cwd: tempRepo, encoding: "utf8" }).trim();
+
+  // Case 1: 衝突安全中止 (不污染 main)
+  const wt1 = createTaskWorktree(tempRepo, "TASK-S2-CONFLICT");
+  assert.equal(wt1.baseBranch, "main");
+  assert.equal(wt1.baseCommit, initSha);
+  fs.writeFileSync(path.join(wt1.worktreePath, "app.txt"), "worktree-edit\nline2\n");
+  execSync("git add -A && git commit -q -m \"wt conflict edit\"", { cwd: wt1.worktreePath });
+
+  // main 分支推進並修改同一行製造衝突
+  fs.writeFileSync(path.join(tempRepo, "app.txt"), "main-edit\nline2\n");
+  execSync("git add -A && git commit -q -m \"main conflict edit\"", { cwd: tempRepo });
+  const mainBeforeConflict = execSync("git rev-parse HEAD", { cwd: tempRepo, encoding: "utf8" }).trim();
+
+  const conflictRes = await mergeTaskWorktree({
+    repoPath: tempRepo,
+    taskId: "TASK-S2-CONFLICT",
+    task: { id: "TASK-S2-CONFLICT", title: "Conflict test", baseBranch: wt1.baseBranch, baseCommit: wt1.baseCommit },
+    worktreePath: wt1.worktreePath,
+    branchName: wt1.branchName
+  });
+  assert.equal(conflictRes.conflict, true, "衝突必須回報 conflict: true");
+  assert.equal(conflictRes.status, "conflict");
+  assert.equal(execSync("git rev-parse HEAD", { cwd: tempRepo, encoding: "utf8" }).trim(), mainBeforeConflict, "衝突後 main 分支絕不可被污染");
+  assert.equal(fs.existsSync(path.join(wt1.worktreePath, ".git")) || fs.existsSync(wt1.worktreePath), true);
+  assert(!fs.existsSync(path.join(tempRepo, ".git/worktrees/TASK-S2-CONFLICT/rebase-merge")), "rebase --abort 必須清除 rebase 狀態");
+
+  // Case 2: 基線前進觸發重驗 -> 失敗阻斷 -> 通過後於主工作區切換至其他分支情況下以 git fetch . HEAD:main 無感 Squash 合併
+  const wt2 = createTaskWorktree(tempRepo, "TASK-S2-REVERIFY");
+  fs.writeFileSync(path.join(wt2.worktreePath, "feature.txt"), "ok\n");
+  execSync("git add -A && git commit -q -m \"wt feature\"", { cwd: wt2.worktreePath });
+
+  // main 前進不同檔案 (other.txt) -> baseMoved = true
+  fs.writeFileSync(path.join(tempRepo, "other.txt"), "advanced\n");
+  execSync("git add -A && git commit -q -m \"main advance\"", { cwd: tempRepo });
+  const movedMainSha = execSync("git rev-parse HEAD", { cwd: tempRepo, encoding: "utf8" }).trim();
+
+  // 主工作區切到別的分支且留有未提交變更，驗證 git fetch . HEAD:main 無感推進
+  execSync("git checkout -q -b other-branch", { cwd: tempRepo });
+  fs.writeFileSync(path.join(tempRepo, "uncommitted.txt"), "keep me dirty\n");
+
+  const failVerifyRes = await mergeTaskWorktree({
+    repoPath: tempRepo,
+    taskId: "TASK-S2-REVERIFY",
+    task: { id: "TASK-S2-REVERIFY", title: "Reverify test", baseBranch: wt2.baseBranch, baseCommit: wt2.baseCommit },
+    worktreePath: wt2.worktreePath,
+    branchName: wt2.branchName,
+    verifyCommand: "node -e \"process.exit(1)\""
+  });
+  assert.equal(failVerifyRes.status, "verification_failed", "基線變動後重驗失敗必須阻斷合併");
+  assert.equal(failVerifyRes.baseMoved, true);
+  assert.equal(execSync("git rev-parse main", { cwd: tempRepo, encoding: "utf8" }).trim(), movedMainSha, "重驗失敗時 main ref 不得推進");
+
+  // 透過 API 建立隔離任務並驗證 POST /api/tasks/:id/merge 通過重驗 + Squash 合併 + 清理
+  await fetch(`${base}/api/projects`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: "td-s2-proj", name: "td-s2-proj", path: tempRepo })
+  });
+  const createdS2 = await (await fetch(`${base}/api/tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: "API Merge 管線測試",
+      project: "td-s2-proj",
+      status: "done",
+      riskDoor: "two-way"
+    })
+  })).json();
+  await fetch(`${base}/api/tasks/${createdS2.id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      worktreePath: wt2.worktreePath,
+      branchName: wt2.branchName,
+      baseBranch: wt2.baseBranch,
+      baseCommit: wt2.baseCommit
+    })
+  });
+  const mergeApiRes = await fetch(`${base}/api/tasks/${createdS2.id}/merge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ verifyCommand: "node -e \"process.exit(0)\"" })
+  });
+  assert.equal(mergeApiRes.status, 200, "POST /api/tasks/:id/merge 重驗通過應回傳 200");
+  const mergeJson = await mergeApiRes.json();
+  assert.equal(mergeJson.merged, true);
+  assert.equal(mergeJson.reVerified, true);
+  assert.equal(mergeJson.archived, true);
+  assert.notEqual(execSync("git rev-parse main", { cwd: tempRepo, encoding: "utf8" }).trim(), movedMainSha, "main ref 必須成功推進");
+  assert.equal(execSync("git rev-parse --abbrev-ref HEAD", { cwd: tempRepo, encoding: "utf8" }).trim(), "other-branch", "主工作區所在分支不可被切換");
+  assert(fs.existsSync(path.join(tempRepo, "uncommitted.txt")), "主工作區未提交變更必須完整保留");
+  assert(!fs.existsSync(wt2.worktreePath), "合併完成後 worktree 目錄必須已清理");
+
+  // Case 3: one-way 風險門未指定遠端 origin 時須顯式確認才本地合併
+  const wt3 = createTaskWorktree(tempRepo, "TASK-S2-ONEWAY", { baseBranch: "main" });
+  fs.writeFileSync(path.join(wt3.worktreePath, "oneway.txt"), "risky\n");
+  execSync("git add -A && git commit -q -m \"wt oneway\"", { cwd: wt3.worktreePath });
+  const oneWayTask = await (await fetch(`${base}/api/tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: "One-way 合併門禁測試",
+      project: "td-s2-proj",
+      status: "done",
+      riskDoor: "one-way"
+    })
+  })).json();
+  await fetch(`${base}/api/tasks/${oneWayTask.id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      worktreePath: wt3.worktreePath,
+      branchName: wt3.branchName,
+      baseBranch: wt3.baseBranch,
+      baseCommit: wt3.baseCommit
+    })
+  });
+  const owBlocked = await fetch(`${base}/api/tasks/${oneWayTask.id}/merge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({})
+  });
+  assert.equal(owBlocked.status, 409, "one-way 無遠端開 PR 且未顯式確認時必須回傳 409");
+  const owBlockedJson = await owBlocked.json();
+  assert.equal(owBlockedJson.requiresConfirmation, true);
+
+  const owConfirmed = await fetch(`${base}/api/tasks/${oneWayTask.id}/merge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirmOneWayMerge: true })
+  });
+  assert.equal(owConfirmed.status, 200, "one-way 顯式 confirmOneWayMerge: true 後必須成功 Squash 合併");
+
+  console.log("    ✅ TD-S2 baseBranch 鎖定、衝突安全中止、基線變動重驗與無感 Squash 合併驗證通過");
+} finally {
+  fs.rmSync(tempRepo, { recursive: true, force: true });
+  fs.rmSync(`${tempRepo}.worktrees`, { recursive: true, force: true });
+}
+})();
+'
+
 echo "  [8.7/9] 測試 TASK-179: Confirmation Gate, Harness Log 保留與關聯任務摘要 API ..."
 TEST_PORT=$TEST_PORT node -e '
 (async () => {
@@ -848,6 +1009,7 @@ node "$PROJECT_DIR/scripts/test_plan_html_ux.js"
 node "$PROJECT_DIR/scripts/test_agent_provider_adapter.js"
 node "$PROJECT_DIR/scripts/test_commit_generator.js"
 node "$PROJECT_DIR/scripts/test_execution_logs.js"
+node "$PROJECT_DIR/scripts/test_confirm_and_wakeup_flow.js"
 
 echo "🎉 所有後端 API 整合測試與前端核心狀態防線測試順利通過！"
 
