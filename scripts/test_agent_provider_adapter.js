@@ -1,15 +1,29 @@
 const assert = require('assert');
 const {
+  MODEL_CAPABILITY_ROLES,
   PROVIDER_MATRIX,
   resolveProvider,
+  selectModelFromCatalog,
   formatTierStrategy
 } = require('../src/server/agentProviderAdapter');
 
 function testAgentProviderAdapter() {
   console.log('🧪 執行 Agent Provider Adapter (跨平台通用調度適配層) 單元測試...');
 
-  // 1. 驗證四大平台與通用矩陣存在性（含三態自適應能力欄位）
+  // 1. 驗證四大平台與通用矩陣存在性、能力角色常數及版本無關性（移除寫死版本號）
   const requiredProviders = ['antigravity', 'claude', 'codex', 'copilot', 'generic'];
+  const hardcodedVersionedModels = [
+    'claude-3-5',
+    'claude-3-opus',
+    'gpt-4o',
+    'o3-mini',
+    'gemini-4-hydrogen',
+    'gemini-3.8-flash',
+    'claude-opus-5-5',
+    'gemini-4-argon'
+  ];
+
+  assert(MODEL_CAPABILITY_ROLES && MODEL_CAPABILITY_ROLES.fastExecutor && MODEL_CAPABILITY_ROLES.reasoningVerifier, 'MODEL_CAPABILITY_ROLES 必須定義核心能力角色');
   requiredProviders.forEach(p => {
     assert(PROVIDER_MATRIX[p], `PROVIDER_MATRIX 必須包含 ${p}`);
     assert(PROVIDER_MATRIX[p].fastExecutor, `${p} 必須具備 fastExecutor`);
@@ -17,34 +31,59 @@ function testAgentProviderAdapter() {
     assert(PROVIDER_MATRIX[p].reasoningVerifier, `${p} 必須具備 reasoningVerifier`);
     assert(PROVIDER_MATRIX[p].nativeOrchestrator, `${p} 必須具備 nativeOrchestrator`);
     assert(PROVIDER_MATRIX[p].directExecutor, `${p} 必須具備 directExecutor`);
-  });
-  console.log('  ✅ PROVIDER_MATRIX 四大平台與通用矩陣結構驗證通過');
 
-  // 2. 驗證 resolveProvider 優先序 (task 顯式 > assignedAgent/assignee > env > 預設)
+    const serialized = JSON.stringify(PROVIDER_MATRIX[p]);
+    hardcodedVersionedModels.forEach(legacy => {
+      assert(!serialized.includes(legacy), `PROVIDER_MATRIX.${p} 不得硬編碼特定版本模型 ${legacy}`);
+    });
+  });
+
+  assert(PROVIDER_MATRIX.antigravity.swarmPolicy, 'antigravity 必須具備 swarmPolicy');
+  assert.equal(PROVIDER_MATRIX.antigravity.swarmPolicy.discoveryCommand, 'swarm({action:"models",all:true})');
+  assert(PROVIDER_MATRIX.antigravity.swarmPolicy.executorProfile, 'swarmPolicy 必須具備 executorProfile');
+  assert(PROVIDER_MATRIX.antigravity.swarmPolicy.reviewerProfile, 'swarmPolicy 必須具備 reviewerProfile');
+  assert.equal(PROVIDER_MATRIX.antigravity.swarmPolicy.workspaceMode, 'share');
+  console.log('  ✅ PROVIDER_MATRIX 四大平台、通用矩陣結構與版本無關性驗證通過');
+
+  // 2. 驗證 resolveProvider 優先序與通用模型/家族別名解析
   assert.equal(resolveProvider({ agentProvider: 'copilot' }).name, 'copilot', 'task.agentProvider 優先解析');
   assert.equal(resolveProvider({ provider: 'claude' }).name, 'claude', 'task.provider 別名解析相容');
   assert.equal(resolveProvider({ assignedAgent: 'Claude' }).name, 'claude', 'task.assignedAgent 應正確映射至 claude');
   assert.equal(resolveProvider({ assignee: 'Codex' }).name, 'codex', 'task.assignee 應正確映射至 codex');
   assert.equal(resolveProvider({ assignee: 'All' }).name, 'generic', 'task.assignee=All 應映射至 generic');
   assert.equal(resolveProvider({ assignedAgent: 'Universal' }).name, 'generic', 'task.assignedAgent=Universal 應映射至 generic');
+  assert.equal(resolveProvider({ assignedAgent: 'Generic' }).name, 'generic', 'task.assignedAgent=Generic 應映射至 generic');
+  assert.equal(resolveProvider({ assignee: 'Auto' }).name, 'generic', 'task.assignee=Auto 應映射至 generic');
   assert.equal(resolveProvider({ assignedAgent: 'Orchestrator' }).name, 'antigravity', '無 env 時 Orchestrator 預設映射至 antigravity');
   assert.equal(resolveProvider({ assignee: 'Hydrogen' }).name, 'antigravity', '無 env 時 Hydrogen 預設映射至 antigravity');
+  assert.equal(resolveProvider({ assignee: 'Fast' }).name, 'antigravity', '無 env 時 Fast 預設映射至 antigravity');
+  assert.equal(resolveProvider({ assignee: 'Direct' }).name, 'antigravity', '無 env 時 Direct 預設映射至 antigravity');
+
+  assert.equal(resolveProvider({ assignedAgent: 'Orchestrator (Neon)' }).name, 'antigravity', 'Orchestrator (Neon) 應映射至 antigravity');
+  assert.equal(resolveProvider({ assignedAgent: 'Orchestrator (Argon)' }).name, 'antigravity', 'Orchestrator (Argon) 應映射至 antigravity');
+  assert.equal(resolveProvider({ assignee: 'Neon' }).name, 'antigravity', 'Neon 應映射至 antigravity');
+  assert.equal(resolveProvider({ assignee: 'Argon' }).name, 'antigravity', 'Argon 應映射至 antigravity');
+  assert.equal(resolveProvider({ assignee: 'Gemini' }).name, 'antigravity', 'Gemini 應映射至 antigravity');
+  assert.equal(resolveProvider({ assignee: 'Sonnet' }).name, 'claude', 'Sonnet 應映射至 claude');
+  assert.equal(resolveProvider({ assignee: 'Opus' }).name, 'claude', 'Opus 應映射至 claude');
+  assert.equal(resolveProvider({ assignee: 'GPT-5' }).name, 'codex', 'GPT-5 應映射至 codex');
 
   const oldEnv = process.env.AGENT_PROVIDER;
   try {
     process.env.AGENT_PROVIDER = 'codex';
     assert.equal(resolveProvider({}).name, 'codex', '環境變數 AGENT_PROVIDER 解析成功');
     assert.equal(resolveProvider({ assignedAgent: 'Orchestrator' }).name, 'codex', '環境變數指定平台時應優先尊重平台');
+    assert.equal(resolveProvider({ assignee: 'Direct' }).name, 'codex', '環境變數指定平台時中性別名 Direct 應尊重平台');
     delete process.env.AGENT_PROVIDER;
     assert.equal(resolveProvider({}).name, 'antigravity', '無配置時預設回退至 antigravity 以保向下相容');
   } finally {
     if (oldEnv !== undefined) process.env.AGENT_PROVIDER = oldEnv;
     else delete process.env.AGENT_PROVIDER;
   }
-  console.log('  ✅ resolveProvider 優先序、assignedAgent/assignee 串接與預設相容性驗證通過');
+  console.log('  ✅ resolveProvider 優先序、通用別名解析與預設相容性驗證通過');
 
-  // 3. 驗證 formatTierStrategy 針對各平台正確生成「0 讀碼秒交棒 + 內建執行階段實作」策略且嚴守單行
-  // Copilot (Agent Mode / Subagents)
+  // 3. 驗證 formatTierStrategy 針對各平台生成能力分層策略、單行限制與動態覆寫
+  // Copilot
   const copilotStandard = formatTierStrategy('standard', 'copilot');
   assert(copilotStandard.includes('Copilot Subagent'), 'Copilot standard 應包含傳統單階段降級備援 Copilot Subagent');
   assert(copilotStandard.includes('Tier: standard Planner→Executor'), '標準策略語義應完整');
@@ -52,7 +91,7 @@ function testAgentProviderAdapter() {
   assert(copilotStandard.includes('Copilot Fast 單線程直行'), 'Copilot standard 應包含內建執行階段直行描述');
 
   const copilotHeavy = formatTierStrategy('heavy', 'copilot');
-  assert(copilotHeavy.includes('Copilot Verifier (OpenAI o1 Reasoning Mode)'), 'Copilot heavy 應包含 o1 獨立 Verifier');
+  assert(copilotHeavy.includes('Copilot Verifier (Reasoning / 深度推理模式)'), 'Copilot heavy 應包含通用 Reasoning Verifier');
   assert(copilotHeavy.includes('Model: "inherit"'), 'Copilot heavy 應包含 Model: "inherit" 選項');
 
   // Claude Code
@@ -61,44 +100,85 @@ function testAgentProviderAdapter() {
   assert(claudeStandard.includes('Claude Plan Mode (Plan→Act)'), 'Claude standard 應包含 Plan Mode 0 讀碼交棒指示');
   assert(claudeStandard.includes('Haiku / Sonnet 單線程直行'), 'Claude standard 應帶出內建執行階段直行描述');
   const claudeHeavy = formatTierStrategy('heavy', 'claude');
-  assert(claudeHeavy.includes('Opus / Thinking Verifier'), 'Claude heavy 應提示 Opus Verifier');
+  assert(claudeHeavy.includes('Opus / Thinking Verifier'), 'Claude heavy 應提示 Opus / Thinking Verifier');
 
   // OpenAI Codex
   const codexStandard = formatTierStrategy('standard', 'codex');
-  assert(codexStandard.includes('Worker Subagent (gpt-4o-mini)'), 'Codex standard 應提示 Mini Worker');
+  assert(codexStandard.includes('Worker Subagent (Fast / Mini 輕量檔位)'), 'Codex standard 應提示 Fast / Mini 輕量檔位');
   const codexHeavy = formatTierStrategy('heavy', 'codex');
-  assert(codexHeavy.includes('Reasoner Verifier (o1 / o3-mini)'), 'Codex heavy 應提示 o1/o3 Reasoner');
+  assert(codexHeavy.includes('Reasoner Verifier (Reasoning / 深度推理檔位)'), 'Codex heavy 應提示 Reasoning 深度推理檔位');
 
-  // Antigravity (向下相容 + Orchestrator 0 讀碼第 1 步交棒給內建 Hydrogen 執行階段)
+  // Antigravity (保留向下相容契約 + 通用能力分層 Swarm 選模策略)
   const agyMicro = formatTierStrategy('micro', 'antigravity');
   assert(!agyMicro.includes('swarm'), 'antigravity micro 不得包含 swarm');
   const agyStandard = formatTierStrategy('standard', 'antigravity');
   assert(!agyStandard.includes('swarm'), 'antigravity standard 不得包含 swarm');
   assert(agyStandard.includes('flash Subagent (Workspace: "inherit")'), 'Antigravity standard 必須保留 flash Subagent 相容鍵字');
   assert(agyStandard.includes('Orchestrator (Plan→Execute 原生雙階段)'), 'Antigravity standard 應包含 Orchestrator 原生雙階段說明');
-  assert(agyStandard.includes('0 讀碼第 1 步直接交棒內建執行階段 (Hydrogen / Fast 直行模式)'), 'Antigravity standard 應要求 0 讀碼第 1 步交棒內建 Hydrogen');
+  assert(agyStandard.includes('0 讀碼第 1 步直接交棒內建執行階段 (Fast / Direct 高速直行模式 (平台內建執行模型))'), 'Antigravity standard 應要求 0 讀碼第 1 步交棒內建執行階段');
+
   const agyHeavy = formatTierStrategy('heavy', 'antigravity');
   assert(agyHeavy.includes('pro Verifier (Model: "pro", Workspace: "inherit")'), 'Antigravity heavy 必須保持 pro Verifier');
-  assert(agyHeavy.includes('0 讀碼第 1 步立即交棒內建執行階段 (Hydrogen / Fast 直行模式)'), 'Antigravity heavy 應要求 0 讀碼第 1 步交棒內建 Hydrogen');
+  assert(agyHeavy.includes('0 讀碼第 1 步立即交棒內建執行階段 (Fast / Direct 高速直行模式 (平台內建執行模型))'), 'Antigravity heavy 應要求 0 讀碼第 1 步交棒內建執行階段');
   assert(agyHeavy.includes('Model: "inherit"'), 'Antigravity heavy 分擔切片應支援 Model: "inherit"');
   assert(agyHeavy.includes('cross-model-review'), 'Antigravity heavy 應支援 cross-model-review 觸發 Verifier');
   assert(agyHeavy.includes('swarm'), 'antigravity heavy 必須包含 swarm');
   assert(agyHeavy.includes('Coordinator 不寫碼'), 'antigravity heavy 必須包含 Coordinator 不寫碼');
-  assert(agyHeavy.includes('gemini-4-hydrogen-medium/low'), 'antigravity heavy 必須包含 gemini-4-hydrogen-medium/low');
-  assert(agyHeavy.includes('gemini-3.8-flash-medium'), 'antigravity heavy 必須包含 gemini-3.8-flash-medium');
+  assert(agyHeavy.includes('swarm({action:"models",all:true})'), 'antigravity heavy 必須包含 swarm({action:"models",all:true})');
+  assert(agyHeavy.includes('依剩餘額度與重置週期選模'), 'antigravity heavy 必須包含依剩餘額度與重置週期選模原則');
   assert(agyHeavy.includes('workspace:"share"'), 'antigravity heavy 必須包含 workspace:"share"');
   assert(agyHeavy.includes('審查禁 inherit'), 'antigravity heavy 必須包含 審查禁 inherit');
-  assert(agyHeavy.includes('swarm({action:"models",all:true})'), 'antigravity heavy 必須包含 swarm({action:"models",all:true})');
-  assert(agyHeavy.includes('claude-opus-5-5-high'), 'antigravity heavy 必須包含 claude-opus-5-5-high');
-  assert(agyHeavy.includes('gemini-4-argon-high'), 'antigravity heavy 必須包含 gemini-4-argon-high');
+  assert(agyHeavy.includes('assumptions/deviations/unverified'), 'antigravity heavy 必須包含 assumptions/deviations/unverified');
   assert(!agyHeavy.includes('\n'), 'antigravity heavy 必須無換行');
 
-  // 跨平台隔離：claude / codex / copilot / generic 的 heavy 策略不得包含 gemini-4-hydrogen 或 swarm({action:"models"
+  // 預設策略不得硬編碼特定版本號模型
+  requiredProviders.forEach(p => {
+    ['micro', 'standard', 'heavy'].forEach(tier => {
+      const strategy = formatTierStrategy(tier, p);
+      hardcodedVersionedModels.forEach(legacy => {
+        assert(!strategy.includes(legacy), `預設 ${p} ${tier} 策略不得硬編碼特定版本模型 ${legacy}`);
+      });
+    });
+  });
+
+  // 跨平台隔離：claude / codex / copilot / generic 的 heavy 策略不得包含 swarm({action:"models"
   ['claude', 'codex', 'copilot', 'generic'].forEach(p => {
     const heavy = formatTierStrategy('heavy', p);
-    assert(!heavy.includes('gemini-4-hydrogen'), `${p} heavy 策略不得包含 gemini-4-hydrogen`);
     assert(!heavy.includes('swarm({action:"models"'), `${p} heavy 策略不得包含 swarm({action:"models"`);
   });
+
+  // 驗證 options.swarmModels 與環境變數動態覆寫
+  const optOverrideHeavy = formatTierStrategy('heavy', 'antigravity', {
+    swarmModels: {
+      executor: ['custom-fast-a', 'custom-fast-b'],
+      reviewer: ['custom-reviewer-1', 'custom-reviewer-2']
+    }
+  });
+  assert(optOverrideHeavy.includes('custom-fast-a / custom-fast-b'), 'options.swarmModels.executor 應覆寫實作模型清單');
+  assert(optOverrideHeavy.includes('custom-reviewer-1 → custom-reviewer-2'), 'options.swarmModels.reviewer 應覆寫審查模型清單');
+  assert(!optOverrideHeavy.includes('\n'), 'options 覆寫後仍必須維持單行');
+
+  const oldExecEnv = process.env.AGENT_SWARM_EXECUTOR_MODELS;
+  const oldRevEnv = process.env.AGENT_SWARM_REVIEWER_MODELS;
+  try {
+    process.env.AGENT_SWARM_EXECUTOR_MODELS = 'env-fast-1, env-fast-2';
+    process.env.AGENT_SWARM_REVIEWER_MODELS = 'env-rev-1, env-rev-2';
+    const envOverrideHeavy = formatTierStrategy('heavy', 'antigravity');
+    assert(envOverrideHeavy.includes('env-fast-1 / env-fast-2'), '環境變數 AGENT_SWARM_EXECUTOR_MODELS 應覆寫實作模型清單');
+    assert(envOverrideHeavy.includes('env-rev-1 → env-rev-2'), '環境變數 AGENT_SWARM_REVIEWER_MODELS 應覆寫審查模型清單');
+
+    // options 應優先於環境變數
+    const optPriorityHeavy = formatTierStrategy('heavy', 'antigravity', {
+      swarmModels: { executor: 'opt-wins-exec', reviewer: 'opt-wins-rev' }
+    });
+    assert(optPriorityHeavy.includes('opt-wins-exec') && !optPriorityHeavy.includes('env-fast-1'), 'options.swarmModels 應優先於環境變數');
+    assert(optPriorityHeavy.includes('opt-wins-rev') && !optPriorityHeavy.includes('env-rev-1'), 'options.swarmModels 審查清單應優先於環境變數');
+  } finally {
+    if (oldExecEnv !== undefined) process.env.AGENT_SWARM_EXECUTOR_MODELS = oldExecEnv;
+    else delete process.env.AGENT_SWARM_EXECUTOR_MODELS;
+    if (oldRevEnv !== undefined) process.env.AGENT_SWARM_REVIEWER_MODELS = oldRevEnv;
+    else delete process.env.AGENT_SWARM_REVIEWER_MODELS;
+  }
 
   // Micro (所有平台原地實作) & 單行限制驗證
   ['antigravity', 'claude', 'codex', 'copilot', 'generic'].forEach(p => {
@@ -110,7 +190,94 @@ function testAgentProviderAdapter() {
       assert(!strategy.includes('\n'), `${p} ${tier} 策略必須為單行無換行，避免哨兵 brief 行數超標`);
     });
   });
-  console.log('  ✅ formatTierStrategy 四大平台、0 讀碼秒交棒與單行限制驗證通過');
+  console.log('  ✅ formatTierStrategy 四大平台、能力分層、動態覆寫與單行限制驗證通過');
+
+  // 3.5 驗證 selectModelFromCatalog 動態模型選取（額度、重置週期、跨家族與未來模型名稱泛化）
+  const nowMs = Date.parse('2026-11-19T02:00:00Z');
+  const sampleCatalog = {
+    models: [
+      'gemini-pro-orchestrator-neon',
+      'gemini-pro-orchestrator-g1-pro',
+      'claude-opus-5-5-high',
+      'gemini-4-argon-high',
+      'gemini-4-neon-medium',
+      'gemini-4-neon-xhigh',
+      'gemini-4-hydrogen-medium',
+      'gemini-3.8-flash-medium'
+    ],
+    quotas: {
+      'gemini-pro-orchestrator-neon': { quota_remaining: '100%', quota_resets: '2026-11-19T06:58:16Z' },
+      'gemini-pro-orchestrator-g1-pro': { quota_remaining: '40%', quota_resets: '2026-11-25T02:27:14Z' },
+      'claude-opus-5-5-high': { quota_remaining: '100%', quota_resets: '2026-11-19T06:58:16Z' },
+      'gemini-4-argon-high': { quota_remaining: '40%', quota_resets: '2026-11-25T02:27:14Z' },
+      'gemini-4-neon-medium': { quota_remaining: '100%', quota_resets: '2026-11-19T06:58:16Z' },
+      'gemini-4-neon-xhigh': { quota_remaining: '100%', quota_resets: '2026-11-19T06:58:16Z' },
+      'gemini-4-hydrogen-medium': { quota_remaining: '100%', quota_resets: '2026-11-19T06:58:16Z' },
+      'gemini-3.8-flash-medium': { quota_remaining: '100%', quota_resets: '2026-11-19T06:58:16Z' }
+    }
+  };
+
+  // (a) executor 選取高速低耗且排除 orchestrator
+  const pickedExec = selectModelFromCatalog(sampleCatalog, 'executor', { nowMs });
+  assert(pickedExec, '應選出可用的 executor 模型');
+  assert.equal(pickedExec.tier, 'fast', 'executor 應優先選擇 fast tier 模型');
+  assert(!pickedExec.model.includes('orchestrator'), 'executor 候選必須排除 orchestrator');
+  assert(pickedExec.candidates.every(c => c.tier !== 'orchestrator'), 'candidates 不得包含 orchestrator');
+
+  // (b) reviewer 有跨家族額度時選不同家族高階，且排除 currentModel
+  const pickedRevCross = selectModelFromCatalog(sampleCatalog, 'reviewer', {
+    currentModel: 'gemini-4-neon-medium',
+    nowMs
+  });
+  assert.equal(pickedRevCross.model, 'claude-opus-5-5-high', '跨家族有額度時應優先選不同家族旗艦審查模型');
+  assert(!pickedRevCross.candidates.some(c => c.model === 'gemini-4-neon-medium'), 'reviewer 候選必須排除 currentModel (審查禁 inherit)');
+
+  // (c) 跨家族 0% 額度時，100% 短重置高階 (neon-xhigh) 應勝過 40% 長重置旗艦 (argon-high)
+  const exhaustedCrossCatalog = {
+    ...sampleCatalog,
+    quotas: {
+      ...sampleCatalog.quotas,
+      'claude-opus-5-5-high': { quota_remaining: '0%', quota_resets: '2026-11-19T06:58:16Z' }
+    }
+  };
+  const pickedRevFallback = selectModelFromCatalog(exhaustedCrossCatalog, 'reviewer', {
+    currentModel: 'gemini-4-neon-medium',
+    nowMs
+  });
+  assert.equal(pickedRevFallback.model, 'gemini-4-neon-xhigh', '跨家族無額度時應優先選短重置且滿額的 neon-xhigh，而非長重置 40% 的 argon-high');
+
+  // (d) 未來假想模型名稱泛化驗證
+  const futureCatalog = {
+    models: [
+      'gemini-5-orchestrator',
+      'gemini-5-flash-medium',
+      'gemini-5-neon-xhigh',
+      'claude-opus-6-high'
+    ],
+    quotas: {
+      'gemini-5-orchestrator': { quota_remaining: '100%', quota_resets: '2026-11-19T06:58:16Z' },
+      'gemini-5-flash-medium': { quota_remaining: '100%', quota_resets: '2026-11-19T06:58:16Z' },
+      'gemini-5-neon-xhigh': { quota_remaining: '100%', quota_resets: '2026-11-19T06:58:16Z' },
+      'claude-opus-6-high': { quota_remaining: '100%', quota_resets: '2026-11-19T06:58:16Z' }
+    }
+  };
+  assert.equal(selectModelFromCatalog(futureCatalog, 'executor', { nowMs }).model, 'gemini-5-flash-medium', '未來版本 fast 模型應無須改碼自動選中');
+  assert.equal(
+    selectModelFromCatalog(futureCatalog, 'reviewer', { currentModel: 'gemini-5-neon-xhigh', nowMs }).model,
+    'claude-opus-6-high',
+    '未來版本跨家族旗艦審查模型應無須改碼自動選中'
+  );
+
+  // (e) 全模型 0% 額度回傳 null
+  const emptyCatalog = {
+    models: ['gemini-4-neon-medium', 'claude-opus-5-5-high'],
+    quotas: {
+      'gemini-4-neon-medium': { quota_remaining: '0%' },
+      'claude-opus-5-5-high': { quota_remaining: '0%' }
+    }
+  };
+  assert.equal(selectModelFromCatalog(emptyCatalog, 'reviewer', { nowMs }), null, '全部模型 0% 額度時應回傳 null');
+  console.log('  ✅ selectModelFromCatalog 動態目錄、額度與重置週期自適應選模驗證通過');
 
   // 4. 驗證 determineTaskTier 針對大型複雜任務 (如 TASK-208 模式) 升級為 heavy 與哨兵 Brief 行數限制
   const { determineTaskTier: gateDetermineTier, formatWakeupBrief } = require('./watch-task-gate');

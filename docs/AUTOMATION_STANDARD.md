@@ -19,7 +19,7 @@ Task Dashboard 支援 **Desktop AI 哨兵待命 (Reactive Wakeup)** 與 **獨立
 - **工作原理**：
   腳本利用 macOS 原生 FSEvents 在背景靜默監聽資料庫 `tasks.json`。一旦任務變更為 `in_progress` 或請求依據 Diff 生成 Commit 訊息 (`requestCommitGen: true`)，哨兵立即輸出完整開工上下文並以 `exit(0)` 正常退出，觸發外部 IDE 的 **Reactive Wakeup** 喚醒機制。
 - **Agent 接續開工**：
-  AI 被喚醒後，根據哨兵輸出的開工指示執行 **3-Phase Execution Gate**。主 Agent 作為高階 Planner 執行 Phase 1 規劃並擬定 Handoff Contract，依 3-Tier 風險分級與專案 Skill 路由指派通用 Executor（對應 Fast / Balanced 檔位子代理，如 Antigravity Flash、Claude Sonnet、Codex Mini 或 VS Code Copilot Agent Mode；或 micro 原地實作），由主 Agent 於 Phase 3 依契約驗收並推進至 `review`（僅 `riskDoor === "one-way"` 另開獨立 Reasoning Verifier 審查）。任務推進至 `review` 後，主 Agent 再次在背景掛載哨兵，進入下一輪無縫待命。
+  AI 被喚醒後，根據哨兵輸出的開工指示執行 **3-Phase Execution Gate**。主 Agent 作為高階 Planner 執行 Phase 1 規劃並擬定 Handoff Contract，依 3-Tier 風險分級與專案 Skill 路由指派通用 Executor（對應 Fast / Balanced 檔位子代理，如 Antigravity Flash、Claude Sonnet、Codex Mini 或 VS Code Copilot Agent Mode；或 micro 原地實作），由主 Agent 於 Phase 3 依契約驗收並推進至 `review`（僅 `riskDoor === "one-way"` 另開獨立 Reasoning Verifier 審查）。任務推進至 `review`（或需確認任務回寫 `executionPlan` 進入「待確認」）後，主 Agent 再次在背景掛載哨兵，進入下一輪無縫待命（待確認期間哨兵會保持靜默，待使用者確認執行後自動喚醒）。
 
 ### 模式 B：本機 CLI Agent 自動即時觸發
 - 若使用者在 Dashboard 設定中啟用了 **「CLI Agent 模式」**（支援 `agy`、`claude`、`hermes` 或自訂指令）：
@@ -89,7 +89,7 @@ flowchart TD
   1. **確認門禁聯鎖 (Confirmation Gate)**：若任務標註 `requiresConfirmation === true` 且未具備執行計劃，無論何種 Tier 均禁止直接進入實作，必須先完成計劃供確認。
   2. **最新需求覆蓋優先權**：若任務描述包含 `--- 【執行計劃確認意見 / 最新需求覆蓋】 ---` 區塊，其內容具備最高優先權。若與上方舊有需求存在矛盾或規格調整，一律以該區塊最新指示為準覆蓋舊有描述，嚴禁混雜衝突邏輯。
   3. **強制繼承工作區 (`Workspace: "inherit"`)**：Subagent 必須設定 `Workspace: "inherit"`，確保所有 Git Diff 與檔案異動直接落於原專案工作區，嚴禁隔離導致 Diff 脫鉤。
-  4. **防搶單時序 (Race Condition Prevention)**：主 Agent 在所有執行與審核皆完成並將任務正式推入 `review` 後，才可重新掛載 `watch-task-gate.js` 進入背景待命。**嚴禁於 Subagent 運行期間提前重啟哨兵**，避免重複認領與衝突。
+  4. **防搶單時序 (Race Condition Prevention)**：主 Agent 僅於所有執行與審核皆完成並推入 `review`，或需確認任務已回寫 `executionPlan` 進入「待確認」後，才可重新掛載 `watch-task-gate.js` 進入背景待命。**嚴禁於 Subagent 運行期間提前重啟哨兵**，避免重複認領與衝突。
 
 ### Handoff Contract 規格與 Executor 禁讀守則
 為達成精準交接並徹底杜絕 Token 浪費，Planner 與 Executor 之間以 Handoff Contract 嚴格隔離上下文：
@@ -139,7 +139,7 @@ flowchart TD
    - 若任務標記為 `requiresConfirmation: true` 且尚未提供 `executionPlan`（或為空）：
      - 開工首要任務為**擬定完整執行計劃**（包含執行步驟、架構評估、驗證方式）。
      - 將執行計劃寫入 `task.executionPlan`。
-     - **嚴禁在未填寫執行計劃前跳過規劃**；任務在計劃填妥後方會正式進入「待確認」狀態，並供使用者點擊「確認並執行」。使用者確認點選後，方可進入 Phase 2 代碼實作。
+     - **嚴禁在未填寫執行計劃前跳過規劃**；任務在計劃填妥後方會正式進入「待確認」狀態，並供使用者點擊「確認並執行」。回寫 `executionPlan` 後，Desktop AI 哨兵應立即在背景重啟 `watch-task-gate.js` 待命（待確認期間哨兵不會重複認領），待使用者確認點選後自動喚醒進入 Phase 2 代碼實作。
 
 ### Phase 2: Rule-Compliant Implementation (合規實作)
 1. 嚴格遵守該專案的目錄架構、狀態流轉規則與切片計畫。

@@ -20,7 +20,7 @@ models-tested: [flash, sonnet, opus]
 ## 硬性規則 (Must)
 1. **[MUST] SSOT 資料庫嚴格隔離**：所有讀寫操作必須以 `~/Library/Application Support/TaskDashboard/` 為唯一真實資料庫，嚴禁覆寫專案倉庫範本 `data/tasks.json`。
 2. **[MUST] 優先滿足 Feedback**：若任務具備 `task.feedback`，必須將其視為第一優先執行目標，未滿足前嚴禁直接推進至 `review`。
-3. **[MUST] 執行計劃確認門禁 (Confirmation Gate)**：若勾選 `requiresConfirmation: true` 且尚未產出計劃，首要任務為回寫 `task.executionPlan` 並維持 `in_progress`；未獲授權嚴禁實作。
+3. **[MUST] 執行計劃確認門禁 (Confirmation Gate)**：若勾選 `requiresConfirmation: true` 且尚未產出計劃，首要任務為回寫 `task.executionPlan` 並維持 `in_progress`；未獲授權嚴禁實作。回寫進入「待確認」後若使用哨兵模式，須隨即重啟背景 `watch-task-gate.js` 待命等待確認。
 4. **[MUST] 全量完整 Diff 收集**：Phase 3 交付之 diff 必須包含已追蹤與未追蹤 (`--no-index`) 檔案，嚴禁使用 `...` 占位符或截斷。
 5. **[MUST] 大檔切片檢索 (Anti-Loop)**：> 500 行檔案一律使用 `grep -n` 定位後閱讀前後 30-50 行，單點檢索上限 2 次。
 

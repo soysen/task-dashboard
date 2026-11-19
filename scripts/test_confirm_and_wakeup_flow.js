@@ -352,7 +352,20 @@ async function run() {
     assert(scopedBrief.includes('src/server/server.js'), '喚醒簡報必須呈現任務指定的 outOfScope 項目');
     assert(scopedBrief.includes('STOP AND ASK'), '喚醒簡報必須包含 STOP AND ASK 條件');
     assert(scopedBrief.split('\n').length <= 15, `含 scope 簡報仍須 <= 15 行，實際: ${scopedBrief.split('\n').length}`);
-    console.log('  ✅ [TD-S1 Case C] outOfScope 與 STOP AND ASK 簡報契約驗證通過\n');
+    console.log('  ✅ [TD-S1 Case C] outOfScope 與 STOP AND ASK 簡報契約驗證通過');
+
+    // Case D: 待擬定執行計劃 (isPendingPlanCreation) 喚醒簡報必須提醒回寫後重啟背景哨兵待命
+    const pendingPlanBrief = formatWakeupBrief({
+      id: 'TASK-PENDING-PLAN',
+      title: '需確認任務計劃撰寫測試',
+      project: 'proj-a',
+      requiresConfirmation: true,
+      executionPlan: ''
+    }, 'WAKEUP_IMMEDIATE');
+    assert(pendingPlanBrief.includes('待確認'), '待擬定執行計劃簡報應標明維持 in_progress 待確認');
+    assert(pendingPlanBrief.includes('重啟背景哨兵待命'), '待擬定執行計劃簡報必須提醒回寫後重啟背景哨兵待命');
+    assert(pendingPlanBrief.split('\n').length <= 15, `待擬定執行計劃簡報仍須 <= 15 行，實際: ${pendingPlanBrief.split('\n').length}`);
+    console.log('  ✅ [Confirmation Gate] 待確認計劃階段哨兵重啟指示驗證通過\n');
   } finally {
     process.env.TASK_DASHBOARD_DATA_DIR = prevDataDirEnv;
     fs.rmSync(s1DataDir, { recursive: true, force: true });

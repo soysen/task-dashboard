@@ -365,7 +365,7 @@ import {
 【待命與開工原則】：
 1. 背景執行上述指令；喚醒後依哨兵輸出的【執行策略】、【Code Graph】與【Skills】執行。
 2. 若為 ${adapter.nativeOrchestrator}：非需確認任務，Planning 階段嚴禁讀檔，0 讀碼第 1 步直接 exit_plan_mode 交棒內建執行階段（${adapter.directExecutor}）。
-3. 交付：完成後以結構化 JSON 呼叫 PUT http://localhost:3030/api/tasks/<id> 推進 review，隨即重啟背景哨兵待命。`;
+3. 交付：完成後以結構化 JSON 呼叫 PUT http://localhost:3030/api/tasks/<id> 推進 review（或回寫 executionPlan 進入待確認），隨即重啟背景哨兵待命。`;
 
       const tierFlag = currentDesktopTierFilter === 'fast'
         ? ' --tier=micro,standard'

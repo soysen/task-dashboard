@@ -478,8 +478,8 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
   const scopeLine = `• 邊界與 STOP AND ASK: ${scopeParts.join(' | ')}；觸及 outOfScope、規格衝突或連續失敗立即停下詢問人類。`;
 
   const deliveryText = isPendingPlanCreation
-    ? `PUT http://localhost:3030/api/tasks/${task.id} 回寫 executionPlan (維持 in_progress 待確認)，勿實作或推進 review。`
-    : `PUT http://localhost:3030/api/tasks/${task.id} 傳入結構化 JSON (objective, rootCause, resolution, keyChanges, testCommand, exitCode, testSummary, assumptions, deviations, unverified, executionLog) 推進 review。`;
+    ? `PUT http://localhost:3030/api/tasks/${task.id} 回寫 executionPlan (維持 in_progress 待確認)，勿實作或推進 review；回寫後隨即重啟背景哨兵待命等待使用者確認。`
+    : `PUT http://localhost:3030/api/tasks/${task.id} 傳入結構化 JSON (objective, rootCause, resolution, keyChanges, testCommand, exitCode, testSummary, assumptions, deviations, unverified, executionLog) 推進 review，隨即重啟背景哨兵待命。`;
 
   return `================================================================================\n` +
     `[${triggerType}] 任務開工通知${isPendingPlanCreation ? '（待擬定執行計劃）' : ''}：[${task.id}] ${task.title}\n` +
