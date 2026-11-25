@@ -57,6 +57,11 @@ const {
   checkTaskBaseDrift,
   mergeFeatureBranch
 } = require('./services/gitService');
+const {
+  getBranchRemoteStatus,
+  pushBranch,
+  createPullRequest
+} = require('./services/gitRemoteService');
 
 /**
  * 統一於任務開工時準備隔離工作區（Worktree）或檢查共享工作區排隊互斥狀態
@@ -1771,6 +1776,134 @@ function runNativeFolderPicker(promptText, callback) {
       } catch (err) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: false, error: (err && err.message) || 'Failed to merge branch' }));
+      }
+    });
+    return;
+  }
+
+  // 查詢專案分支遠端追蹤狀態與平台資訊
+  const remoteStatusMatch = req.method === 'GET' && pathname.match(/^\/api\/projects\/([^/]+)\/remote-status$/);
+  if (remoteStatusMatch) {
+    const projId = decodeURIComponent(remoteStatusMatch[1]).trim();
+    const projects = readProjects();
+    const proj = projects.find(p => p.id === projId);
+    if (!proj) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Project not found' }));
+      return;
+    }
+    const repoPath = proj.path || path.join(PROJECTS_ROOT, proj.id);
+    const statusInfo = getBranchRemoteStatus(repoPath, String(query.branch || '').trim(), {
+      customEnv: buildCustomEnv()
+    });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ projectId: proj.id, ...statusInfo }));
+    return;
+  }
+
+  // 推送指定分支至 origin 遠端
+  const branchesPushMatch = req.method === 'POST' && pathname.match(/^\/api\/projects\/([^/]+)\/branches\/push$/);
+  if (branchesPushMatch) {
+    const projId = decodeURIComponent(branchesPushMatch[1]).trim();
+    let body = '';
+    req.on('data', chunk => (body += chunk));
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body || '{}');
+        const projects = readProjects();
+        const proj = projects.find(p => p.id === projId);
+        if (!proj) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Project not found' }));
+          return;
+        }
+        const branch = String(data.branch || data.branchName || '').trim();
+        if (!branch) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Missing branch' }));
+          return;
+        }
+        const repoPath = proj.path || path.join(PROJECTS_ROOT, proj.id);
+        const pushRes = await pushBranch(repoPath, branch, { customEnv: buildCustomEnv() });
+        if (!pushRes.success) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ...pushRes, projectId: proj.id }));
+          return;
+        }
+        gitProjectsStatusCache = { timestamp: 0, data: null };
+        broadcastSse('project-branch-pushed', {
+          projectId: proj.id,
+          branch,
+          remoteStatus: pushRes.remoteStatus
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ...pushRes, projectId: proj.id }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: (err && err.message) || 'Failed to push branch' }));
+      }
+    });
+    return;
+  }
+
+  // 建立遠端 Pull Request (支援自動建立或降級網頁連結)
+  const branchesPrMatch = req.method === 'POST' && pathname.match(/^\/api\/projects\/([^/]+)\/branches\/pr$/);
+  if (branchesPrMatch) {
+    const projId = decodeURIComponent(branchesPrMatch[1]).trim();
+    let body = '';
+    req.on('data', chunk => (body += chunk));
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body || '{}');
+        const projects = readProjects();
+        const proj = projects.find(p => p.id === projId);
+        if (!proj) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Project not found' }));
+          return;
+        }
+        const sourceBranch = String(data.sourceBranch || '').trim();
+        if (!sourceBranch) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Missing sourceBranch' }));
+          return;
+        }
+        const repoPath = proj.path || path.join(PROJECTS_ROOT, proj.id);
+        let targetBranch = String(data.targetBranch || '').trim();
+        if (!targetBranch) {
+          targetBranch = getProjectBranches(repoPath, [], { refresh: false }).defaultBranch || 'main';
+        }
+        const prRes = await createPullRequest(repoPath, {
+          sourceBranch,
+          targetBranch,
+          title: data.title,
+          description: data.description,
+          draft: Boolean(data.draft),
+          autoPush: Boolean(data.autoPush),
+          customEnv: buildCustomEnv()
+        });
+        if (prRes.success) {
+          broadcastSse('project-pr-created', {
+            projectId: proj.id,
+            sourceBranch,
+            targetBranch,
+            prUrl: prRes.prUrl,
+            provider: prRes.provider
+          });
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ...prRes, projectId: proj.id }));
+          return;
+        }
+        if (prRes.degraded && prRes.fallbackCreateUrl) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ...prRes, projectId: proj.id }));
+          return;
+        }
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ...prRes, projectId: proj.id }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: (err && err.message) || 'Failed to create PR' }));
       }
     });
     return;

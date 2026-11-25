@@ -2,10 +2,40 @@ import {
   projects, tasks, currentProject, currentBranch, projectBranchesMap, groupByBranch, expandedProjectId,
   setCurrentProject, setCurrentBranch, setProjectBranchesMap, setGroupByBranch, setExpandedProjectId
 } from "./state.js";
-import { escapeHtml, showToast } from "./utils.js";
+import { escapeHtml, showToast, openExternalUrl } from "./utils.js";
 
 const loadingBranchProjects = new Set();
+const loadingRemoteStatusKeys = new Set();
+let branchRemoteStatusMap = {};
 let popoverTargetProjectId = "";
+
+async function loadBranchRemoteStatus(projectId, branchName, forceRefresh = false) {
+  if (!projectId || projectId === "ALL" || !branchName || branchName === "ALL" || typeof fetch !== "function") {
+    return null;
+  }
+  const key = `${projectId}::${branchName}`;
+  if (!forceRefresh && branchRemoteStatusMap[key]) {
+    return branchRemoteStatusMap[key];
+  }
+  if (loadingRemoteStatusKeys.has(key)) return null;
+
+  loadingRemoteStatusKeys.add(key);
+  try {
+    const res = await fetch(
+      `/api/projects/${encodeURIComponent(projectId)}/remote-status?branch=${encodeURIComponent(branchName)}`
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    branchRemoteStatusMap[key] = data;
+    renderContextualHeaderActions();
+    return data;
+  } catch (err) {
+    console.warn("loadBranchRemoteStatus failed:", err);
+    return null;
+  } finally {
+    loadingRemoteStatusKeys.delete(key);
+  }
+}
 
 function escapeAttrJs(value) {
   return escapeHtml(
@@ -152,7 +182,12 @@ function renderContextualHeaderActions() {
 
   const modalEl = document.getElementById("taskModal");
   const mergeModalEl = document.getElementById("mergeBranchModal");
-  if ((modalEl && !modalEl.classList.contains("hidden")) || (mergeModalEl && !mergeModalEl.classList.contains("hidden"))) {
+  const prModalEl = document.getElementById("createPrModal");
+  if (
+    (modalEl && !modalEl.classList.contains("hidden")) ||
+    (mergeModalEl && !mergeModalEl.classList.contains("hidden")) ||
+    (prModalEl && !prModalEl.classList.contains("hidden"))
+  ) {
     if (container) {
       container.innerHTML = "";
       container.classList.add("hidden");
@@ -181,7 +216,7 @@ function renderContextualHeaderActions() {
 
   if (container) {
     if (currentProject !== "ALL" && currentBranch && currentBranch !== "ALL") {
-      // L2 單一分支：非主幹且有已提交任務時顯示「合併回 <defaultBranch>」
+      // L2 單一分支：依序提供「推送」、「開立 PR」與「合併回 <defaultBranch>」動作
       const safeProjAttr = escapeAttrJs(currentProject);
       const safeBranchAttr = escapeAttrJs(currentBranch);
       const defaultBranch = String(branchData?.defaultBranch || "main").trim();
@@ -193,10 +228,38 @@ function renderContextualHeaderActions() {
         (t.targetBranch === currentBranch || t.gitLanding?.landedBranch === currentBranch || t.baseBranch === currentBranch)
       );
       const safeDefaultAttr = escapeAttrJs(defaultBranch);
+      const remoteKey = `${currentProject}::${currentBranch}`;
+
+      if (branchData?.isGitRepo && !branchRemoteStatusMap[remoteKey]) {
+        loadBranchRemoteStatus(currentProject, currentBranch);
+      }
+      const remoteInfo = branchRemoteStatusMap[remoteKey];
+      const actionButtons = [];
+
+      if (branchData?.isGitRepo && (!remoteInfo || remoteInfo.hasRemote !== false)) {
+        const pushLabel = remoteInfo && remoteInfo.ahead > 0
+          ? `推送 ↑${remoteInfo.ahead}`
+          : (remoteInfo && !remoteInfo.hasUpstream ? "推送 ↑" : "推送");
+        actionButtons.push(
+          `<button type="button" onclick="pushCurrentBranch('${safeProjAttr}', '${safeBranchAttr}', event)" class="h-7 sm:h-8 inline-flex items-center gap-1 bg-slate-700 hover:bg-slate-600 text-white text-[11px] sm:text-xs font-semibold px-2.5 rounded-lg shadow-sm transition cursor-pointer whitespace-nowrap">${escapeHtml(pushLabel)}</button>`
+        );
+      }
+
+      if (branchData?.isGitRepo && isNonDefaultBranch) {
+        actionButtons.push(
+          `<button type="button" onclick="openCreatePrModal('${safeProjAttr}', '${safeBranchAttr}', '${safeDefaultAttr}')" class="h-7 sm:h-8 inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] sm:text-xs font-semibold px-2.5 rounded-lg shadow-sm transition cursor-pointer whitespace-nowrap">開立 PR</button>`
+        );
+      }
 
       if (hasCommittedDoneOnBranch) {
+        actionButtons.push(
+          `<button type="button" onclick="openMergeBranchModal('${safeProjAttr}', '${safeBranchAttr}', '${safeDefaultAttr}')" class="h-7 sm:h-8 inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-semibold px-2.5 rounded-lg shadow-sm transition cursor-pointer whitespace-nowrap">合併回 ${escapeHtml(defaultBranch)}</button>`
+        );
+      }
+
+      if (actionButtons.length > 0) {
         container.classList.remove("hidden");
-        container.innerHTML = `<button type="button" onclick="openMergeBranchModal('${safeProjAttr}', '${safeBranchAttr}', '${safeDefaultAttr}')" class="h-7 sm:h-8 inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-semibold px-2.5 rounded-lg shadow-sm transition cursor-pointer whitespace-nowrap">合併回 ${escapeHtml(defaultBranch)}</button>`;
+        container.innerHTML = `<div class="flex items-center gap-1.5">${actionButtons.join("")}</div>`;
       } else {
         container.innerHTML = "";
         container.classList.add("hidden");
@@ -449,8 +512,214 @@ async function submitMergeBranch(projectId, sourceBranch, targetBranch) {
   }
 }
 
+async function pushCurrentBranch(projectId, branchName, event) {
+  if (!projectId || !branchName) return;
+  const btn = event?.currentTarget || event?.target?.closest?.("button") || null;
+  const originalText = btn ? btn.innerHTML : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = "推送中...";
+  }
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/branches/push`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ branch: branchName })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.success === false) {
+      throw new Error(data.error || `推送失敗 (HTTP ${res.status})`);
+    }
+    if (data.remoteStatus) {
+      branchRemoteStatusMap[`${projectId}::${branchName}`] = data.remoteStatus;
+    }
+    showToast(`已成功推送分支 ${branchName}`);
+    renderContextualHeaderActions();
+  } catch (err) {
+    showToast(`推送失敗：${err.message || "未知錯誤"}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalText;
+    }
+    renderContextualHeaderActions();
+  }
+}
+
+function buildPrSummaryFromDoneTasks(projectId, branchName, targetBranch = "main") {
+  const doneTasks = (tasks || []).filter(t =>
+    t &&
+    t.project === projectId &&
+    t.status === "done" &&
+    (t.targetBranch === branchName || t.gitLanding?.landedBranch === branchName || t.baseBranch === branchName)
+  );
+
+  let title = `PR: ${branchName} → ${targetBranch}`;
+  if (doneTasks.length === 1) {
+    title = `[${doneTasks[0].id}] ${doneTasks[0].title}`;
+  } else if (doneTasks.length > 1) {
+    title = `feat(${branchName}): 完成 ${doneTasks.length} 項任務`;
+  }
+
+  const description = doneTasks
+    .map(t => {
+      const summary = String(t.resolution || t.objective || t.commitMessage?.subject || "").trim();
+      return summary ? `- [${t.id}] ${t.title}：${summary}` : `- [${t.id}] ${t.title}`;
+    })
+    .join("\n");
+
+  return { title, description, doneTasks };
+}
+
+function closeCreatePrModal() {
+  if (typeof document === "undefined") return;
+  const modal = document.getElementById("createPrModal");
+  if (modal) modal.remove();
+  renderContextualHeaderActions();
+}
+
+function openCreatePrModal(projectId, sourceBranch, targetBranch) {
+  if (typeof document === "undefined") return;
+  const existing = document.getElementById("createPrModal");
+  if (existing) existing.remove();
+
+  const branchData = projectBranchesMap[projectId];
+  const src = String(sourceBranch || currentBranch || "").trim();
+  const tgt = String(targetBranch || branchData?.defaultBranch || "main").trim();
+  if (!projectId || !src) return;
+
+  const branchNames = (branchData?.branches || [])
+    .map(b => b.name)
+    .filter(name => name && name !== src);
+  if (tgt && !branchNames.includes(tgt)) branchNames.unshift(tgt);
+
+  const summary = buildPrSummaryFromDoneTasks(projectId, src, tgt);
+  const remoteInfo = branchRemoteStatusMap[`${projectId}::${src}`];
+  const shouldAutoPush = !remoteInfo || !remoteInfo.hasUpstream || remoteInfo.ahead > 0;
+
+  const safeProjAttr = escapeAttrJs(projectId);
+  const safeSrcAttr = escapeAttrJs(src);
+
+  const modalEl = document.createElement("div");
+  modalEl.id = "createPrModal";
+  modalEl.className = "fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4";
+  modalEl.innerHTML = `
+    <div class="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100" onclick="event.stopPropagation()">
+      <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+        <h3 class="text-sm font-bold flex items-center gap-1.5">
+          <i data-lucide="git-pull-request" class="w-4 h-4 text-indigo-500"></i>
+          <span>開立 Pull Request</span>
+        </h3>
+        <button type="button" onclick="closeCreatePrModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg leading-none cursor-pointer">×</button>
+      </div>
+      <div class="p-4 space-y-3 text-xs">
+        <div class="flex items-center gap-2 text-slate-600 dark:text-slate-300">
+          <span>來源分支：</span>
+          <span class="font-mono px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300">⎇ ${escapeHtml(src)}</span>
+        </div>
+        <div class="space-y-1">
+          <label for="prTargetBranchSelect" class="block font-semibold text-slate-700 dark:text-slate-300">目標分支</label>
+          <select id="prTargetBranchSelect" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-mono">
+            ${branchNames.map(name => `<option value="${escapeHtml(name)}" ${name === tgt ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="space-y-1">
+          <label for="prTitleInput" class="block font-semibold text-slate-700 dark:text-slate-300">PR 標題</label>
+          <input id="prTitleInput" type="text" value="${escapeHtml(summary.title)}" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs focus:outline-none focus:border-indigo-500">
+        </div>
+        <div class="space-y-1">
+          <label for="prDescriptionInput" class="block font-semibold text-slate-700 dark:text-slate-300">PR 說明 (Markdown)</label>
+          <textarea id="prDescriptionInput" rows="5" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-mono focus:outline-none focus:border-indigo-500">${escapeHtml(summary.description)}</textarea>
+        </div>
+        <label class="inline-flex items-center gap-2 text-slate-700 dark:text-slate-300 cursor-pointer select-none">
+          <input type="checkbox" id="prAutoPushCheckbox" ${shouldAutoPush ? "checked" : ""} class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer">
+          <span>開立 PR 前先自動推送來源分支至遠端 (git push -u origin)</span>
+        </label>
+        <div id="createPrModalFeedback" class="hidden rounded-lg p-2.5 text-[11px] whitespace-pre-wrap break-words"></div>
+      </div>
+      <div class="px-4 py-3 bg-slate-50 dark:bg-slate-900/90 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2">
+        <button type="button" onclick="closeCreatePrModal()" class="px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-xs font-medium cursor-pointer">取消</button>
+        <button type="button" id="btnConfirmCreatePr" onclick="submitCreatePr('${safeProjAttr}', '${safeSrcAttr}')" class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-sm transition cursor-pointer">建立 PR</button>
+      </div>
+    </div>
+  `;
+  modalEl.addEventListener("click", closeCreatePrModal);
+  document.body.appendChild(modalEl);
+  renderContextualHeaderActions();
+  if (window.lucide) window.lucide.createIcons();
+}
+
+async function submitCreatePr(projectId, sourceBranch) {
+  const targetBranch = document.getElementById("prTargetBranchSelect")?.value?.trim() || "main";
+  const title = document.getElementById("prTitleInput")?.value?.trim() || "";
+  const description = document.getElementById("prDescriptionInput")?.value || "";
+  const autoPush = Boolean(document.getElementById("prAutoPushCheckbox")?.checked);
+  const feedbackEl = document.getElementById("createPrModalFeedback");
+  const btn = document.getElementById("btnConfirmCreatePr");
+
+  if (feedbackEl) {
+    feedbackEl.className = "hidden rounded-lg p-2.5 text-[11px] whitespace-pre-wrap break-words";
+    feedbackEl.innerHTML = "";
+  }
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = "建立中...";
+  }
+
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/branches/pr`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourceBranch, targetBranch, title, description, autoPush })
+    });
+    const data = await res.json().catch(() => ({}));
+
+    if (data.success && data.prUrl) {
+      showToast("Pull Request 已建立成功！");
+      if (feedbackEl) {
+        const safeUrlAttr = escapeAttrJs(data.prUrl);
+        feedbackEl.className = "rounded-lg p-2.5 text-[11px] bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 space-y-1.5";
+        feedbackEl.innerHTML = `
+          <div class="font-semibold">PR 已成功建立：</div>
+          <a href="${escapeHtml(data.prUrl)}" onclick="openExternalUrl('${safeUrlAttr}', event)" class="inline-flex items-center gap-1 underline font-mono break-all hover:text-emerald-600 dark:hover:text-emerald-100">${escapeHtml(data.prUrl)}</a>
+        `;
+      }
+      loadBranchRemoteStatus(projectId, sourceBranch, true);
+      return;
+    }
+
+    if (data.degraded && data.fallbackCreateUrl) {
+      if (feedbackEl) {
+        const safeFallbackAttr = escapeAttrJs(data.fallbackCreateUrl);
+        feedbackEl.className = "rounded-lg p-2.5 text-[11px] bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 space-y-2";
+        feedbackEl.innerHTML = `
+          <div>${escapeHtml(data.error || "無法自動建立 PR，請透過網頁完成建立。")}</div>
+          <div>
+            <a href="${escapeHtml(data.fallbackCreateUrl)}" onclick="openExternalUrl('${safeFallbackAttr}', event)" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-600 hover:bg-amber-500 text-white font-semibold no-underline">前往網頁開立 PR ↗</a>
+          </div>
+        `;
+      }
+      return;
+    }
+
+    throw new Error(data.error || `開立 PR 失敗 (HTTP ${res.status})`);
+  } catch (err) {
+    if (feedbackEl) {
+      feedbackEl.className = "rounded-lg p-2.5 text-[11px] bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-200 whitespace-pre-wrap break-words";
+      feedbackEl.innerText = err.message || "開立 PR 失敗";
+    }
+    showToast(`開立 PR 失敗：${err.message || "未知錯誤"}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = "建立 PR";
+    }
+  }
+}
+
 export {
   loadProjectBranches,
+  loadBranchRemoteStatus,
   selectProjectAndBranch,
   renderProjectBranchTree,
   renderContextualHeaderActions,
@@ -460,11 +729,17 @@ export {
   submitNewBranch,
   openMergeBranchModal,
   closeMergeBranchModal,
-  submitMergeBranch
+  submitMergeBranch,
+  pushCurrentBranch,
+  buildPrSummaryFromDoneTasks,
+  openCreatePrModal,
+  closeCreatePrModal,
+  submitCreatePr
 };
 
 if (typeof window !== "undefined") {
   window.loadProjectBranches = loadProjectBranches;
+  window.loadBranchRemoteStatus = loadBranchRemoteStatus;
   window.selectProjectAndBranch = selectProjectAndBranch;
   window.renderProjectBranchTree = renderProjectBranchTree;
   window.renderContextualHeaderActions = renderContextualHeaderActions;
@@ -475,4 +750,9 @@ if (typeof window !== "undefined") {
   window.openMergeBranchModal = openMergeBranchModal;
   window.closeMergeBranchModal = closeMergeBranchModal;
   window.submitMergeBranch = submitMergeBranch;
+  window.pushCurrentBranch = pushCurrentBranch;
+  window.buildPrSummaryFromDoneTasks = buildPrSummaryFromDoneTasks;
+  window.openCreatePrModal = openCreatePrModal;
+  window.closeCreatePrModal = closeCreatePrModal;
+  window.submitCreatePr = submitCreatePr;
 }

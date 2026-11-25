@@ -665,6 +665,15 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
   branchNavCtx.renderContextualHeaderActions();
   assert(!boardViewSlotEl.classList.contains('hidden'), '選取特定分支時 #boardViewToggleSlot 仍須保持可見');
   assert(!headerActionsEl.classList.contains('hidden') && headerActionsEl.innerHTML.includes('合併回 main') && !headerActionsEl.innerHTML.includes('新建分支') && !headerActionsEl.innerHTML.includes('新增任務'), 'L2 非主幹已提交分支僅顯示「合併回 <defaultBranch>」');
+  assert(headerActionsEl.innerHTML.includes('推送') && headerActionsEl.innerHTML.includes('開立 PR'), 'L2 非主幹分支應同時顯示「推送」與「開立 PR」按鈕');
+
+  const prSummary = branchNavCtx.buildPrSummaryFromDoneTasks('proj-1', 'feat/ui', 'main');
+  assert(prSummary && prSummary.title.includes('[TASK-1]'), 'buildPrSummaryFromDoneTasks 應彙整 done 任務標題');
+  assert.strictEqual(typeof branchNavCtx.window.pushCurrentBranch, 'function', 'window.pushCurrentBranch 必須正確綁定');
+  assert.strictEqual(typeof branchNavCtx.window.openCreatePrModal, 'function', 'window.openCreatePrModal 必須正確綁定');
+  assert.strictEqual(typeof branchNavCtx.window.closeCreatePrModal, 'function', 'window.closeCreatePrModal 必須正確綁定');
+  assert.strictEqual(typeof branchNavCtx.window.submitCreatePr, 'function', 'window.submitCreatePr 必須正確綁定');
+  assert.strictEqual(typeof branchNavCtx.window.loadBranchRemoteStatus, 'function', 'window.loadBranchRemoteStatus 必須正確綁定');
 
   branchNavCtx.toggleBranchGroupView(true);
   assert.strictEqual(branchNavCtx.currentBranch, 'ALL', '由特定分支切換為「按分支看」時應重置 currentBranch 為 ALL');

@@ -1738,6 +1738,205 @@ const { createTaskWorktree, mergeTaskWorktree, checkTaskBaseDrift } = require(".
 })();
 ' "$TEST_PORT"
 
+echo "  [8.98/9] 測試 TASK-243 遠端狀態檢查、推送分支與跨平台 PR 建立/降級..."
+node -e '
+const assert = require("assert");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const { execFileSync } = require("child_process");
+const {
+  redactUrlCredentials,
+  detectRemoteProvider,
+  buildFallbackPrUrl,
+  getBranchRemoteStatus,
+  pushBranch,
+  createPullRequest
+} = require("./src/server/services/gitRemoteService");
+
+(async () => {
+  const base = "http://localhost:" + process.argv[1];
+  const originBare = fs.mkdtempSync(path.join(os.tmpdir(), "td-243-origin-"));
+  const tempRepo = fs.mkdtempSync(path.join(os.tmpdir(), "td-243-repo-"));
+  const projId = "test-task243-proj-" + process.pid;
+
+  try {
+    // 1. 單元測試：redactUrlCredentials()
+    assert.strictEqual(
+      redactUrlCredentials("https://user:my-secret-pat@dev.azure.com/FET-IDTT/SmartCS/_git/demo"),
+      "https://***@dev.azure.com/FET-IDTT/SmartCS/_git/demo",
+      "應遮罩 Azure DevOps URL 憑證"
+    );
+    assert.strictEqual(
+      redactUrlCredentials("https://ghp_secret123@github.com/octocat/hello-world.git"),
+      "https://***@github.com/octocat/hello-world.git",
+      "應遮罩 GitHub URL 憑證"
+    );
+    const multiLineErr = "fatal: unable to access \x27https://tok:secret99@dev.azure.com/FET-IDTT/Proj/_git/Repo/\x27\nfatal: error from https://pat123@github.com/org/repo.git";
+    const redactedMulti = redactUrlCredentials(multiLineErr);
+    assert(!redactedMulti.includes("secret99") && !redactedMulti.includes("pat123"), "多行錯誤訊息中所有 PAT 必須被遮罩");
+    assert(redactedMulti.includes("https://***@dev.azure.com/") && redactedMulti.includes("https://***@github.com/"));
+
+    // 2. 單元測試：detectRemoteProvider()
+    const azdoInfo = detectRemoteProvider("https://user:pat-xyz@dev.azure.com/FET-IDTT/Smart%20CS/_git/task-dashboard.git");
+    assert.strictEqual(azdoInfo.provider, "azure-devops");
+    assert.strictEqual(azdoInfo.org, "FET-IDTT");
+    assert.strictEqual(azdoInfo.project, "Smart CS");
+    assert.strictEqual(azdoInfo.repo, "task-dashboard");
+    assert.strictEqual(azdoInfo.webBaseUrl, "https://dev.azure.com/FET-IDTT/Smart%20CS/_git/task-dashboard");
+    assert(!azdoInfo.redactedUrl.includes("pat-xyz") && azdoInfo.redactedUrl.includes("https://***@"));
+
+    const azdoLegacy = detectRemoteProvider("https://FET-IDTT.visualstudio.com/DefaultCollection/SmartCS/_git/demo.git");
+    assert.strictEqual(azdoLegacy.provider, "azure-devops");
+    assert.strictEqual(azdoLegacy.org, "FET-IDTT");
+    assert.strictEqual(azdoLegacy.project, "SmartCS");
+    assert.strictEqual(azdoLegacy.repo, "demo");
+
+    const azdoSsh = detectRemoteProvider("git@ssh.dev.azure.com:v3/FET-IDTT/SmartCS/demo.git");
+    assert.strictEqual(azdoSsh.provider, "azure-devops");
+    assert.strictEqual(azdoSsh.repo, "demo");
+
+    const ghHttps = detectRemoteProvider("https://token123@github.com/octocat/Hello-World.git");
+    assert.strictEqual(ghHttps.provider, "github");
+    assert.strictEqual(ghHttps.owner, "octocat");
+    assert.strictEqual(ghHttps.org, "octocat");
+    assert.strictEqual(ghHttps.repo, "Hello-World");
+    assert.strictEqual(ghHttps.webBaseUrl, "https://github.com/octocat/Hello-World");
+    assert(!ghHttps.redactedUrl.includes("token123"));
+
+    const ghSsh = detectRemoteProvider("git@github.com:octocat/Hello-World.git");
+    assert.strictEqual(ghSsh.provider, "github");
+    assert.strictEqual(ghSsh.owner, "octocat");
+    assert.strictEqual(ghSsh.repo, "Hello-World");
+
+    const unknownInfo = detectRemoteProvider("/tmp/local-bare.git");
+    assert.strictEqual(unknownInfo.provider, "unknown");
+    assert.strictEqual(unknownInfo.webBaseUrl, "");
+
+    // 3. 建立測試用本地 Git 倉庫 + Bare origin，並註冊專案至伺服器
+    execFileSync("git", ["init", "--bare", originBare]);
+    execFileSync("git", ["-C", tempRepo, "init", "-b", "main"]);
+    execFileSync("git", ["-C", tempRepo, "config", "user.email", "tester@example.com"]);
+    execFileSync("git", ["-C", tempRepo, "config", "user.name", "Tester"]);
+    fs.writeFileSync(path.join(tempRepo, "README.md"), "# task243\n");
+    execFileSync("git", ["-C", tempRepo, "add", "README.md"]);
+    execFileSync("git", ["-C", tempRepo, "commit", "-m", "chore: init main"]);
+    execFileSync("git", ["-C", tempRepo, "remote", "add", "origin", originBare]);
+    execFileSync("git", ["-C", tempRepo, "push", "-u", "origin", "main"]);
+
+    execFileSync("git", ["-C", tempRepo, "checkout", "-b", "feat/pr-demo"]);
+    fs.writeFileSync(path.join(tempRepo, "pr_demo.txt"), "demo pr\n");
+    execFileSync("git", ["-C", tempRepo, "add", "pr_demo.txt"]);
+    execFileSync("git", ["-C", tempRepo, "commit", "-m", "feat: pr demo change"]);
+
+    const projRes = await fetch(`${base}/api/projects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: projId, name: "TASK-243 Test Project", path: tempRepo })
+    });
+    assert(projRes.ok, "建立測試專案應成功");
+
+    // 4. 整合測試：GET /api/projects/:id/remote-status?branch=feat/pr-demo
+    const statusRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/remote-status?branch=${encodeURIComponent("feat/pr-demo")}`);
+    assert.strictEqual(statusRes.status, 200);
+    const statusData = await statusRes.json();
+    assert.strictEqual(statusData.isGitRepo, true);
+    assert.strictEqual(statusData.branch, "feat/pr-demo");
+    assert.strictEqual(statusData.hasRemote, true);
+    assert.strictEqual(statusData.hasUpstream, false);
+    assert(statusData.ahead >= 1, "未推送新分支 ahead 應 >= 1");
+
+    // 5. 整合測試：POST /api/projects/:id/branches/push
+    const pushRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/branches/push`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ branch: "feat/pr-demo" })
+    });
+    assert.strictEqual(pushRes.status, 200);
+    const pushData = await pushRes.json();
+    assert.strictEqual(pushData.success, true);
+    assert.strictEqual(pushData.remoteStatus.hasUpstream, true);
+    assert.strictEqual(pushData.remoteStatus.ahead, 0);
+    const bareRef = execFileSync("git", ["-C", originBare, "rev-parse", "--verify", "refs/heads/feat/pr-demo"], { encoding: "utf8" }).trim();
+    assert(bareRef.length >= 7, "bare origin 應已有 refs/heads/feat/pr-demo");
+
+    // 6. 整合測試：remoteUrl 遮罩與 Azure DevOps 無 PAT 時 POST /api/projects/:id/branches/pr 降級
+    execFileSync("git", ["-C", tempRepo, "remote", "set-url", "origin", "https://user:super-secret-pat@dev.azure.com/FET-IDTT/SmartCS/_git/demo-repo"]);
+    const azStatusRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/remote-status?branch=${encodeURIComponent("feat/pr-demo")}`);
+    const azStatusData = await azStatusRes.json();
+    assert.strictEqual(azStatusData.provider, "azure-devops");
+    assert(!azStatusData.remoteUrl.includes("super-secret-pat") && azStatusData.remoteUrl.includes("https://***@"));
+
+    execFileSync("git", ["-C", tempRepo, "remote", "set-url", "origin", "https://dev.azure.com/FET-IDTT/SmartCS/_git/demo-repo"]);
+    const prDegradedRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/branches/pr`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourceBranch: "feat/pr-demo", targetBranch: "main", title: "Demo PR" })
+    });
+    assert.strictEqual(prDegradedRes.status, 200);
+    const prDegradedData = await prDegradedRes.json();
+    assert.strictEqual(prDegradedData.success, false);
+    assert.strictEqual(prDegradedData.degraded, true);
+    assert(
+      prDegradedData.fallbackCreateUrl.includes("dev.azure.com/FET-IDTT/SmartCS/_git/demo-repo/pullrequestcreate?sourceRef=feat%2Fpr-demo&targetRef=main"),
+      "降級連結應符合 Azure DevOps pullrequestcreate 格式"
+    );
+    assert(!JSON.stringify(prDegradedData).includes("super-secret-pat"), "PR 回應絕不可外洩 PAT");
+
+    // 7. 單元測試：createPullRequest() Azure DevOps mocked fetchImpl (201) & GitHub PATH="" 降級
+    let capturedAuth = "";
+    const azSuccess = await createPullRequest(tempRepo, {
+      sourceBranch: "feat/pr-demo",
+      targetBranch: "main",
+      title: "Mocked AzDO PR",
+      description: "- [TASK-243] test",
+      customEnv: { AZURE_DEVOPS_PAT: "unit-mock-pat" },
+      fetchImpl: async (url, init) => {
+        capturedAuth = init.headers.Authorization;
+        assert(url.includes("https://dev.azure.com/FET-IDTT/SmartCS/_apis/git/repositories/demo-repo/pullrequests?api-version=7.1"));
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({ pullRequestId: 42 })
+        };
+      }
+    });
+    assert.strictEqual(azSuccess.success, true);
+    assert.strictEqual(azSuccess.degraded, false);
+    assert.strictEqual(azSuccess.prId, 42);
+    assert(azSuccess.prUrl.endsWith("/pullrequest/42"), "prUrl 應以 /pullrequest/42 結尾");
+    assert.strictEqual(capturedAuth, "Basic " + Buffer.from(":unit-mock-pat").toString("base64"));
+
+    execFileSync("git", ["-C", tempRepo, "remote", "set-url", "origin", "https://github.com/octocat/demo-repo.git"]);
+    const ghDegraded = await createPullRequest(tempRepo, {
+      sourceBranch: "feat/pr-demo",
+      targetBranch: "main",
+      title: "Mocked GH PR",
+      customEnv: { PATH: "" }
+    });
+    assert.strictEqual(ghDegraded.success, false);
+    assert.strictEqual(ghDegraded.degraded, true);
+    assert.strictEqual(ghDegraded.provider, "github");
+    assert(
+      ghDegraded.fallbackCreateUrl.includes("github.com/octocat/demo-repo/compare/main...feat%2Fpr-demo?expand=1"),
+      "GitHub 降級連結應包含 compare/main...feat%2Fpr-demo?expand=1"
+    );
+
+    console.log("    ✅ TASK-243 遠端狀態檢查、推送分支與跨平台 PR 建立/降級驗證通過");
+  } finally {
+    try {
+      await fetch(`${base}/api/projects/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: projId })
+      });
+    } catch (e) {}
+    try { fs.rmSync(tempRepo, { recursive: true, force: true }); } catch (e) {}
+    try { fs.rmSync(originBare, { recursive: true, force: true }); } catch (e) {}
+  }
+})();
+' "$TEST_PORT"
+
 echo "  [9/9] 測試 前端核心互動邏輯與狀態防線 ..."
 node "$PROJECT_DIR/scripts/test_ui_behavior.js"
 node "$PROJECT_DIR/scripts/test_confirmation_ux.js"
