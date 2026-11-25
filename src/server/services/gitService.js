@@ -1348,6 +1348,7 @@ async function mergeFeatureBranch(repoPath, sourceBranch, targetBranch, options 
     strategy = 'merge',
     deleteSourceBranch = false,
     commitMessage = '',
+    pushTarget = false,
     customEnv = process.env
   } = options || {};
 
@@ -1374,7 +1375,20 @@ async function mergeFeatureBranch(repoPath, sourceBranch, targetBranch, options 
         timeout: 5000
       });
     } catch (e) {
-      return { success: false, merged: false, status: 'source_branch_missing', error: `找不到來源分支 ${src}` };
+      try {
+        execFileSync('git', ['-C', cleanRepo, 'rev-parse', '--verify', `refs/remotes/origin/${src}`], {
+          encoding: 'utf8',
+          env: customEnv,
+          timeout: 5000
+        });
+        execFileSync('git', ['-C', cleanRepo, 'branch', '--', src, `origin/${src}`], {
+          encoding: 'utf8',
+          env: customEnv,
+          timeout: 5000
+        });
+      } catch (_) {
+        return { success: false, merged: false, status: 'source_branch_missing', error: `找不到來源分支 ${src}` };
+      }
     }
 
     let targetSha = '';
@@ -1385,7 +1399,25 @@ async function mergeFeatureBranch(repoPath, sourceBranch, targetBranch, options 
         timeout: 5000
       }).trim();
     } catch (e) {
-      return { success: false, merged: false, status: 'target_branch_missing', error: `找不到目標分支 ${tgt}` };
+      try {
+        execFileSync('git', ['-C', cleanRepo, 'rev-parse', '--verify', `refs/remotes/origin/${tgt}`], {
+          encoding: 'utf8',
+          env: customEnv,
+          timeout: 5000
+        });
+        execFileSync('git', ['-C', cleanRepo, 'branch', '--', tgt, `origin/${tgt}`], {
+          encoding: 'utf8',
+          env: customEnv,
+          timeout: 5000
+        });
+        targetSha = execFileSync('git', ['-C', cleanRepo, 'rev-parse', '--verify', `refs/heads/${tgt}`], {
+          encoding: 'utf8',
+          env: customEnv,
+          timeout: 5000
+        }).trim();
+      } catch (_) {
+        return { success: false, merged: false, status: 'target_branch_missing', error: `找不到目標分支 ${tgt}` };
+      }
     }
 
     const headInfo = getGitBranchInfo(cleanRepo);
@@ -1420,6 +1452,35 @@ async function mergeFeatureBranch(repoPath, sourceBranch, targetBranch, options 
         timeout: 5000
       });
       clearProjectBranchCache(cleanRepo);
+      if (pushTarget === true) {
+        const pushRes = pushBranchToRemote(cleanRepo, tgt, { customEnv });
+        if (!pushRes.success) {
+          return {
+            success: false,
+            merged: true,
+            alreadyUpToDate: true,
+            pushed: false,
+            status: pushRes.status || 'push_failed',
+            strategy,
+            sourceBranch: src,
+            targetBranch: tgt,
+            commitSha: targetSha,
+            error: pushRes.error
+          };
+        }
+        return {
+          success: true,
+          merged: true,
+          alreadyUpToDate: true,
+          pushed: true,
+          remote: pushRes.remote || 'origin',
+          status: 'merged',
+          strategy,
+          sourceBranch: src,
+          targetBranch: tgt,
+          commitSha: targetSha
+        };
+      }
       return {
         success: true,
         merged: true,
@@ -1588,6 +1649,33 @@ async function mergeFeatureBranch(repoPath, sourceBranch, targetBranch, options 
       }
 
       clearProjectBranchCache(cleanRepo);
+      if (pushTarget === true) {
+        const pushRes = pushBranchToRemote(cleanRepo, tgt, { customEnv });
+        if (!pushRes.success) {
+          return {
+            success: false,
+            merged: true,
+            pushed: false,
+            status: pushRes.status || 'push_failed',
+            strategy,
+            sourceBranch: src,
+            targetBranch: tgt,
+            commitSha,
+            error: pushRes.error
+          };
+        }
+        return {
+          success: true,
+          merged: true,
+          pushed: true,
+          remote: pushRes.remote || 'origin',
+          status: 'merged',
+          strategy,
+          sourceBranch: src,
+          targetBranch: tgt,
+          commitSha
+        };
+      }
       return {
         success: true,
         merged: true,
@@ -1611,6 +1699,315 @@ async function mergeFeatureBranch(repoPath, sourceBranch, targetBranch, options 
   });
 }
 
+/**
+ * 遮罩 Git 指令或錯誤訊息中的 HTTPS 認證憑證 (user:PAT@ / token@)
+ * @param {string} text
+ * @returns {string}
+ */
+function maskGitCredentials(text) {
+  if (text === undefined || text === null) return '';
+  return String(text)
+    .replace(/(https?:\/\/)[^:@\/\s]+:[^@\/\s]+@/gi, '$1***@')
+    .replace(/(https?:\/\/)[^@\/\s]+@/gi, '$1***@');
+}
+
+/**
+ * 將遠端 Git URL（含 embedded PAT 或 SSH 格式）正規化為乾淨的網頁 URL
+ * @param {string} remoteUrl
+ * @returns {string}
+ */
+function sanitizeRemoteWebUrl(remoteUrl) {
+  const raw = String(remoteUrl || '').trim();
+  if (!raw) return '';
+
+  const azureSshMatch = raw.match(/^(?:ssh:\/\/)?(?:[^@\s]+@)?ssh\.dev\.azure\.com[:/]v3\/([^/]+)\/([^/]+)\/([^/?#\s]+?)(?:\.git)?\/?$/i);
+  if (azureSshMatch) {
+    return `https://dev.azure.com/${azureSshMatch[1]}/${azureSshMatch[2]}/_git/${azureSshMatch[3]}`;
+  }
+
+  if (!raw.includes('://')) {
+    const scpMatch = raw.match(/^[^@/\s]+@([^:/\s]+):(.+?)(?:\.git)?\/?$/);
+    if (scpMatch) {
+      const cleanPath = scpMatch[2].replace(/^\/+/, '').replace(/\.git\/?$/i, '').replace(/\/+$/, '');
+      if (scpMatch[1] && cleanPath) {
+        return `https://${scpMatch[1]}/${cleanPath}`;
+      }
+    }
+    return '';
+  }
+
+  const sshUrlMatch = raw.match(/^ssh:\/\/(?:[^@/\s]+@)?([^:/\s]+)(?::\d+)?\/(.+?)(?:\.git)?\/?$/i);
+  if (sshUrlMatch) {
+    const cleanPath = sshUrlMatch[2].replace(/\.git\/?$/i, '').replace(/\/+$/, '');
+    return cleanPath ? `https://${sshUrlMatch[1]}/${cleanPath}` : '';
+  }
+
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return '';
+    }
+    parsed.username = '';
+    parsed.password = '';
+    parsed.search = '';
+    parsed.hash = '';
+    parsed.pathname = parsed.pathname.replace(/\.git\/?$/i, '').replace(/\/+$/, '');
+    return parsed.toString().replace(/\/+$/, '');
+  } catch (_) {
+    return '';
+  }
+}
+
+function detectGitProvider(webUrl) {
+  if (!webUrl) return '';
+  try {
+    const host = new URL(webUrl).hostname.toLowerCase();
+    if (host === 'dev.azure.com' || host.endsWith('.visualstudio.com')) return 'azure_devops';
+    if (host === 'github.com' || host.endsWith('.github.com')) return 'github';
+    if (host === 'gitlab.com' || host.includes('gitlab')) return 'gitlab';
+    return 'git';
+  } catch (_) {
+    return '';
+  }
+}
+
+/**
+ * 依據遠端託管平台建構建立 PR / MR 的瀏覽器網址（絕不夾帶憑證）
+ * @param {string} remoteUrl
+ * @param {string} sourceBranch
+ * @param {string} targetBranch
+ * @returns {string}
+ */
+function buildPullRequestUrl(remoteUrl, sourceBranch, targetBranch) {
+  const webUrl = sanitizeRemoteWebUrl(remoteUrl);
+  const src = String(sourceBranch || '').trim();
+  const tgt = String(targetBranch || '').trim();
+  if (!webUrl || !src || !tgt) return '';
+
+  const provider = detectGitProvider(webUrl);
+  if (provider === 'azure_devops') {
+    return `${webUrl}/pullrequestcreate?sourceRef=${encodeURIComponent(src)}&targetRef=${encodeURIComponent(tgt)}`;
+  }
+  if (provider === 'github') {
+    return `${webUrl}/compare/${encodeURIComponent(tgt)}...${encodeURIComponent(src)}?expand=1`;
+  }
+  return `${webUrl}/-/merge_requests/new?merge_request[source_branch]=${encodeURIComponent(src)}&merge_request[target_branch]=${encodeURIComponent(tgt)}`;
+}
+
+/**
+ * 安全取得儲存庫 origin 遠端 URL
+ * @param {string} repoPath
+ * @returns {string}
+ */
+function getRemoteOriginUrl(repoPath) {
+  const cleanRepo = repoPath ? String(repoPath).replace(/\/+$/, '') : '';
+  if (!cleanRepo || !fs.existsSync(cleanRepo)) return '';
+  try {
+    return execFileSync('git', ['-C', cleanRepo, 'remote', 'get-url', 'origin'], {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+      timeout: 5000
+    }).trim();
+  } catch (_) {
+    return '';
+  }
+}
+
+/**
+ * 收集儲存庫所有不重複的本地與遠端 origin 分支名稱
+ * @param {string} repoPath
+ * @returns {string[]}
+ */
+function listAllBranchNames(repoPath) {
+  const cleanRepo = repoPath ? String(repoPath).replace(/\/+$/, '') : '';
+  if (!cleanRepo || !fs.existsSync(cleanRepo)) return [];
+  const seen = new Set();
+
+  const localInfo = getProjectBranches(cleanRepo, [], { refresh: false });
+  if (Array.isArray(localInfo.branches)) {
+    localInfo.branches.forEach(b => {
+      const name = b && b.name ? String(b.name).trim() : '';
+      if (name) seen.add(name);
+    });
+  }
+
+  try {
+    const remoteOut = execFileSync('git', ['-C', cleanRepo, 'for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin'], {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+      timeout: 5000
+    });
+    remoteOut.split(/\r?\n/).forEach(line => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed === 'origin' || trimmed === 'origin/HEAD') return;
+      const stripped = trimmed.replace(/^origin\//, '');
+      if (stripped && stripped !== 'HEAD') seen.add(stripped);
+    });
+  } catch (_) {}
+
+  return Array.from(seen);
+}
+
+/**
+ * 推送指定分支至 origin 遠端（遮罩任何潛在 PAT 憑證錯誤輸出）
+ * @param {string} repoPath
+ * @param {string} branchName
+ * @param {Object} [options]
+ * @returns {{ success: boolean, pushed: boolean, branch?: string, remote?: string, status?: string, error?: string }}
+ */
+function pushBranchToRemote(repoPath, branchName, options = {}) {
+  const cleanRepo = repoPath ? String(repoPath).replace(/\/+$/, '') : '';
+  const branch = String(branchName || '').trim();
+  const customEnv = (options && options.customEnv) || process.env;
+
+  if (!cleanRepo || !fs.existsSync(cleanRepo) || !fs.existsSync(path.join(cleanRepo, '.git'))) {
+    return { success: false, pushed: false, status: 'not_git_repo', error: '目標專案非 Git 儲存庫' };
+  }
+  if (!branch) {
+    return { success: false, pushed: false, status: 'invalid_branch', error: '請指定要推送的分支名稱' };
+  }
+
+  let hasOrigin = false;
+  try {
+    const remotes = execFileSync('git', ['-C', cleanRepo, 'remote'], {
+      encoding: 'utf8',
+      env: customEnv,
+      timeout: 5000
+    });
+    hasOrigin = remotes.split(/\r?\n/).map(r => r.trim()).includes('origin');
+  } catch (_) {}
+
+  if (!hasOrigin) {
+    return {
+      success: false,
+      pushed: false,
+      branch,
+      status: 'no_remote',
+      error: '找不到 origin 遠端儲存庫，無法執行推送。'
+    };
+  }
+
+  try {
+    execFileSync('git', ['-C', cleanRepo, 'push', '-u', 'origin', branch], {
+      encoding: 'utf8',
+      env: customEnv,
+      timeout: 30000
+    });
+    clearProjectBranchCache(cleanRepo);
+    return {
+      success: true,
+      pushed: true,
+      branch,
+      remote: 'origin'
+    };
+  } catch (err) {
+    const rawErr = [err && err.stderr, err && err.stdout, err && err.message].filter(Boolean).join('\n').trim() || 'git push 失敗';
+    return {
+      success: false,
+      pushed: false,
+      branch,
+      remote: 'origin',
+      status: 'push_failed',
+      error: maskGitCredentials(rawErr)
+    };
+  }
+}
+
+/**
+ * 依據專案識別與分支環境解析完成任務交付策略（Merge+Push / PR / Auto-Archive 預設）
+ * @param {string} projectId
+ * @param {string} repoPath
+ * @param {Object} [options]
+ * @returns {Object}
+ */
+function resolveProjectDeliveryPolicy(projectId, repoPath, options = {}) {
+  const combinedId = [projectId, options && options.projectName]
+    .map(v => String(v || '').trim().toLowerCase())
+    .filter(Boolean)
+    .join(' ');
+
+  const availableBranches = listAllBranchNames(repoPath);
+  const branchInfo = getProjectBranches(repoPath, [], { refresh: false });
+  const remoteUrl = getRemoteOriginUrl(repoPath);
+  const webUrl = sanitizeRemoteWebUrl(remoteUrl);
+  const provider = detectGitProvider(webUrl);
+
+  const repoDefaultBranch = String(
+    branchInfo.defaultBranch ||
+    (availableBranches.includes('main') ? 'main' : (availableBranches.includes('master') ? 'master' : (branchInfo.currentCheckoutBranch || 'main')))
+  ).trim() || 'main';
+  const defaultSourceBranch = String(branchInfo.currentCheckoutBranch || repoDefaultBranch || 'main').trim();
+
+  // Category A: Staging Merge+Push (new_dev/develop, archive=false) + Master PR (master, archive=true)
+  if (/(mobile[-_]?inline|digital[-_]?f2e|eservice[-_]?f2e|service-mobilecircle-inline-page|fetnet-digital-f2e|fetnet-eservice-f2e)/i.test(combinedId)) {
+    const isEservice = /eservice[-_]?f2e/i.test(combinedId);
+    const defaultMergeTarget = isEservice
+      ? (availableBranches.includes('new_dev') ? 'new_dev' : 'develop')
+      : 'develop';
+    return {
+      category: 'staging_merge_master_pr',
+      allowMergePush: true,
+      allowPrPush: true,
+      defaultAction: 'merge_push',
+      defaultMergeTarget,
+      defaultPrTarget: 'master',
+      archiveDefaults: { merge_push: false, pr_push: true },
+      availableBranches,
+      defaultSourceBranch,
+      provider
+    };
+  }
+
+  // Category B: Staging / Static Web PR Push (default target: master, archive=true)
+  if (/(tool-static-web|tool-static-portal)/i.test(combinedId)) {
+    return {
+      category: 'staging_pr',
+      allowMergePush: false,
+      allowPrPush: true,
+      defaultAction: 'pr_push',
+      defaultMergeTarget: 'master',
+      defaultPrTarget: 'master',
+      archiveDefaults: { merge_push: true, pr_push: true },
+      availableBranches,
+      defaultSourceBranch,
+      provider
+    };
+  }
+
+  // Category C: Direct Merge+Push (default target: main, archive=true)
+  if (/(plan-to-build|task-dashboard)/i.test(combinedId)) {
+    const targetMain = (availableBranches.length === 0 || availableBranches.includes('main'))
+      ? 'main'
+      : repoDefaultBranch;
+    return {
+      category: 'direct_merge_push',
+      allowMergePush: true,
+      allowPrPush: false,
+      defaultAction: 'merge_push',
+      defaultMergeTarget: targetMain,
+      defaultPrTarget: targetMain,
+      archiveDefaults: { merge_push: true, pr_push: true },
+      availableBranches,
+      defaultSourceBranch,
+      provider
+    };
+  }
+
+  // Fallback
+  return {
+    category: 'default',
+    allowMergePush: true,
+    allowPrPush: true,
+    defaultAction: 'merge_push',
+    defaultMergeTarget: repoDefaultBranch,
+    defaultPrTarget: repoDefaultBranch,
+    archiveDefaults: { merge_push: true, pr_push: true },
+    availableBranches,
+    defaultSourceBranch,
+    provider
+  };
+}
+
 module.exports = {
   collectGitDiff,
   discardGitChanges,
@@ -1628,5 +2025,12 @@ module.exports = {
   removeTaskWorktree,
   mergeTaskWorktree,
   checkTaskBaseDrift,
-  mergeFeatureBranch
+  mergeFeatureBranch,
+  maskGitCredentials,
+  sanitizeRemoteWebUrl,
+  buildPullRequestUrl,
+  getRemoteOriginUrl,
+  listAllBranchNames,
+  pushBranchToRemote,
+  resolveProjectDeliveryPolicy
 };

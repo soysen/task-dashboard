@@ -37,14 +37,14 @@
       font-size: 16px;
     }
     .dark {
-      --background: #111317;
+      --background: #0c0f14;
       --foreground: #f1f5f9;
-      --card: #1c2028;
-      --sidebar: #161920;
-      --border: #2a303c;
+      --card: #1d2430;
+      --sidebar: #141922;
+      --border: #3a4659;
       --primary: #0ea5e9;
       --primary-foreground: #ffffff;
-      --muted-foreground: #94a3b8;
+      --muted-foreground: #a3b2c7;
       --success: #34d399;
       --warning: #fbbf24;
       --error: #f87171;
@@ -53,15 +53,15 @@
       --td-canvas: var(--background);
       --td-well: var(--sidebar);
       --td-card: var(--card);
-      --td-panel: #232832;
+      --td-panel: #252e3d;
       --td-primary: var(--primary);
       --td-status-todo: #94a3b8;
       --td-status-progress: var(--primary);
       --td-status-review: var(--warning);
       --td-status-done: var(--success);
-      --td-shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.35);
-      --td-shadow-card-hover: 0 4px 12px -2px rgba(0, 0, 0, 0.5);
-      --td-shadow-well: none;
+      --td-shadow-card: 0 2px 6px 0 rgba(0, 0, 0, 0.55), inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+      --td-shadow-card-hover: 0 8px 20px -4px rgba(0, 0, 0, 0.7), inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+      --td-shadow-well: inset 0 1px 3px 0 rgba(0, 0, 0, 0.45);
     }
 
     /* Mockup 3.0 結構化色塊與微框線階層 */
@@ -85,6 +85,24 @@
     .td-surface-panel {
       background-color: var(--background);
       border: 1px solid var(--border);
+    }
+    .dark .td-surface-well {
+      background-color: var(--sidebar);
+      border-color: var(--border);
+      box-shadow: var(--td-shadow-well);
+    }
+    .dark .td-surface-card {
+      background-color: var(--card);
+      border-color: #425066;
+      box-shadow: var(--td-shadow-card);
+    }
+    .dark .td-surface-card:hover {
+      box-shadow: var(--td-shadow-card-hover);
+      border-color: color-mix(in srgb, var(--primary) 60%, #425066);
+    }
+    .dark .td-surface-panel {
+      background-color: var(--td-panel);
+      border-color: #46556c;
     }
 
     * {
@@ -237,6 +255,7 @@
     }
     .diff-content {
       flex: 1;
+      min-width: 0;
       padding-left: 6px;
       white-space: pre;
       overflow-x: auto;

@@ -1,13 +1,140 @@
 import { projects, tasks, archivedTasks, archivedTasksCount, settings, projectGitStatus, currentProject, currentBranch, currentTaskDependencies, currentActiveTaskDiff, currentModalEditingTask, selectedArchivedTaskIds, isOpenedFromArchive, setTasks, setArchivedTasks, setArchivedTasksCount, setCurrentModalEditingTask, setCurrentTaskDependencies, setCurrentActiveTaskDiff, setIsOpenedFromArchive } from "./state.js";
 import { escapeHtml, autoResizeTextarea, resetTextareaHeight, formatDuration, showToast, withButtonLoading, copyPrompt, copySessionId, copyToClipboard, normalizeLogText } from "./utils.js";
 import { renderKanban, renderMetrics } from "./kanban.js";
-import { renderDiffViewer, parseDiffStats, filterDiffForFile, showAllDiffs } from "./diffViewer.js";
+import { renderDiffViewer, parseDiffStats, filterDiffForFile, showAllDiffs, splitDiffByFiles } from "./diffViewer.js";
 import { renderExecutionReport, renderExecutionPlan, switchPlanViewTab } from "./executionReport.js";
 import { loadData } from "./app.js";
 import { setIsCurrentModalReadOnly, setFormProject, updateConfirmationGateForProject, clearFormProject, updateProjectClearButtonVisibility, showProjectAutocomplete, hideProjectAutocomplete, toggleProjectAutocomplete, onProjectAutocompleteInput, renderProjectAutocompleteList, updateDependencyOptions, addDependencyFromSelect, removeDependency, renderDependencyChips, initSelect2Dropdown, toggleSelect2Dropdown, onSelect2Search, onSelect2KeyDown, select2ToggleOption, select2AddTag, select2RemoveTag, syncSelect2ToHiddenInput, setSelect2Tags, renderSelect2Chips, insertFeedbackPreset, insertGrillMeDecision, onFormProjectChangeLoadBranches, selectWorkspaceMode, toggleQuickBranchBox, quickCreateBranchInline, updateInPlaceDirtyWarning } from "./modalFormEditor.js";
 import { renderContextualHeaderActions } from "./branchNavigator.js";
 import { selectedArchiveTaskIds, loadArchivedTasks, openArchiveModal, closeArchiveModal, renderArchiveTasksList, toggleArchiveTaskSelect, toggleArchiveSelectAll, batchDeleteSelectedArchived, deleteAllArchivedTasks, batchRestoreSelectedArchived, restoreSingleArchivedTask, deleteSingleArchivedTask } from "./modalArchive.js";
 import { initReviewLandPanel } from "./reviewLandStudio.js";
+import { initDoneDeliveryPanel } from "./doneDeliveryStudio.js";
+
+    function isDiffVisibleStatus(status) {
+      return ['review', 'pending_review', 'done', 'archived'].includes(status);
+    }
+
+    function resolveModifiedFileEntries(task) {
+      if (!task) return [];
+      if (Array.isArray(task.modifiedFiles) && task.modifiedFiles.length > 0) {
+        const seen = new Set();
+        const entries = [];
+        for (const f of task.modifiedFiles) {
+          const filePath = (typeof f === 'string' ? f : (f && f.path ? f.path : '')).trim();
+          if (!filePath || seen.has(filePath)) continue;
+          seen.add(filePath);
+          const description = (typeof f === 'object' && f && f.description) ? String(f.description) : '';
+          entries.push({ path: filePath, description });
+        }
+        if (entries.length > 0) return entries;
+      }
+      if (task.diff && typeof task.diff === 'string' && task.diff.trim().length > 0) {
+        const sections = splitDiffByFiles(task.diff);
+        const seen = new Set();
+        const entries = [];
+        for (const sec of sections) {
+          const filePath = (sec.filePath || '').trim();
+          if (!filePath || seen.has(filePath)) continue;
+          seen.add(filePath);
+          entries.push({ path: filePath, description: '' });
+        }
+        return entries;
+      }
+      return [];
+    }
+
+    function renderModifiedFilesList(task, modFilesList) {
+      const resolvedFiles = resolveModifiedFileEntries(task);
+      if (!modFilesList) return resolvedFiles;
+      if (resolvedFiles.length > 0) {
+        const stats = parseDiffStats(task.diff || '');
+        modFilesList.innerHTML = resolvedFiles.map(({ path: filePath, description: desc }) => {
+          const lastSlashIdx = filePath.lastIndexOf('/');
+          const fileName = lastSlashIdx >= 0 ? filePath.slice(lastSlashIdx + 1) : filePath;
+          const dirPath = lastSlashIdx > 0 ? filePath.slice(0, lastSlashIdx) : '';
+          const fStat = (stats.filesMap && (stats.filesMap[filePath] || stats.filesMap[fileName])) || { status: 'M', additions: 0, deletions: 0 };
+          const status = fStat.status || 'M';
+          const statusBadge = status === 'A'
+            ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex-shrink-0">A</span>'
+            : (status === 'D'
+              ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 flex-shrink-0">D</span>'
+              : '<span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 flex-shrink-0">M</span>');
+          const linesStat = (fStat.additions > 0 || fStat.deletions > 0)
+            ? `<span class="text-[10px] font-mono flex items-center gap-1 flex-shrink-0"><span class="text-emerald-600 font-bold">+${fStat.additions}</span><span class="text-rose-600 font-bold">-${fStat.deletions}</span></span>`
+            : '';
+          const dirPathHtml = dirPath
+            ? `<div class="text-[10px] text-slate-400 dark:text-slate-500 font-mono truncate mt-0.5 pl-5">${escapeHtml(dirPath)}</div>`
+            : '';
+          const descHtml = desc
+            ? `<div class="text-slate-500 dark:text-slate-400 text-[10px] truncate mt-0.5 pl-5">${escapeHtml(desc)}</div>`
+            : '';
+
+          return `
+            <div data-path="${escapeHtml(filePath)}" onclick="filterDiffForFile('${escapeHtml(filePath)}')" class="mod-file-item flex items-center justify-between gap-2 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer transition">
+              <div class="min-w-0 flex-1" title="${escapeHtml(filePath)}">
+                <div class="flex items-center gap-1.5 min-w-0">
+                  ${statusBadge}
+                  <span class="text-indigo-600 dark:text-indigo-300 font-semibold truncate text-xs font-mono">${escapeHtml(fileName)}</span>
+                </div>
+                ${dirPathHtml}
+                ${descHtml}
+              </div>
+              ${linesStat ? `<div class="flex items-center gap-1.5 flex-shrink-0">${linesStat}</div>` : ''}
+            </div>
+          `;
+        }).join('');
+      } else {
+        modFilesList.innerHTML = '<div class="text-center py-2 text-slate-400 text-xs italic"> 尚未有異動檔案紀錄</div>';
+      }
+      return resolvedFiles;
+    }
+
+    function applyModalTabButtonStyles(tabMap, activeKey) {
+      const activeClasses = ['bg-white', 'dark:bg-slate-800', 'text-slate-900', 'dark:text-white', 'shadow-xs', 'font-semibold', 'border-slate-300/80', 'dark:border-slate-600'];
+      const inactiveClasses = ['border-transparent', 'text-slate-600', 'dark:text-slate-400', 'hover:text-slate-900', 'dark:hover:text-slate-200', 'font-medium', 'hover:bg-white/40', 'dark:hover:bg-slate-800/40'];
+      Object.entries(tabMap).forEach(([key, btn]) => {
+        if (!btn) return;
+        const isActive = key === activeKey;
+        btn.setAttribute?.('aria-selected', String(isActive));
+        activeClasses.forEach(cls => btn.classList?.toggle(cls, isActive));
+        inactiveClasses.forEach(cls => btn.classList?.toggle(cls, !isActive));
+      });
+    }
+
+    function applyModalWorkspaceColumns({ allowDiff, isDiff }) {
+      const rightCol = document.getElementById('modalRightColumn');
+      const leftCol = document.getElementById('modalLeftColumn');
+      const formGrid = document.getElementById('modalFormGrid');
+
+      if (formGrid?.classList) {
+        if (typeof formGrid.classList.toggle === 'function') {
+          formGrid.classList.toggle('lg:grid-cols-2', false);
+          formGrid.classList.toggle('lg:grid-cols-12', allowDiff);
+          formGrid.classList.toggle('grid-cols-1', !allowDiff);
+        } else {
+          formGrid.classList.remove?.('lg:grid-cols-2', allowDiff ? 'grid-cols-1' : 'lg:grid-cols-12');
+        }
+      }
+
+      if (!allowDiff) {
+        leftCol?.classList?.toggle('hidden', false);
+        leftCol?.classList?.toggle('lg:col-span-5', false);
+        leftCol?.classList?.toggle('lg:col-span-12', false);
+        leftCol?.classList?.toggle('w-full', true);
+        rightCol?.classList?.toggle('hidden', true);
+        rightCol?.classList?.toggle('lg:col-span-7', false);
+        rightCol?.classList?.toggle('lg:col-span-12', false);
+        return;
+      }
+
+      leftCol?.classList?.toggle('hidden', isDiff);
+      leftCol?.classList?.toggle('w-full', false);
+      leftCol?.classList?.toggle('lg:col-span-5', false);
+      leftCol?.classList?.toggle('lg:col-span-12', !isDiff);
+      rightCol?.classList?.toggle('hidden', !isDiff);
+      rightCol?.classList?.toggle('lg:col-span-7', false);
+      rightCol?.classList?.toggle('lg:col-span-12', isDiff);
+    }
 
     function switchModalWorkspaceTab(mode = 'review') {
       const reviewPane = document.getElementById('modalReviewPane');
@@ -15,50 +142,42 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       const contextSummary = document.getElementById('modalReviewContextSummary');
       const btnReview = document.getElementById('btnModalTabReview');
       const btnSpec = document.getElementById('btnModalTabSpec');
-      const rightCol = document.getElementById('modalRightColumn');
-      const leftCol = document.getElementById('modalLeftColumn');
-      const formGrid = document.getElementById('modalFormGrid');
-      const isSpec = mode === 'spec';
+      const btnDiff = document.getElementById('btnModalTabDiff');
+      const btnEditSpecShortcut = document.getElementById('btnModalEditSpecShortcut');
+      const allowDiff = Boolean(currentModalEditingTask && isDiffVisibleStatus(currentModalEditingTask.status));
 
-      if (specPane) specPane.classList.toggle('hidden', !isSpec);
-      if (reviewPane) reviewPane.classList.toggle('hidden', isSpec);
-      if (contextSummary) contextSummary.classList.toggle('hidden', isSpec || !currentModalEditingTask);
+      btnSpec?.classList?.toggle('hidden', allowDiff);
+      btnDiff?.classList?.toggle('hidden', !allowDiff);
+      btnEditSpecShortcut?.classList?.toggle('hidden', allowDiff);
 
-      // 切換至「需求規格與屬性」時自動收起右側 Diff 欄與底部審核決策塢，提供清爽單欄表單編輯體驗
-      if (currentModalEditingTask) {
-        if (rightCol) rightCol.classList.toggle('hidden', isSpec);
-        if (leftCol) {
-          leftCol.classList.toggle('lg:col-span-5', !isSpec);
-          leftCol.classList.toggle('lg:col-span-12', isSpec);
-        }
-        if (formGrid && isSpec) {
-          formGrid.classList.remove('lg:grid-cols-2');
-        }
-        if (typeof initReviewLandPanel === 'function') {
-          initReviewLandPanel(isSpec ? null : currentModalEditingTask);
-        }
+      const activeMode = allowDiff
+        ? (mode === 'diff' ? 'diff' : 'review')
+        : (mode === 'spec' ? 'spec' : 'review');
+      const isReview = activeMode === 'review';
+      const isSpec = activeMode === 'spec';
+      const isDiff = activeMode === 'diff';
+
+      specPane?.classList?.toggle('hidden', !isSpec);
+      reviewPane?.classList?.toggle('hidden', !isReview);
+      contextSummary?.classList?.toggle('hidden', !isReview || !currentModalEditingTask);
+
+      applyModalWorkspaceColumns({ allowDiff, isDiff });
+
+      if (currentModalEditingTask && typeof initReviewLandPanel === 'function') {
+        initReviewLandPanel(isSpec || !allowDiff ? null : currentModalEditingTask);
+      }
+      if (currentModalEditingTask && typeof initDoneDeliveryPanel === 'function') {
+        const isDoneDeliverState = Boolean(currentModalEditingTask.status === 'done' && !isOpenedFromArchive);
+        initDoneDeliveryPanel(isSpec || !isDoneDeliverState ? null : currentModalEditingTask);
       }
 
-      if (btnReview && btnSpec) {
-        btnReview.setAttribute('aria-selected', String(!isSpec));
-        btnSpec.setAttribute('aria-selected', String(isSpec));
-        const activeClasses = ['bg-white', 'dark:bg-slate-800', 'text-slate-900', 'dark:text-white', 'shadow-xs', 'font-semibold', 'border-slate-300/80', 'dark:border-slate-600'];
-        const inactiveClasses = ['border-transparent', 'text-slate-600', 'dark:text-slate-400', 'hover:text-slate-900', 'dark:hover:text-slate-200', 'font-medium', 'hover:bg-white/40', 'dark:hover:bg-slate-800/40'];
-        activeClasses.forEach(cls => {
-          btnReview.classList.toggle(cls, !isSpec);
-          btnSpec.classList.toggle(cls, isSpec);
-        });
-        inactiveClasses.forEach(cls => {
-          btnReview.classList.toggle(cls, isSpec);
-          btnSpec.classList.toggle(cls, !isSpec);
-        });
-      }
+      applyModalTabButtonStyles({ review: btnReview, spec: btnSpec, diff: btnDiff }, activeMode);
 
       if (currentModalEditingTask && currentModalEditingTask.status !== 'todo') {
         setTimeout(() => {
           if (isSpec) {
             autoResizeTextarea(document.getElementById('formDescription'), 72, 380);
-          } else {
+          } else if (isReview) {
             autoResizeTextarea(document.getElementById('formExecutionPlan'), 60, 300);
             autoResizeTextarea(document.getElementById('formFeedback'), 48, 200);
           }
@@ -115,10 +234,15 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
         workspaceTabs.classList.add('hidden');
         workspaceTabs.classList.remove('flex');
       }
+      document.getElementById('modalLeftColumn')?.classList.remove('hidden');
+      document.getElementById('btnModalTabSpec')?.classList.remove('hidden');
+      document.getElementById('btnModalTabDiff')?.classList.add('hidden');
+      document.getElementById('btnModalTabDiff')?.setAttribute('aria-selected', 'false');
+      document.getElementById('btnModalEditSpecShortcut')?.classList.remove('hidden');
       document.getElementById('modalReviewContextSummary')?.classList.add('hidden');
       document.getElementById('modalSpecPane')?.classList.remove('hidden');
       document.getElementById('modalReviewPane')?.classList.add('hidden');
-      document.getElementById('reviewFeedbackBox').classList.add('hidden');
+      document.getElementById('reviewFeedbackBox')?.classList.add('hidden');
       document.getElementById('formSliceInfoBox')?.classList.add('hidden');
 
       // 清空右欄 Diff 與 Modified Files
@@ -403,19 +527,30 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       }
       setCurrentModalEditingTask(task);
 
-      if (task.diffPath) {
-        fetch(`/api/tasks/${task.id}/diff?t=${Date.now()}`)
-          .then(res => res.json())
-          .then(data => {
-            if (data && data.diff) {
-              task.diff = data.diff;
-              if (currentModalEditingTask && currentModalEditingTask.id === task.id) {
-                setCurrentActiveTaskDiff(data.diff);
-                renderDiffViewer(data.diff);
+      if (isDiffVisibleStatus(task.status)) {
+        if (task.diffPath) {
+          fetch(`/api/tasks/${task.id}/diff?t=${Date.now()}`)
+            .then(res => res.json())
+            .then(data => {
+              if (data && data.diff) {
+                task.diff = data.diff;
+                if (currentModalEditingTask && currentModalEditingTask.id === task.id) {
+                  setCurrentActiveTaskDiff(data.diff);
+                  const resolved = renderModifiedFilesList(task, document.getElementById('formModifiedFilesList'));
+                  if (resolved.length > 0) {
+                    filterDiffForFile(resolved[0].path);
+                  } else {
+                    renderDiffViewer(data.diff);
+                  }
+                }
               }
-            }
-          })
-          .catch(() => {});
+            })
+            .catch(() => {});
+        }
+      } else {
+        setCurrentActiveTaskDiff('');
+        renderDiffViewer('');
+        document.getElementById('modalRightColumn')?.classList.add('hidden');
       }
 
       const fromArchive = Boolean(options && options.fromArchive) || task.status === 'archived';
@@ -528,39 +663,7 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
           .catch(() => {});
       } else {
         renderModalSliceInfo(task);
-        if (task.modifiedFiles && task.modifiedFiles.length > 0) {
-          const stats = parseDiffStats(task.diff || '');
-          modFilesList.innerHTML = task.modifiedFiles.map(f => {
-            const filePath = typeof f === 'string' ? f : f.path;
-            const desc = (typeof f === 'object' && f.description) ? f.description : '';
-            const baseName = filePath.split('/').pop();
-            const fStat = (stats.filesMap && (stats.filesMap[filePath] || stats.filesMap[baseName])) || { status: 'M', additions: 0, deletions: 0 };
-            const status = fStat.status || 'M';
-            const statusBadge = status === 'A'
-              ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">A</span>'
-              : (status === 'D'
-                ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">D</span>'
-                : '<span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">M</span>');
-            const linesStat = (fStat.additions > 0 || fStat.deletions > 0)
-              ? `<span class="text-[10px] font-mono flex items-center gap-1"><span class="text-emerald-600 font-bold">+${fStat.additions}</span><span class="text-rose-600 font-bold">-${fStat.deletions}</span></span>`
-              : '';
-
-            return `
-              <div data-path="${escapeHtml(filePath)}" onclick="filterDiffForFile('${escapeHtml(filePath)}')" class="mod-file-item flex items-center justify-between bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer transition">
-                <div class="flex items-center gap-2 truncate">
-                  ${statusBadge}
-                  <span class="text-indigo-600 dark:text-indigo-300 font-semibold truncate text-xs font-mono">${escapeHtml(filePath)}</span>
-                </div>
-                <div class="flex items-center gap-2 flex-shrink-0">
-                  ${linesStat}
-                  <span class="text-slate-500 dark:text-slate-400 text-[10px] truncate max-w-xs">${escapeHtml(desc || '查看 Diff')}</span>
-                </div>
-              </div>
-            `;
-          }).join('');
-        } else {
-          modFilesList.innerHTML = '<div class="text-center py-2 text-slate-400 text-xs italic"> 尚未有異動檔案紀錄</div>';
-        }
+        const resolvedFiles = renderModifiedFilesList(task, modFilesList);
 
         // 執行紀錄 (自然完整展開，不加內部滾軸)
         if (task.executionLog) {
@@ -584,14 +687,21 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
               if (!task.executionLog) logBox.classList.add('hidden');
             });
         }
-      }
 
-      // 右欄：Git Diff 檢視器 (若有異動檔案則預設呈現第一個檔案，否則顯示全部)
-      if (task.modifiedFiles && task.modifiedFiles.length > 0) {
-        const firstFile = typeof task.modifiedFiles[0] === 'string' ? task.modifiedFiles[0] : task.modifiedFiles[0].path;
-        filterDiffForFile(firstFile);
-      } else {
-        showAllDiffs();
+        // 右欄：Git Diff 檢視器 (僅審核/已完成/封存狀態呈現；預設僅顯示第一個選中檔案)
+        if (isDiffVisibleStatus(task.status)) {
+          if (resolvedFiles.length > 0) {
+            filterDiffForFile(resolvedFiles[0].path);
+          } else if (task.diff && task.diff.trim().length > 0) {
+            renderDiffViewer(task.diff);
+          } else {
+            renderDiffViewer('');
+          }
+        } else {
+          setCurrentActiveTaskDiff('');
+          renderDiffViewer('');
+          document.getElementById('modalRightColumn')?.classList.add('hidden');
+        }
       }
 
 
@@ -605,10 +715,6 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
         } else {
           btnAbandonEdit.classList.remove('hidden');
         }
-      }
-      updateModalButtonState();
-      if (typeof initReviewLandPanel === 'function') {
-        initReviewLandPanel(task);
       }
 
       // 填充 IA 審核上下文摘要 (Compact Context Summary) 並根據任務階段預設切換分頁
@@ -636,6 +742,11 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
         workspaceTabs.classList.toggle('flex', showReviewWorkspace);
       }
       if (!showReviewWorkspace) {
+        document.getElementById('modalLeftColumn')?.classList.remove('hidden');
+        document.getElementById('btnModalTabSpec')?.classList.remove('hidden');
+        document.getElementById('btnModalTabDiff')?.classList.add('hidden');
+        document.getElementById('btnModalTabDiff')?.setAttribute('aria-selected', 'false');
+        document.getElementById('btnModalEditSpecShortcut')?.classList.remove('hidden');
         document.getElementById('modalReviewContextSummary')?.classList.add('hidden');
         document.getElementById('modalSpecPane')?.classList.remove('hidden');
         document.getElementById('modalReviewPane')?.classList.add('hidden');
@@ -648,6 +759,14 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
           reviewDot.classList.toggle('hidden', !needsReviewAttention);
         }
         switchModalWorkspaceTab('review');
+      }
+
+      updateModalButtonState();
+      if (typeof initReviewLandPanel === 'function') {
+        initReviewLandPanel(isDiffVisibleStatus(task.status) ? task : null);
+      }
+      if (typeof initDoneDeliveryPanel === 'function') {
+        initDoneDeliveryPanel(task.status === 'done' && !isOpenedFromArchive ? task : null);
       }
 
       document.getElementById('taskModal').classList.remove('hidden');
@@ -917,8 +1036,8 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
 
 
     function updateModalButtonState() {
-      const status = document.getElementById('formStatus').value;
-      const taskId = document.getElementById('formTaskId').value;
+      const status = document.getElementById('formStatus')?.value || 'todo';
+      const taskId = document.getElementById('formTaskId')?.value || '';
       const btnApprove = document.getElementById('btnApproveTask');
       const btnReject = document.getElementById('btnRejectTask');
       const btnSubmit = document.getElementById('btnSubmitTask');
@@ -928,23 +1047,29 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       const formGrid = document.getElementById('modalFormGrid');
       const leftCol = document.getElementById('modalLeftColumn');
 
-      // 待處理、進行中或新增任務時：隱藏審查回饋、異動檔案與 Git Diff，左側欄位 100% 滿版展開
-      const isSimpleMode = (status === 'todo' || status === 'in_progress' || !taskId);
+      // 待處理、進行中、待人工協助或新增任務時：隱藏審查回饋、異動檔案與 Git Diff，左側欄位 100% 滿版展開
+      const isSimpleMode = (status === 'todo' || status === 'in_progress' || status === 'needs_human' || !taskId);
 
       if (isSimpleMode) {
         if (reviewFeedbackBox) reviewFeedbackBox.classList.add('hidden');
-        if (rightCol) rightCol.classList.add('hidden');
         if (formGrid) {
           formGrid.className = 'grid grid-cols-1 gap-5 flex-1 min-h-0 p-5 overflow-hidden';
         }
         if (leftCol) {
-          leftCol.className = 'flex-1 overflow-y-auto pl-1 pr-2 space-y-4 custom-scrollbar w-full';
+          leftCol.className = 'flex-1 overflow-y-auto pl-1 pr-2 overflow-x-hidden min-w-0 space-y-4 custom-scrollbar w-full';
         }
+        applyModalWorkspaceColumns({ allowDiff: false, isDiff: false });
         if (dialogEl) {
           dialogEl.className = 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100 transition-all';
         }
       } else {
-        const isSpecActive = !document.getElementById('modalSpecPane')?.classList.contains('hidden') && !document.getElementById('modalLeftWorkspaceTabs')?.classList.contains('hidden');
+        const allowDiff = Boolean(taskId && isDiffVisibleStatus(status));
+        const btnDiff = document.getElementById('btnModalTabDiff');
+        const reviewPane = document.getElementById('modalReviewPane');
+        const isDiffTabActive = allowDiff && (
+          btnDiff?.getAttribute?.('aria-selected') === 'true' ||
+          (!rightCol?.classList?.contains('hidden') && Boolean(reviewPane?.classList?.contains('hidden')))
+        );
         const hasExistingFb = Boolean((document.getElementById('formFeedback')?.value || '').trim());
         const isArchivedReadonly = Boolean(isOpenedFromArchive || status === 'archived');
         if (reviewFeedbackBox) {
@@ -965,13 +1090,13 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
           const fbInput = document.getElementById('formFeedback');
           if (fbInput) fbInput.placeholder = '請輸入希望 AI 調整的細節，輸入完點擊下方「請 AI 再修改」即可送出...';
         }
-        if (rightCol) rightCol.classList.toggle('hidden', isSpecActive);
         if (formGrid) {
           formGrid.className = 'grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0 p-4 sm:p-5 overflow-hidden';
         }
         if (leftCol) {
-          leftCol.className = `flex-1 overflow-y-auto pl-1 pr-2 space-y-3.5 custom-scrollbar ${isSpecActive ? 'lg:col-span-12' : 'lg:col-span-5'}`;
+          leftCol.className = `flex-1 overflow-y-auto pl-1 pr-2 overflow-x-hidden min-w-0 space-y-3.5 custom-scrollbar ${allowDiff ? (isDiffTabActive ? 'hidden' : 'lg:col-span-12') : 'w-full'}`;
         }
+        applyModalWorkspaceColumns({ allowDiff, isDiff: isDiffTabActive });
         if (dialogEl) {
           dialogEl.className = 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-6xl h-[90vh] flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100 transition-all';
         }
@@ -979,63 +1104,26 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
 
       const btnArchiveModal = document.getElementById('btnArchiveTaskModal');
       const btnCommitModal = document.getElementById('btnCommitTaskModal');
-      const currentProjectVal = document.getElementById('formProject').value || 'task-dashboard';
-      const proj = projects.find(p => p.id === currentProjectVal);
-      const projSkills = (proj && Array.isArray(proj.skills)) ? proj.skills : [];
-      const hasCommitSkill = projSkills.some(s => 
-        (s.id && (s.id.includes('commit') || s.id.includes('git-workflow') || s.id.includes('versioning'))) ||
-        (s.label && (s.label.includes('commit') || s.label.includes('git-workflow'))) ||
-        (s.desc && /commit|conventional/i.test(s.desc))
-      );
-
-      // 檢查是否為該專案最新已完成任務且有未提交之異動
-      const newestDoneTaskIdByProject = {};
-      const allDoneTasks = tasks.filter(t => t.status === 'done');
-      allDoneTasks.forEach(t => {
-        const projKey = t.project || 'default';
-        const cur = newestDoneTaskIdByProject[projKey];
-        const tTime = new Date(t.updatedAt || t.createdAt || 0).getTime();
-        if (!cur || tTime > cur.time) {
-          newestDoneTaskIdByProject[projKey] = { id: t.id, time: tTime };
-        }
-      });
-      const isLatestInProj = (!taskId) || (newestDoneTaskIdByProject[currentProjectVal]?.id === taskId);
-      const projGit = projectGitStatus[currentProjectVal];
-      const hasDiff = projGit ? projGit.hasDiff : false;
-
-      // 只有「已完成 (done)」且為該專案最新任務且有異動時，才在彈窗顯示 Commit 按鈕
-      // 尚未驗收 (todo, in_progress, review) 絕不顯示 Commit 按鈕
-      if (btnCommitModal) {
-        if (status === 'done' && isLatestInProj && hasDiff && taskId) {
-          btnCommitModal.classList.remove('hidden');
-          btnCommitModal.title = hasCommitSkill ? '專案配備 Commit 規範技能，點擊開啟 Agent 產出與提交確認' : '點擊開啟 Git Commit 提交確認彈窗';
-        } else {
-          btnCommitModal.classList.add('hidden');
-        }
-      }
-
+      if (btnCommitModal) btnCommitModal.classList.add('hidden');
       const btnMergeWorktree = document.getElementById('btnMergeWorktreeModal');
-      if (btnMergeWorktree) {
-        const hasWorktreeBranch = Boolean(currentModalEditingTask && (currentModalEditingTask.worktreePath || currentModalEditingTask.branchName));
-        if (taskId && hasWorktreeBranch && status === 'done') {
-          btnMergeWorktree.classList.remove('hidden');
-          btnMergeWorktree.title = `執行 Worktree 安全合併至 ${currentModalEditingTask.baseBranch || '來源分支'} (Rebase → 重驗 → Squash / PR)`;
-        } else {
-          btnMergeWorktree.classList.add('hidden');
-        }
-      }
-
+      if (btnMergeWorktree) btnMergeWorktree.classList.add('hidden');
       const btnLandTask = document.getElementById('btnLandTask');
+      if (btnLandTask) btnLandTask.classList.add('hidden');
+
       const isReviewLandState = Boolean(taskId && (status === 'review' || status === 'pending_review'));
-      if (btnLandTask) {
-        // #reviewLandStudioPanel 內已提供 Mockup 風格主按鈕「通過並提交」，避免底部重複按鈕
-        btnLandTask.classList.add('hidden');
-      }
       if (typeof initReviewLandPanel === 'function') {
         const activeTask = (currentModalEditingTask && currentModalEditingTask.id === taskId)
           ? currentModalEditingTask
           : (tasks.find(t => t.id === taskId) || null);
         initReviewLandPanel(isReviewLandState ? { ...(activeTask || {}), id: taskId, status } : null);
+      }
+
+      const isDoneDeliverState = Boolean(taskId && status === 'done' && !isOpenedFromArchive);
+      if (typeof initDoneDeliveryPanel === 'function') {
+        const activeDoneTask = (currentModalEditingTask && currentModalEditingTask.id === taskId)
+          ? currentModalEditingTask
+          : (tasks.find(t => t.id === taskId) || null);
+        initDoneDeliveryPanel(isDoneDeliverState ? { ...(activeDoneTask || {}), id: taskId, status } : null);
       }
 
       const btnConfirmAndExecute = document.getElementById('btnConfirmAndExecute');
@@ -1062,6 +1150,9 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       const planBadge = document.getElementById('formExecutionPlanBadge');
       const planNotice = document.getElementById('formExecutionPlanNotice');
       const grillMeBanner = document.getElementById('grillMeBanner');
+      const currentProjectVal = document.getElementById('formProject')?.value || 'task-dashboard';
+      const proj = (Array.isArray(projects) ? projects : []).find(p => p.id === currentProjectVal);
+      const projSkills = (proj && Array.isArray(proj.skills)) ? proj.skills : [];
       const hasGrillMeSkill = projSkills.some(s => (s.id === 'grill-me' || s.label === 'grill-me'));
 
       if (grillMeBanner) {
@@ -1165,32 +1256,38 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
 
       const isArchivedView = Boolean(isOpenedFromArchive || status === 'archived');
       if (isArchivedView) {
-        if (btnApprove) btnApprove.classList.add('hidden');
-        if (btnReject) btnReject.classList.add('hidden');
-        if (btnArchiveModal) btnArchiveModal.classList.add('hidden');
-        if (btnSubmit) btnSubmit.classList.add('hidden');
+        btnApprove?.classList.add('hidden');
+        btnReject?.classList.add('hidden');
+        btnArchiveModal?.classList.add('hidden');
+        btnSubmit?.classList.add('hidden');
         document.getElementById('btnAbandonTask')?.classList.add('hidden');
       } else if (status === 'review') {
-        if (btnSubmit) btnSubmit.classList.remove('hidden');
-        if (btnApprove) btnApprove.classList.add('hidden');
-        btnReject.classList.remove('hidden');
-        if (btnArchiveModal) btnArchiveModal.classList.add('hidden');
-        btnSubmit.innerHTML = '儲存規格變更';
-        btnSubmit.className = 'bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-indigo-500/25 transition';
+        btnSubmit?.classList.remove('hidden');
+        btnApprove?.classList.add('hidden');
+        btnReject?.classList.remove('hidden');
+        btnArchiveModal?.classList.add('hidden');
+        if (btnSubmit) {
+          btnSubmit.innerHTML = '儲存規格變更';
+          btnSubmit.className = 'bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-indigo-500/25 transition';
+        }
       } else if (status === 'done') {
-        if (btnSubmit) btnSubmit.classList.remove('hidden');
-        btnApprove.classList.add('hidden');
-        btnReject.classList.add('hidden');
-        if (btnArchiveModal) btnArchiveModal.classList.remove('hidden');
-        btnSubmit.innerHTML = '儲存變更';
-        btnSubmit.className = 'bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-indigo-500/25 transition';
+        btnSubmit?.classList.remove('hidden');
+        btnApprove?.classList.add('hidden');
+        btnReject?.classList.add('hidden');
+        btnArchiveModal?.classList.remove('hidden');
+        if (btnSubmit) {
+          btnSubmit.innerHTML = '儲存變更';
+          btnSubmit.className = 'bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-indigo-500/25 transition';
+        }
       } else {
-        if (btnSubmit) btnSubmit.classList.remove('hidden');
-        btnApprove.classList.add('hidden');
-        btnReject.classList.add('hidden');
-        if (btnArchiveModal) btnArchiveModal.classList.add('hidden');
-        btnSubmit.innerHTML = '儲存變更';
-        btnSubmit.className = 'bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-indigo-500/25 transition';
+        btnSubmit?.classList.remove('hidden');
+        btnApprove?.classList.add('hidden');
+        btnReject?.classList.add('hidden');
+        btnArchiveModal?.classList.add('hidden');
+        if (btnSubmit) {
+          btnSubmit.innerHTML = '儲存變更';
+          btnSubmit.className = 'bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-indigo-500/25 transition';
+        }
       }
 
       // 進行中任務欄位鎖定唯讀與隱藏日誌
@@ -1500,6 +1597,9 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
               ...task,
               status: 'in_progress',
               feedback: feedback,
+              modifiedFiles: [],
+              diff: '',
+              diffPath: '',
               updatedAt: new Date().toISOString()
             })
           });

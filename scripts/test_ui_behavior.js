@@ -197,6 +197,9 @@ assert.strictEqual(projectElements.formProjectInput.value, 'task-dashboard');
 console.log('  ✅ 專案名稱與 ID 去重、搜尋、選取及 HTML escaping 驗證通過');
 
 // 13. 驗證 頂部工作流階段導覽列 (Workflow Stage Bar)、移除阻礙欄位、單一主色+局部狀態色彩計劃與無框線色塊陰影系統
+assert(!htmlContent.includes('id="stage-pill-ALL"'), '頂部工作流導覽列必須移除 stage-pill-ALL 全部階段膠囊');
+assert(htmlContent.includes('sm:grid-cols-4'), '頂部工作流導覽列必須調整為四階段格線 (sm:grid-cols-4)');
+assert(htmlContent.includes('id="boardViewToggleSlot"'), '頂部工作流導覽列右側必須配置 boardViewToggleSlot 專屬位置');
 assert(allUiContent.includes('id="stage-pill-review"'), '頂部工作流導覽列必須包含 stage-pill-review 階段膠囊');
 assert(!allUiContent.includes('id="stage-pill-blocked"'), '頂部工作流導覽列必須移除實務未使用的 stage-pill-blocked 阻礙膠囊');
 assert(!allUiContent.includes('id="col-wrapper-blocked"'), '看板必須移除實務未使用的 col-wrapper-blocked 阻礙欄位');
@@ -222,11 +225,9 @@ const makeClassMock = () => {
 };
 
 const stageMockElements = {};
-['ALL', 'todo', 'in_progress', 'review', 'done'].forEach(st => {
+['todo', 'in_progress', 'review', 'done'].forEach(st => {
   stageMockElements[`stage-pill-${st}`] = makeClassMock();
-  if (st !== 'ALL') {
-    stageMockElements[`col-wrapper-${st}`] = makeClassMock();
-  }
+  stageMockElements[`col-wrapper-${st}`] = makeClassMock();
 });
 let kanbanReRendered = 0;
 const stageFilterContext = vm.createContext({
@@ -242,15 +243,15 @@ assert(!stageMockElements['col-wrapper-review'].classList.contains('hidden'), '�
 assert(stageMockElements['col-wrapper-todo'].classList.contains('hidden'), '過濾 review 時非目標欄位 col-wrapper-todo 應隱藏');
 stageFilterContext.filterByStage('review');
 assert.strictEqual(stageFilterContext.window.currentStageFilter, 'ALL', '再次點擊相同階段膠囊應重置為 ALL 顯示全部欄位');
-assert.strictEqual(stageMockElements['stage-pill-ALL'].getAttribute('aria-pressed'), 'true', '重置為 ALL 後 stage-pill-ALL 之 aria-pressed 應為 true');
 assert.strictEqual(stageMockElements['stage-pill-review'].getAttribute('aria-pressed'), 'false', '重置為 ALL 後 stage-pill-review 之 aria-pressed 應為 false');
 assert(!stageMockElements['col-wrapper-todo'].classList.contains('hidden'), '重置為 ALL 後所有欄位應恢復顯示');
 console.log('  ✅ 頂部工作流階段導覽列、移除阻礙欄位與無框線色塊陰影系統驗證通過');
 
 // 14. 驗證 任務彈窗 IA 階段感知工作區分頁 (Stage-Aware Workspace Tabs)
-assert(allUiContent.includes('id="modalLeftWorkspaceTabs"'), '彈窗左側必須包含 modalLeftWorkspaceTabs 階段感知分頁切換器');
+assert(allUiContent.includes('id="modalLeftWorkspaceTabs"'), '彈窗必須包含 modalLeftWorkspaceTabs 階段感知分頁切換器');
 assert(allUiContent.includes('id="modalReviewPane"'), '彈窗左側必須包含 modalReviewPane 審核與執行成果面板');
 assert(allUiContent.includes('id="modalSpecPane"'), '彈窗左側必須包含 modalSpecPane 需求規格與屬性面板');
+assert(allUiContent.includes('id="btnModalTabDiff"') && allUiContent.includes('異動內容檢查'), '彈窗分頁切換器必須包含 btnModalTabDiff (異動內容檢查)');
 assert(allUiContent.includes('id="modalReviewContextSummary"'), '審核面板必須包含 modalReviewContextSummary 漸進式揭露需求摘要橫幅');
 
 const tabElements = {
@@ -258,25 +259,50 @@ const tabElements = {
   modalSpecPane: makeClassMock(),
   modalReviewContextSummary: makeClassMock(),
   btnModalTabReview: makeClassMock(),
-  btnModalTabSpec: makeClassMock()
+  btnModalTabSpec: makeClassMock(),
+  btnModalTabDiff: makeClassMock(),
+  btnModalEditSpecShortcut: makeClassMock(),
+  modalRightColumn: makeClassMock(),
+  modalLeftColumn: makeClassMock(),
+  modalFormGrid: makeClassMock()
 };
 const tabContext = vm.createContext({
-  document: { getElementById: id => tabElements[id] },
+  document: { getElementById: id => tabElements[id] || null },
   currentModalEditingTask: { id: 'TASK-119', status: 'review' },
   setTimeout: fn => fn(),
   autoResizeTextarea: () => {}
 });
-vm.runInContext(actualFunction('switchModalWorkspaceTab'), tabContext);
+vm.runInContext(['isDiffVisibleStatus', 'applyModalTabButtonStyles', 'applyModalWorkspaceColumns', 'switchModalWorkspaceTab'].map(actualFunction).join('\n'), tabContext);
 assert(allUiContent.includes('dark:bg-slate-950') && allUiContent.includes('dark:border-slate-700'), 'modalLeftWorkspaceTabs 必須在 Dark Mode 具備高對比深色凹槽背景與外框線');
+
+// review 狀態：隱藏「需求規格與屬性」，改顯示「異動內容檢查」
 tabContext.switchModalWorkspaceTab('review');
 assert(!tabElements.modalReviewPane.classList.contains('hidden'), '切換至 review 分頁時 modalReviewPane 必須顯示');
 assert(tabElements.modalSpecPane.classList.contains('hidden'), '切換至 review 分頁時 modalSpecPane 必須隱藏以消除屬性欄位噪音');
 assert(!tabElements.modalReviewContextSummary.classList.contains('hidden'), '切換至 review 分頁時應顯示需求上下文精簡摘要');
+assert(tabElements.btnModalTabSpec.classList.contains('hidden'), 'review 狀態必須隱藏「需求規格與屬性」分頁按鈕');
+assert(!tabElements.btnModalTabDiff.classList.contains('hidden'), 'review 狀態必須顯示「異動內容檢查」分頁按鈕');
+assert(tabElements.btnModalEditSpecShortcut.classList.contains('hidden'), 'review 狀態必須隱藏「編輯規格」捷徑按鈕');
 assert(tabElements.btnModalTabReview.classList.contains('dark:bg-slate-800'), '作用中 review 分頁在 Dark Mode 必須具備高亮浮起背景 (dark:bg-slate-800)');
 assert(tabElements.btnModalTabReview.classList.contains('dark:border-slate-600'), '作用中 review 分頁在 Dark Mode 必須具備清晰外框線 (dark:border-slate-600)');
-assert(!tabElements.btnModalTabSpec.classList.contains('dark:bg-slate-800'), '未作用之 spec 分頁在 Dark Mode 不可包含高亮浮起背景');
+assert(!tabElements.btnModalTabDiff.classList.contains('dark:bg-slate-800'), '未作用之 diff 分頁在 Dark Mode 不可包含高亮浮起背景');
 
+// review 狀態切換至 diff 分頁：隱藏左欄並全寬顯示右欄 Diff
+tabContext.switchModalWorkspaceTab('diff');
+assert(tabElements.modalLeftColumn.classList.contains('hidden'), '切換至 diff 分頁時 modalLeftColumn 必須隱藏');
+assert(!tabElements.modalRightColumn.classList.contains('hidden'), '切換至 diff 分頁時 modalRightColumn 必須顯示');
+assert(tabElements.modalRightColumn.classList.contains('lg:col-span-12'), '切換至 diff 分頁時 modalRightColumn 必須佔滿 12 欄');
+assert(tabElements.btnModalTabDiff.classList.contains('dark:bg-slate-800'), '作用中 diff 分頁在 Dark Mode 必須具備高亮浮起背景 (dark:bg-slate-800)');
+assert(tabElements.btnModalTabDiff.classList.contains('dark:border-slate-600'), '作用中 diff 分頁在 Dark Mode 必須具備清晰外框線 (dark:border-slate-600)');
+assert.strictEqual(tabElements.btnModalTabDiff.getAttribute('aria-selected'), 'true', '切換至 diff 時 btnModalTabDiff 之 aria-selected 必須為 true');
+assert.strictEqual(tabElements.btnModalTabReview.getAttribute('aria-selected'), 'false', '切換至 diff 時 btnModalTabReview 之 aria-selected 必須為 false');
+
+// in_progress 狀態：保留「需求規格與屬性」分頁並隱藏「異動內容檢查」
+tabContext.currentModalEditingTask = { id: 'TASK-119', status: 'in_progress' };
 tabContext.switchModalWorkspaceTab('spec');
+assert(!tabElements.btnModalTabSpec.classList.contains('hidden'), 'in_progress 狀態必須顯示「需求規格與屬性」分頁按鈕');
+assert(tabElements.btnModalTabDiff.classList.contains('hidden'), 'in_progress 狀態必須隱藏「異動內容檢查」分頁按鈕');
+assert(!tabElements.btnModalEditSpecShortcut.classList.contains('hidden'), 'in_progress 狀態必須顯示「編輯規格」捷徑按鈕');
 assert(!tabElements.modalSpecPane.classList.contains('hidden'), '切換至 spec 分頁時 modalSpecPane 必須顯示');
 assert(tabElements.modalReviewPane.classList.contains('hidden'), '切換至 spec 分頁時 modalReviewPane 必須隱藏');
 assert(tabElements.btnModalTabSpec.classList.contains('dark:bg-slate-800'), '作用中 spec 分頁在 Dark Mode 必須具備高亮浮起背景 (dark:bg-slate-800)');
@@ -313,8 +339,9 @@ assert(!allUiContent.includes('id="formTitle" required placeholder="請輸入簡
 assert(!allUiContent.includes('td-surface-panel rounded-lg space-y-1"><div class="font-medium text-slate-600 dark:text-slate-300">無任務卡片'), '無任務卡牌不得套用底色 (td-surface-panel)');
 assert(allUiContent.includes('id="modalLeftColumn" class="flex-1 overflow-y-auto pl-1 pr-2'), 'modalLeftColumn 必須增加 pl-1 避免左側內容過於貼齊');
 assert(allUiContent.includes('id="modalLeftWorkspaceTabs"') && allUiContent.includes('!mt-0'), 'modalLeftWorkspaceTabs 必須包含 !mt-0 移除上方多餘間距');
-assert(allUiContent.includes('id="headerWorkflowHint"') && allUiContent.includes('border-sky-300') && allUiContent.includes('border-amber-300') && allUiContent.includes('border-emerald-300'), '流程說明各步驟必須具備獨立底色與框線');
-assert(!allUiContent.includes('id="headerWorkflowHint"') || !htmlContent.split('id="headerWorkflowHint"')[1].split('</div>')[0].includes('→'), '流程說明各步驟間必須以線條連結取代箭頭 (→)');
+assert(!htmlContent.includes('id="headerWorkflowHint"'), '頂部控制列必須移除冗餘的 headerWorkflowHint 流程指引');
+assert(!htmlContent.includes('id="searchInput"') && !htmlContent.includes('id="priorityFilter"'), '頂部控制列必須移除冗餘的 searchInput 與 priorityFilter');
+assert(!htmlContent.includes('openNewProjectModal()'), '左側專案列表底部必須移除手動加入專案按鈕');
 
 // 17. 驗證 TASK-121 UI 回歸防禦與無障礙強化 (內縮 outline、開工引擎模式與離線狀態、退回任務審核可見性純函式、狀態常數)
 assert(allUiContent.includes('outline-offset: -2px !important;') && allUiContent.includes('--td-focus'), '表單文字控制項必須套用內縮 outline (outline-offset: -2px) 避免被捲動容器裁切');
@@ -531,6 +558,766 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
   assert(allUiContent.includes('function selectDesktopTierFilter('), 'app.js 必須實作 selectDesktopTierFilter');
   assert(allUiContent.includes('--tier=micro,standard') && allUiContent.includes('--tier=heavy'), 'updateAiPromptDisplay 必須支援輸出 --tier=micro,standard 與 --tier=heavy');
   console.log('  ✅ Tier 分流切換器與 --tier Prompt 生成契約驗證通過');
+
+  // 22. 驗證 TASK-236 3.0 UI/UX 優化（單一展開手風琴、刪除 icon 高對比、#boardViewToggleSlot、頂部控制列精簡與暗黑模式對比）
+  const stateMod = await import('../src/public/modules/state.js');
+  assert.strictEqual(stateMod.expandedProjectId, null, 'state.js 初始 expandedProjectId 應為 null');
+  stateMod.setExpandedProjectId('proj-1');
+  assert.strictEqual(stateMod.expandedProjectId, 'proj-1', 'setExpandedProjectId 應正確更新展開專案 ID');
+  stateMod.setExpandedProjectId(null);
+
+  // 測試手風琴單一展開與選取狀態刪除按鈕高對比樣式
+  const sidebarListEl = { innerHTML: '' };
+  const sidebarCountEl = { innerText: '' };
+  const sidebarContext = vm.createContext({
+    projects: [
+      { id: 'proj-1', name: 'Project One', color: 'blue' },
+      { id: 'proj-2', name: 'Project Two', color: 'emerald' }
+    ],
+    tasks: [],
+    currentProject: 'proj-1',
+    currentBranch: 'ALL',
+    expandedProjectId: null,
+    setExpandedProjectId: (val) => { sidebarContext.expandedProjectId = val || null; },
+    normalizeStatus: (s) => s,
+    escapeHtml: (s) => String(s || ''),
+    renderProjectBranchTree: (p) => `<div data-branch-tree="${p.id}"></div>`,
+    document: {
+      getElementById: (id) => {
+        if (id === 'projectSidebarList') return sidebarListEl;
+        if (id === 'projectSearchInput') return { value: '' };
+        if (id === 'sidebarProjectCount') return sidebarCountEl;
+        return null;
+      }
+    },
+    window: {}
+  });
+  vm.runInContext(actualFunction('toggleProjectExpand') + '\n' + actualFunction('renderSidebarProjects'), sidebarContext);
+  sidebarContext.toggleProjectExpand('proj-1');
+  assert.strictEqual(sidebarContext.expandedProjectId, 'proj-1', 'toggleProjectExpand 應展開目標專案');
+  assert(sidebarListEl.innerHTML.includes('data-branch-tree="proj-1"') && !sidebarListEl.innerHTML.includes('data-branch-tree="proj-2"'), '僅已展開之專案應渲染分支樹');
+  assert(sidebarListEl.innerHTML.includes('aria-expanded="true"') && sidebarListEl.innerHTML.includes('chevron-down'), '已展開專案必須標示 aria-expanded=true 與 chevron-down');
+  assert(sidebarListEl.innerHTML.includes('bg-black/20 hover:bg-rose-600 text-white'), '選取狀態 (isProjOnly) 專案列刪除 icon 必須套用高對比樣式');
+  sidebarContext.toggleProjectExpand('proj-2');
+  assert.strictEqual(sidebarContext.expandedProjectId, 'proj-2', '展開另一專案時應自動收合前一個專案（手風琴單一展開）');
+  assert(!sidebarListEl.innerHTML.includes('data-branch-tree="proj-1"') && sidebarListEl.innerHTML.includes('data-branch-tree="proj-2"'), '手風琴切換後前一個專案分支樹必須收合');
+  sidebarContext.toggleProjectExpand('proj-2');
+  assert.strictEqual(sidebarContext.expandedProjectId, null, '再次點擊已展開專案應收合');
+
+  // 測試 #boardViewToggleSlot 與 #contextualHeaderActions 分層職責
+  const makeSlotMock = () => {
+    const cls = new Set(['hidden']);
+    return {
+      innerHTML: '',
+      classList: {
+        add: (c) => cls.add(c),
+        remove: (c) => cls.delete(c),
+        toggle: (c, force) => { if (force) cls.add(c); else cls.delete(c); },
+        contains: (c) => cls.has(c)
+      }
+    };
+  };
+  const headerActionsEl = makeSlotMock();
+  const boardViewSlotEl = makeSlotMock();
+  const branchNavRaw = fs.readFileSync(path.join(__dirname, '../src/public/modules/branchNavigator.js'), 'utf8')
+    .replace(/^import[\s\S]*?;\s*/gm, '')
+    .replace(/export\s*\{[\s\S]*?\};?\s*$/m, '');
+  const branchNavCtx = vm.createContext({
+    projects: [{ id: 'proj-1', name: 'Project One', path: '/tmp/p1' }],
+    tasks: [{ id: 'TASK-1', project: 'proj-1', status: 'done', targetBranch: 'feat/ui', gitLanding: { isCommitted: true } }],
+    currentProject: 'ALL',
+    currentBranch: 'ALL',
+    projectBranchesMap: { 'proj-1': { isGitRepo: true, defaultBranch: 'main', currentCheckoutBranch: 'main', branches: [] } },
+    groupByBranch: false,
+    expandedProjectId: null,
+    setCurrentProject: (v) => { branchNavCtx.currentProject = v; },
+    setCurrentBranch: (v) => { branchNavCtx.currentBranch = v; },
+    setProjectBranchesMap: (v) => { branchNavCtx.projectBranchesMap = v; },
+    setGroupByBranch: (v) => { branchNavCtx.groupByBranch = Boolean(v); },
+    setExpandedProjectId: (v) => { branchNavCtx.expandedProjectId = v || null; },
+    escapeHtml: (s) => String(s || ''),
+    showToast: () => {},
+    document: {
+      getElementById: (id) => {
+        if (id === 'contextualHeaderActions') return headerActionsEl;
+        if (id === 'boardViewToggleSlot') return boardViewSlotEl;
+        return null;
+      }
+    },
+    window: {
+      renderSidebarProjects: () => {},
+      renderKanban: () => {},
+      renderMetrics: () => {}
+    }
+  });
+  vm.runInContext(branchNavRaw, branchNavCtx);
+  branchNavCtx.renderContextualHeaderActions();
+  assert(boardViewSlotEl.classList.contains('hidden'), 'currentProject === ALL 時 #boardViewToggleSlot 必須隱藏');
+  assert(headerActionsEl.classList.contains('hidden'), 'currentProject === ALL 時 #contextualHeaderActions 必須隱藏');
+
+  branchNavCtx.setCurrentProject('proj-1');
+  branchNavCtx.setCurrentBranch('ALL');
+  branchNavCtx.renderContextualHeaderActions();
+  assert(!boardViewSlotEl.classList.contains('hidden') && boardViewSlotEl.innerHTML.includes('按分支看'), '選取專案後 #boardViewToggleSlot 必須顯示「看板 / 按分支看」');
+  assert(headerActionsEl.classList.contains('hidden') && !headerActionsEl.innerHTML.includes('新建分支') && !headerActionsEl.innerHTML.includes('新增任務'), '#contextualHeaderActions 不得包含「新建分支」與「新增任務」');
+
+  branchNavCtx.setCurrentBranch('feat/ui');
+  branchNavCtx.renderContextualHeaderActions();
+  assert(!boardViewSlotEl.classList.contains('hidden'), '選取特定分支時 #boardViewToggleSlot 仍須保持可見');
+  assert(!headerActionsEl.classList.contains('hidden') && headerActionsEl.innerHTML.includes('合併回 main') && !headerActionsEl.innerHTML.includes('新建分支') && !headerActionsEl.innerHTML.includes('新增任務'), 'L2 非主幹已提交分支僅顯示「合併回 <defaultBranch>」');
+
+  branchNavCtx.toggleBranchGroupView(true);
+  assert.strictEqual(branchNavCtx.currentBranch, 'ALL', '由特定分支切換為「按分支看」時應重置 currentBranch 為 ALL');
+
+  // 驗證暗黑模式 CSS 變數與表面層次規則強化
+  assert(styleContent.includes('--background: #0c0f14') && styleContent.includes('--sidebar: #141922') && styleContent.includes('--card: #1d2430') && styleContent.includes('--border: #3a4659') && styleContent.includes('--muted-foreground: #a3b2c7'), 'style.css 暗黑模式變數必須提升層次與邊框/文字對比');
+  assert(styleContent.includes('.dark .td-surface-well') && styleContent.includes('.dark .td-surface-card') && styleContent.includes('.dark .td-surface-panel'), 'style.css 必須包含 .dark 專屬表面階層對比規則');
+  assert(htmlContent.includes("700: '#354052'") && htmlContent.includes("darkborder: '#3a4659'"), 'index.html Tailwind 深色階必須同步提升對比');
+  console.log('  ✅ TASK-236 3.0 UI/UX 優化（手風琴展開、高對比、視圖切換位置與暗黑模式對比）驗證通過');
+
+  // 23. 驗證 TASK-237 任務彈窗顯示優化
+  const kanbanSrc237 = fs.readFileSync(path.join(__dirname, '..', 'src', 'public', 'modules', 'kanban.js'), 'utf8');
+  assert(!kanbanSrc237.includes('commitTaskFromCard('), 'done 卡片不得再渲染 commitTaskFromCard 舊 Commit 按鈕');
+  for (const removedId of ['btnCommitTaskModal', 'btnApproveTask', 'btnMergeWorktreeModal', 'btnLandTask', 'projectModal']) {
+    assert(!htmlContent.includes(removedId), `index.html 必須移除過時元素 #${removedId}`);
+  }
+  assert(
+    htmlContent.includes('id="modalLeftColumn" class="flex-1 overflow-y-auto pl-1 pr-2 overflow-x-hidden min-w-0') &&
+    htmlContent.includes('id="modalReviewPane" role="tabpanel" class="space-y-3.5 min-w-0 max-w-full overflow-x-hidden"'),
+    '#modalLeftColumn 與 #modalReviewPane 必須具備 overflow-x-hidden min-w-0 防止橫向捲軸溢出'
+  );
+
+  const reportOverflowContainer = { innerHTML: '' };
+  const reportOverflowCtx = vm.createContext({
+    document: { getElementById: id => (id === 'formReportVisual' ? reportOverflowContainer : null) },
+    window: {},
+    escapeHtml: value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  });
+  vm.runInContext(['escapeHtml', 'renderExecutionReport'].map(actualFunction).join('\n'), reportOverflowCtx);
+  reportOverflowCtx.renderExecutionReport({
+    id: 'TASK-237',
+    status: 'review',
+    executionLog: '# 測試\n- 檢查 `/very/long/path/without/spaces/file.js`\n```bash\nvery-long-terminal-output\n```'
+  });
+  assert(
+    reportOverflowContainer.innerHTML.includes('break-all [overflow-wrap:anywhere]'),
+    'executionReport.js 行內 <code> 必須具備 break-all [overflow-wrap:anywhere] 斷行樣式'
+  );
+  reportOverflowCtx.renderExecutionReport({
+    id: 'TASK-237-RAW',
+    status: 'review',
+    executionLog: 'plain terminal output line without markdown headings'
+  });
+  assert(
+    reportOverflowContainer.innerHTML.includes('whitespace-pre-wrap break-all [overflow-wrap:anywhere] max-w-full overflow-x-hidden'),
+    'executionReport.js 終端機 <pre> 必須具備防橫向捲軸斷行樣式'
+  );
+
+  const diffVisElements = {
+    modalReviewPane: makeClassMock(),
+    modalSpecPane: makeClassMock(),
+    modalReviewContextSummary: makeClassMock(),
+    btnModalTabReview: makeClassMock(),
+    btnModalTabSpec: makeClassMock(),
+    btnModalTabDiff: makeClassMock(),
+    btnModalEditSpecShortcut: makeClassMock(),
+    modalRightColumn: makeClassMock(),
+    modalLeftColumn: makeClassMock(),
+    modalFormGrid: { classList: { remove: () => {}, toggle: () => {} } }
+  };
+  const diffVisCtx = vm.createContext({
+    document: { getElementById: id => diffVisElements[id] || null },
+    currentModalEditingTask: { id: 'TASK-237', status: 'in_progress' },
+    setTimeout: () => {},
+    autoResizeTextarea: () => {}
+  });
+  vm.runInContext(['isDiffVisibleStatus', 'applyModalTabButtonStyles', 'applyModalWorkspaceColumns', 'switchModalWorkspaceTab'].map(actualFunction).join('\n'), diffVisCtx);
+
+  for (const hiddenStatus of ['in_progress', 'todo', 'needs_human']) {
+    diffVisCtx.currentModalEditingTask = { id: 'TASK-237', status: hiddenStatus };
+    for (const tabMode of ['review', 'spec', 'diff']) {
+      diffVisCtx.switchModalWorkspaceTab(tabMode);
+      assert(
+        diffVisElements.modalRightColumn.classList.contains('hidden'),
+        `status="${hiddenStatus}" (${tabMode}) 必須隱藏 #modalRightColumn (Git Diff)`
+      );
+      assert(
+        !diffVisElements.modalLeftColumn.classList.contains('lg:col-span-5') &&
+        !diffVisElements.modalLeftColumn.classList.contains('lg:col-span-12') &&
+        diffVisElements.modalLeftColumn.classList.contains('w-full'),
+        `status="${hiddenStatus}" (${tabMode}) #modalLeftColumn 必須採單欄 w-full（移除 lg:col-span-5 / lg:col-span-12 防右側空白）`
+      );
+      assert(
+        diffVisElements.btnModalTabDiff.classList.contains('hidden') &&
+        !diffVisElements.btnModalTabSpec.classList.contains('hidden'),
+        `status="${hiddenStatus}" 必須隱藏「異動內容檢查」並保留「需求規格與屬性」`
+      );
+    }
+  }
+  for (const visibleStatus of ['review', 'pending_review', 'done', 'archived']) {
+    diffVisCtx.currentModalEditingTask = { id: 'TASK-237', status: visibleStatus };
+    diffVisCtx.switchModalWorkspaceTab('review');
+    assert(
+      diffVisElements.modalRightColumn.classList.contains('hidden'),
+      `status="${visibleStatus}" 時切換至 review 分頁必須隱藏 #modalRightColumn (由「異動內容檢查」分頁承載)`
+    );
+    assert(
+      !diffVisElements.modalLeftColumn.classList.contains('hidden') &&
+      diffVisElements.modalLeftColumn.classList.contains('lg:col-span-12') &&
+      !diffVisElements.modalLeftColumn.classList.contains('lg:col-span-5') &&
+      !diffVisElements.modalLeftColumn.classList.contains('w-full'),
+      `status="${visibleStatus}" 時 review 分頁 #modalLeftColumn 必須全寬 (lg:col-span-12)`
+    );
+    assert(
+      diffVisElements.btnModalTabSpec.classList.contains('hidden') &&
+      !diffVisElements.btnModalTabDiff.classList.contains('hidden') &&
+      diffVisElements.btnModalEditSpecShortcut.classList.contains('hidden'),
+      `status="${visibleStatus}" 必須移除「需求規格與屬性」與捷徑並顯示「異動內容檢查」`
+    );
+
+    diffVisCtx.switchModalWorkspaceTab('diff');
+    assert(
+      !diffVisElements.modalRightColumn.classList.contains('hidden') &&
+      diffVisElements.modalRightColumn.classList.contains('lg:col-span-12'),
+      `status="${visibleStatus}" 時切換至 diff 分頁必須全寬顯示 #modalRightColumn (lg:col-span-12)`
+    );
+    assert(
+      diffVisElements.modalLeftColumn.classList.contains('hidden'),
+      `status="${visibleStatus}" 時切換至 diff 分頁必須隱藏 #modalLeftColumn`
+    );
+    assert.strictEqual(
+      diffVisElements.btnModalTabDiff.getAttribute('aria-selected'),
+      'true',
+      `status="${visibleStatus}" 時切換至 diff 分頁必須將 btnModalTabDiff aria-selected 設為 true`
+    );
+  }
+
+  const makeModalEl = (extra = {}) => {
+    const set = new Set();
+    const attrs = new Map();
+    return {
+      classList: {
+        add: (...classes) => classes.forEach(c => set.add(c)),
+        remove: (...classes) => classes.forEach(c => set.delete(c)),
+        toggle: (cls, force) => {
+          if (force === undefined) {
+            if (set.has(cls)) set.delete(cls);
+            else set.add(cls);
+          } else if (force) {
+            set.add(cls);
+          } else {
+            set.delete(cls);
+          }
+        },
+        contains: cls => set.has(cls)
+      },
+      setAttribute: (name, val) => attrs.set(name, String(val)),
+      getAttribute: (name) => attrs.get(name),
+      innerText: '',
+      innerHTML: '',
+      className: '',
+      value: '',
+      checked: false,
+      title: '',
+      ...extra
+    };
+  };
+
+  const modalBtnIds = [
+    'formStatus', 'formTaskId', 'formProject', 'formRequiresConfirmation',
+    'formExecutionPlan', 'formFeedback', 'btnRejectTask', 'btnSubmitTask',
+    'btnArchiveTaskModal', 'btnConfirmAndExecute', 'btnConfirmAndExecuteIcon',
+    'btnConfirmAndExecuteText', 'btnAbandonTask', 'reviewFeedbackBox',
+    'reviewFeedbackLabelText', 'reviewFeedbackNotice', 'modalRightColumn',
+    'modalDialogContainer', 'modalFormGrid', 'modalLeftColumn',
+    'modalSpecPane', 'modalLeftWorkspaceTabs', 'modalConfirmationBadge',
+    'formRequiresConfirmationWrapper', 'formExecutionPlanBox',
+    'formExecutionPlanBadge', 'formExecutionPlanNotice',
+    'formExecutionPlanLabelIcon', 'formExecutionPlanLabelText',
+    'grillMeBanner'
+  ];
+  const modalBtnEls = Object.fromEntries(modalBtnIds.map(id => [id, makeModalEl()]));
+  let capturedReviewLandPayload = null;
+  const modalBtnCtx = vm.createContext({
+    document: { getElementById: id => modalBtnEls[id] || null },
+    window: {},
+    projects: [
+      { id: 'proj-grill', skills: [{ id: 'grill-me', label: 'grill-me' }] },
+      { id: 'task-dashboard', skills: [] }
+    ],
+    tasks: [
+      { id: 'TASK-237', status: 'review' },
+      { id: 'TASK-237-IP', status: 'in_progress' },
+      { id: 'TASK-237-DONE', status: 'done' },
+      { id: 'TASK-237-ARCH', status: 'archived' }
+    ],
+    currentModalEditingTask: null,
+    isOpenedFromArchive: false,
+    initReviewLandPanel: payload => { capturedReviewLandPayload = payload; },
+    renderExecutionPlan: () => {},
+    setModalFieldsReadOnly: () => {},
+    autoResizeTextarea: () => {},
+    setTimeout: () => {}
+  });
+  vm.runInContext(['isDiffVisibleStatus', 'applyModalWorkspaceColumns', 'updateModalButtonState'].map(actualFunction).join('\n'), modalBtnCtx);
+
+  // 1) 新增任務 (taskId='', status='todo')
+  modalBtnEls.formStatus.value = 'todo';
+  modalBtnEls.formTaskId.value = '';
+  modalBtnEls.formProject.value = 'task-dashboard';
+  modalBtnEls.formRequiresConfirmation.checked = false;
+  modalBtnEls.formExecutionPlan.value = '';
+  modalBtnEls.formFeedback.value = '';
+  modalBtnCtx.isOpenedFromArchive = false;
+  modalBtnCtx.currentModalEditingTask = null;
+  modalBtnCtx.updateModalButtonState();
+  assert(modalBtnEls.modalRightColumn.classList.contains('hidden'), '新增任務時必須隱藏 #modalRightColumn');
+  assert(!modalBtnEls.formRequiresConfirmationWrapper.classList.contains('hidden'), '新增任務時必須顯示 #formRequiresConfirmationWrapper');
+  assert.strictEqual(modalBtnEls.btnSubmitTask.innerHTML, '儲存變更', '新增任務時送出按鈕文字應為「儲存變更」');
+
+  // 2) in_progress + requiresConfirmation=true + executionPlan='Step 1' + formProject='proj-grill'
+  modalBtnEls.formStatus.value = 'in_progress';
+  modalBtnEls.formTaskId.value = 'TASK-237-IP';
+  modalBtnEls.formProject.value = 'proj-grill';
+  modalBtnEls.formRequiresConfirmation.checked = true;
+  modalBtnEls.formExecutionPlan.value = 'Step 1';
+  modalBtnCtx.currentModalEditingTask = { id: 'TASK-237-IP', status: 'in_progress' };
+  modalBtnCtx.updateModalButtonState();
+  assert(!modalBtnEls.grillMeBanner.classList.contains('hidden'), 'Grill-Me 專案待確認時必須顯示 #grillMeBanner');
+  assert(!modalBtnEls.btnConfirmAndExecute.classList.contains('hidden'), '待確認狀態必須顯示 #btnConfirmAndExecute');
+  assert.strictEqual(modalBtnEls.btnConfirmAndExecuteText.innerText, '確認邊界並執行', 'Grill-Me 專案確認按鈕應顯示「確認邊界並執行」');
+
+  // 3) review (無 formFeedback)
+  modalBtnEls.formStatus.value = 'review';
+  modalBtnEls.formTaskId.value = 'TASK-237';
+  modalBtnEls.formProject.value = 'task-dashboard';
+  modalBtnEls.formRequiresConfirmation.checked = false;
+  modalBtnEls.formExecutionPlan.value = '';
+  modalBtnEls.formFeedback.value = '';
+  modalBtnEls.modalSpecPane.classList.add('hidden');
+  modalBtnEls.modalLeftWorkspaceTabs.classList.remove('hidden');
+  modalBtnCtx.currentModalEditingTask = { id: 'TASK-237', status: 'review' };
+  modalBtnCtx.updateModalButtonState();
+  assert(!modalBtnEls.btnRejectTask.classList.contains('hidden'), 'review 狀態必須顯示 #btnRejectTask');
+  assert.strictEqual(modalBtnEls.btnSubmitTask.innerHTML, '儲存規格變更', 'review 狀態儲存按鈕應顯示「儲存規格變更」');
+  assert.strictEqual(capturedReviewLandPayload?.id, 'TASK-237', 'review 狀態應呼叫 initReviewLandPanel 並傳入任務 ID');
+  assert.strictEqual(capturedReviewLandPayload?.status, 'review', 'review 狀態應呼叫 initReviewLandPanel 並傳入 status=review');
+
+  // 4) done
+  modalBtnEls.formStatus.value = 'done';
+  modalBtnEls.formTaskId.value = 'TASK-237-DONE';
+  modalBtnCtx.currentModalEditingTask = { id: 'TASK-237-DONE', status: 'done' };
+  modalBtnCtx.updateModalButtonState();
+  assert(!modalBtnEls.btnArchiveTaskModal.classList.contains('hidden'), 'done 狀態必須顯示 #btnArchiveTaskModal');
+  assert(modalBtnEls.btnRejectTask.classList.contains('hidden'), 'done 狀態必須隱藏 #btnRejectTask');
+
+  // 5) archived
+  modalBtnEls.formStatus.value = 'archived';
+  modalBtnEls.formTaskId.value = 'TASK-237-ARCH';
+  modalBtnCtx.currentModalEditingTask = { id: 'TASK-237-ARCH', status: 'archived' };
+  modalBtnCtx.updateModalButtonState();
+  assert(modalBtnEls.btnSubmitTask.classList.contains('hidden'), 'archived 狀態必須隱藏 #btnSubmitTask');
+  assert(modalBtnEls.btnRejectTask.classList.contains('hidden'), 'archived 狀態必須隱藏 #btnRejectTask');
+  assert(modalBtnEls.btnArchiveTaskModal.classList.contains('hidden'), 'archived 狀態必須隱藏 #btnArchiveTaskModal');
+  assert(modalBtnEls.btnAbandonTask.classList.contains('hidden'), 'archived 狀態必須隱藏 #btnAbandonTask');
+
+  console.log('  ✅ TASK-237 任務彈窗顯示優化（移除過時按鈕、防橫向捲軸斷行、退回重做狀態隱藏 Git Diff）驗證通過');
+
+  // 24. 驗證 TASK-239 版面切換位置調整、分頁改為異動內容檢查、與左右兩欄 Master-Detail Git Diff 檢視器
+  const toggleSlotIdx = htmlContent.indexOf('id="boardViewToggleSlot"');
+  const stageFilterIdx = htmlContent.indexOf('aria-label="任務階段篩選"');
+  assert(toggleSlotIdx !== -1 && stageFilterIdx !== -1 && toggleSlotIdx < stageFilterIdx, '#boardViewToggleSlot 必須位於階段篩選膠囊 (任務階段篩選) 最左側');
+  assert(htmlContent.indexOf('id="modalLeftWorkspaceTabs"') < htmlContent.indexOf('id="modalFormGrid"'), '#modalLeftWorkspaceTabs 必須位於 #modalFormGrid 上方，切換至 Diff 分頁時仍保持可見');
+  assert(htmlContent.includes('id="btnModalTabDiff"') && htmlContent.includes('異動內容檢查'), 'index.html 必須包含 btnModalTabDiff (異動內容檢查)');
+
+  const modalRightIdx = htmlContent.indexOf('id="modalRightColumn"');
+  const masterGridIdx = htmlContent.indexOf('id="diffMasterDetailGrid"');
+  const fileListPaneIdx = htmlContent.indexOf('id="diffFileListPane"');
+  const summaryBarIdx = htmlContent.indexOf('id="diffSummaryBar"');
+  const modFilesListIdx = htmlContent.indexOf('id="formModifiedFilesList"');
+  const contentPaneIdx = htmlContent.indexOf('id="diffContentPane"');
+  const diffVisualIdx = htmlContent.indexOf('id="formDiffVisual"');
+  assert(modalRightIdx !== -1 && masterGridIdx > modalRightIdx, '#diffMasterDetailGrid 必須位於 #modalRightColumn 內');
+  assert(fileListPaneIdx > masterGridIdx && contentPaneIdx > fileListPaneIdx, '#diffFileListPane 必須在 #diffContentPane 之前，形成左檔案清單、右 Diff 內容兩欄佈局');
+  assert(summaryBarIdx > fileListPaneIdx && summaryBarIdx < contentPaneIdx, '#diffSummaryBar 必須位於左側 #diffFileListPane 內');
+  assert(summaryBarIdx < modFilesListIdx, '#diffSummaryBar 必須位於 #formModifiedFilesList 上方');
+  assert(modFilesListIdx > fileListPaneIdx && modFilesListIdx < contentPaneIdx, '#formModifiedFilesList 必須位於左側 #diffFileListPane 內');
+  assert(diffVisualIdx > contentPaneIdx, '#formDiffVisual 必須位於右側 #diffContentPane 內');
+  assert(!htmlContent.includes('btnShowAllDiffs') && !htmlContent.includes('全部檔案'), 'index.html 不得包含 #btnShowAllDiffs 或「全部檔案」按鈕');
+  assert(!htmlContent.includes('btnToggleCollapseAll') && !htmlContent.includes('全部折疊'), 'index.html 不得包含 #btnToggleCollapseAll 或「全部折疊」按鈕');
+  const modFilesTagMatch = htmlContent.match(/<div id="formModifiedFilesList"[^>]*>/);
+  assert(modFilesTagMatch && !modFilesTagMatch[0].includes('max-h-24'), '#formModifiedFilesList 不得保留 max-h-24 高度限制，應滿版垂直延展');
+  const masterGridTagMatch = htmlContent.match(/<div id="diffMasterDetailGrid"[^>]*>/);
+  const fileListPaneTagMatch = htmlContent.match(/<div id="diffFileListPane"[^>]*>/);
+  const contentPaneTagMatch = htmlContent.match(/<div id="diffContentPane"[^>]*>/);
+  assert(masterGridTagMatch && masterGridTagMatch[0].includes('flex-col lg:flex-row'), '#diffMasterDetailGrid 必須使用 flex-col lg:flex-row 佈局');
+  assert(fileListPaneTagMatch && fileListPaneTagMatch[0].includes('lg:w-[28%]') && fileListPaneTagMatch[0].includes('lg:min-w-[230px]') && fileListPaneTagMatch[0].includes('flex-shrink-0'), '#diffFileListPane 必須具備 lg:w-[28%] lg:min-w-[230px] flex-shrink-0');
+  assert(contentPaneTagMatch && contentPaneTagMatch[0].includes('flex-1 min-w-0'), '#diffContentPane 必須具備 flex-1 min-w-0');
+
+  // 24-1 updateModalButtonState 保留 diff 分頁作用狀態
+  modalBtnEls.btnModalTabDiff = makeModalEl();
+  modalBtnEls.modalReviewPane = makeModalEl();
+  modalBtnEls.formStatus.value = 'review';
+  modalBtnEls.formTaskId.value = 'TASK-237';
+  modalBtnEls.btnModalTabDiff.setAttribute('aria-selected', 'true');
+  modalBtnCtx.currentModalEditingTask = { id: 'TASK-237', status: 'review' };
+  modalBtnCtx.updateModalButtonState();
+  assert(modalBtnEls.modalLeftColumn.classList.contains('hidden'), 'diff 分頁作用中時 updateModalButtonState 必須維持 #modalLeftColumn 隱藏');
+  assert(!modalBtnEls.modalRightColumn.classList.contains('hidden') && modalBtnEls.modalRightColumn.classList.contains('lg:col-span-12'), 'diff 分頁作用中時 updateModalButtonState 必須維持 #modalRightColumn 全寬顯示');
+
+  // 24-2 toggleDiffFocusMode 在 diff 分頁與 null DOM 下皆安全運作
+  const focusEls = {
+    modalLeftColumn: makeModalEl(),
+    modalRightColumn: makeModalEl(),
+    modalFormGrid: makeModalEl(),
+    modalDialogContainer: makeModalEl(),
+    btnToggleFocusModeText: makeModalEl(),
+    btnToggleFocusModeIcon: makeModalEl(),
+    btnModalTabDiff: makeModalEl()
+  };
+  focusEls.btnModalTabDiff.setAttribute('aria-selected', 'true');
+  focusEls.modalLeftColumn.classList.add('hidden');
+  focusEls.modalRightColumn.classList.add('lg:col-span-12');
+  const focusCtx = vm.createContext({
+    document: { getElementById: id => focusEls[id] || null },
+    window: {},
+    isDiffFocusMode: false
+  });
+  vm.runInContext(actualFunction('toggleDiffFocusMode'), focusCtx);
+  focusCtx.toggleDiffFocusMode();
+  assert(focusEls.modalDialogContainer.classList.contains('max-w-[98vw]') && focusEls.modalDialogContainer.classList.contains('h-[96vh]'), '專注檢閱開啟時應放大 #modalDialogContainer');
+  assert(focusEls.modalLeftColumn.classList.contains('hidden') && focusEls.modalRightColumn.classList.contains('lg:col-span-12'), 'diff 分頁開啟專注檢閱時不得顯示左欄或縮小右欄');
+  focusCtx.toggleDiffFocusMode();
+  assert(focusEls.modalDialogContainer.classList.contains('max-w-6xl') && focusEls.modalDialogContainer.classList.contains('h-[90vh]'), '關閉專注檢閱時應還原 #modalDialogContainer 預設尺寸');
+  assert(focusEls.modalLeftColumn.classList.contains('hidden') && focusEls.modalRightColumn.classList.contains('lg:col-span-12'), 'diff 分頁關閉專注檢閱時必須保持左欄隱藏與右欄 lg:col-span-12');
+
+  const nullFocusCtx = vm.createContext({
+    document: { getElementById: () => null },
+    window: {},
+    isDiffFocusMode: false
+  });
+  vm.runInContext(actualFunction('toggleDiffFocusMode'), nullFocusCtx);
+  nullFocusCtx.toggleDiffFocusMode();
+
+  // 24-3 renderLineNumberedDiff 統一格式帶行號 diff 輸出驗證
+  const unifiedDiffCtx = vm.createContext({
+    escapeHtml: value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  });
+  vm.runInContext(['renderUnifiedDiffRow', 'renderLineNumberedDiff'].map(actualFunction).join('\n'), unifiedDiffCtx);
+  assert.strictEqual(unifiedDiffCtx.renderLineNumberedDiff([]), '', '空陣列 diff 應回傳空字串');
+
+  const unifiedHtml = unifiedDiffCtx.renderLineNumberedDiff([
+    'diff --git a/app.js b/app.js',
+    '@@ -10,4 +10,5 @@',
+    ' const keep = 1;',
+    '-const oldA = "<script>";',
+    '-const oldB = 2;',
+    '+const newA = "<script>";',
+    '+const newB = 3;',
+    '+const newC = 4;',
+    ' return keep;'
+  ]);
+  assert(!unifiedHtml.includes('diff-split-table'), 'renderLineNumberedDiff 不得輸出 .diff-split-table');
+  assert(unifiedHtml.includes('class="diff-row '), 'renderLineNumberedDiff 必須輸出標準 .diff-row 統一格式列');
+  assert(unifiedHtml.includes('<div class="diff-num">10</div>\n          <div class="diff-num">10</div>'), 'context 行必須同時顯示正確的 old/new 行號 (10, 10)');
+  assert(unifiedHtml.includes('diff-line-del') && unifiedHtml.includes('<div class="diff-num">11</div>\n          <div class="diff-num"></div>'), '刪除行必須標記 .diff-line-del 並僅顯示 old 行號 (11)');
+  assert(unifiedHtml.includes('<div class="diff-num">12</div>\n          <div class="diff-num"></div>'), '第二行刪除行必須遞增 old 行號 (12)');
+  assert(unifiedHtml.includes('diff-line-add') && unifiedHtml.includes('<div class="diff-num"></div>\n          <div class="diff-num">11</div>'), '新增行必須標記 .diff-line-add 並僅顯示 new 行號 (11)');
+  assert(unifiedHtml.includes('<div class="diff-num"></div>\n          <div class="diff-num">13</div>'), '第三行新增行必須遞增 new 行號 (13)');
+  assert(unifiedHtml.includes('<div class="diff-num">13</div>\n          <div class="diff-num">14</div>'), '結尾 context 行必須正確接續 old=13, new=14');
+  assert(unifiedHtml.includes('&lt;script&gt;') && !unifiedHtml.includes('<script>'), 'renderLineNumberedDiff 必須對異動內容進行 HTML 跳脫');
+
+  // 24-4 filterDiffForFile 嚴格單檔比對（不得因 Diff 內文提及他檔路徑而混入第二個檔案）與 resolveModifiedFileEntries 驗證
+  const twoFileDiff = [
+    'diff --git a/src/public/index.html b/src/public/index.html',
+    'index 1111111..2222222 100644',
+    '--- a/src/public/index.html',
+    '+++ b/src/public/index.html',
+    '@@ -1,2 +1,2 @@',
+    '-<div>old</div>',
+    '+<div>new</div>',
+    'diff --git a/scripts/test_ui_behavior.js b/scripts/test_ui_behavior.js',
+    'index 3333333..4444444 100644',
+    '--- a/scripts/test_ui_behavior.js',
+    '+++ b/scripts/test_ui_behavior.js',
+    '@@ -10,1 +10,2 @@',
+    ' const a = 1;',
+    "+const targetPath = 'src/public/index.html';"
+  ].join('\n');
+
+  let renderedSingleDiffText = null;
+  let renderedSingleFilePath = null;
+  const activeBadgeEl = makeModalEl();
+  const filterCtx = vm.createContext({
+    currentActiveTaskDiff: twoFileDiff,
+    currentModalEditingTask: null,
+    currentProject: 'ALL',
+    MOD_FILE_ITEM_ACTIVE_CLASS: 'mod-file-item active',
+    MOD_FILE_ITEM_INACTIVE_CLASS: 'mod-file-item inactive',
+    document: {
+      getElementById: id => (id === 'diffActiveFileBadge' ? activeBadgeEl : null),
+      querySelectorAll: () => []
+    },
+    renderDiffViewer: (diffText, fp) => {
+      renderedSingleDiffText = diffText;
+      renderedSingleFilePath = fp;
+    },
+    fetch: async () => ({ json: async () => ({}) })
+  });
+  vm.runInContext(
+    ['extractFilePathFromDiffSection', 'parseFileStatusFromLines', 'splitDiffByFiles', 'filterDiffForFile'].map(actualFunction).join('\n'),
+    filterCtx
+  );
+  await filterCtx.filterDiffForFile('src/public/index.html');
+  assert.strictEqual(renderedSingleFilePath, 'src/public/index.html', 'filterDiffForFile 應傳遞正確的單檔路徑給 renderDiffViewer');
+  assert(renderedSingleDiffText && renderedSingleDiffText.includes('diff --git a/src/public/index.html b/src/public/index.html'), 'renderDiffViewer 必須包含所選檔案 src/public/index.html 的 diff 區塊');
+  assert(!renderedSingleDiffText.includes('scripts/test_ui_behavior.js'), 'filterDiffForFile 不得因內文出現檔名而混入第二個檔案 scripts/test_ui_behavior.js');
+
+  // Null diffActiveFileBadge 防禦驗證
+  const nullBadgeFilterCtx = vm.createContext({
+    currentActiveTaskDiff: twoFileDiff,
+    currentModalEditingTask: null,
+    currentProject: 'ALL',
+    MOD_FILE_ITEM_ACTIVE_CLASS: 'mod-file-item active',
+    MOD_FILE_ITEM_INACTIVE_CLASS: 'mod-file-item inactive',
+    document: {
+      getElementById: () => null,
+      querySelectorAll: () => []
+    },
+    renderDiffViewer: () => {},
+    fetch: async () => ({ json: async () => ({}) })
+  });
+  vm.runInContext(
+    ['extractFilePathFromDiffSection', 'parseFileStatusFromLines', 'splitDiffByFiles', 'filterDiffForFile'].map(actualFunction).join('\n'),
+    nullBadgeFilterCtx
+  );
+  await nullBadgeFilterCtx.filterDiffForFile('src/public/index.html');
+
+  // resolveModifiedFileEntries 在 modifiedFiles 為空但有 diff 時應自動解析清單
+  const resolveCtx = vm.createContext({});
+  vm.runInContext(
+    ['extractFilePathFromDiffSection', 'parseFileStatusFromLines', 'splitDiffByFiles', 'resolveModifiedFileEntries'].map(actualFunction).join('\n'),
+    resolveCtx
+  );
+  const resolvedFromDiff = resolveCtx.resolveModifiedFileEntries({ modifiedFiles: [], diff: twoFileDiff });
+  assert.deepStrictEqual(
+    JSON.parse(JSON.stringify(resolvedFromDiff)),
+    [
+      { path: 'src/public/index.html', description: '' },
+      { path: 'scripts/test_ui_behavior.js', description: '' }
+    ],
+    'modifiedFiles 為空時 resolveModifiedFileEntries 應從 diff 解析出檔案清單'
+  );
+
+  // renderModifiedFilesList 應於第一行突顯檔名，並於下方以小字顯示目錄路徑，且不限制 max-w-[140px]
+  const modListEl = { innerHTML: '' };
+  const renderModListCtx = vm.createContext({
+    escapeHtml: value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'),
+    parseDiffStats: () => ({
+      filesMap: {
+        'src/public/modules/modal.js': { status: 'M', additions: 5, deletions: 2 }
+      }
+    })
+  });
+  vm.runInContext(
+    ['extractFilePathFromDiffSection', 'parseFileStatusFromLines', 'splitDiffByFiles', 'resolveModifiedFileEntries', 'renderModifiedFilesList'].map(actualFunction).join('\n'),
+    renderModListCtx
+  );
+  renderModListCtx.renderModifiedFilesList(
+    { modifiedFiles: ['src/public/modules/modal.js', 'README.md'], diff: '' },
+    modListEl
+  );
+  assert(!modListEl.innerHTML.includes('max-w-[140px]'), 'renderModifiedFilesList 不得保留 max-w-[140px] 寬度截斷限制');
+  assert(
+    modListEl.innerHTML.includes('data-path="src/public/modules/modal.js"') &&
+      modListEl.innerHTML.includes('title="src/public/modules/modal.js"') &&
+      modListEl.innerHTML.includes("onclick=\"filterDiffForFile('src/public/modules/modal.js')\""),
+    'renderModifiedFilesList 必須保留完整路徑的 data-path、title 與 onclick 屬性'
+  );
+  assert(
+    /<span class="[^"]*font-semibold[^"]*text-xs[^"]*">modal\.js<\/span>/.test(modListEl.innerHTML),
+    'renderModifiedFilesList 第一行必須以 text-xs font-semibold 突顯檔名 modal.js'
+  );
+  const modalIdx = modListEl.innerHTML.indexOf('>modal.js</span>');
+  const dirIdx = modListEl.innerHTML.indexOf('>src/public/modules</div>');
+  assert(
+    modalIdx !== -1 && dirIdx > modalIdx && /<div class="text-\[10px\][^"]*">src\/public\/modules<\/div>/.test(modListEl.innerHTML),
+    'renderModifiedFilesList 必須在檔名下方以 text-[10px] 小字顯示目錄路徑 src/public/modules'
+  );
+  assert(
+    /<span class="[^"]*font-semibold[^"]*text-xs[^"]*">README\.md<\/span>/.test(modListEl.innerHTML),
+    '無目錄前綴的根目錄檔案 README.md 也應正確顯示檔名'
+  );
+
+  // diffViewer.js 必須保留 showAllDiffs 與 toggleCollapseAllDiffs export 以維持 app.js 相容性
+  const diffViewerSource = fs.readFileSync(path.join(__dirname, '../src/public/modules/diffViewer.js'), 'utf8');
+  assert(diffViewerSource.includes('showAllDiffs') && diffViewerSource.includes('toggleCollapseAllDiffs'), 'diffViewer.js 必須保留 showAllDiffs 與 toggleCollapseAllDiffs 匯出');
+
+  console.log('  ✅ TASK-239 看板切換置左、異動內容檢查分頁與左右兩欄 Master-Detail Diff 檢視器驗證通過');
+
+  // 25. 驗證 TASK-240 已完成 (done) 任務交付塢 UI、專案策略預設、目標分支下拉選單與開 PR 導流
+  assert(htmlContent.includes('id="doneDeliveryStudioPanel"'), 'index.html 必須包含 #doneDeliveryStudioPanel 容器');
+  const doneDeliverySource = fs.readFileSync(path.join(__dirname, '../src/public/modules/doneDeliveryStudio.js'), 'utf8');
+  assert(doneDeliverySource.includes('window.initDoneDeliveryPanel = initDoneDeliveryPanel'), 'doneDeliveryStudio.js 必須綁定 window.initDoneDeliveryPanel');
+  assert(doneDeliverySource.includes('window.selectDoneDeliveryMode = selectDoneDeliveryMode'), 'doneDeliveryStudio.js 必須綁定 window.selectDoneDeliveryMode');
+  assert(doneDeliverySource.includes('window.submitDoneDelivery = submitDoneDelivery'), 'doneDeliveryStudio.js 必須綁定 window.submitDoneDelivery');
+  assert(doneDeliverySource.includes('window.toggleDoneDeliveryOptions = toggleDoneDeliveryOptions'), 'doneDeliveryStudio.js 必須綁定 window.toggleDoneDeliveryOptions');
+  assert(doneDeliverySource.includes('window.onDoneDeliveryBranchChange = onDoneDeliveryBranchChange'), 'doneDeliveryStudio.js 必須綁定 window.onDoneDeliveryBranchChange');
+
+  // 25-1 updateModalButtonState 在 done 狀態應傳遞任務給 initDoneDeliveryPanel，封存檢視或非 done 狀態應傳 null
+  let capturedDoneDeliveryPayload = 'UNSET';
+  modalBtnCtx.initDoneDeliveryPanel = payload => { capturedDoneDeliveryPayload = payload; };
+  modalBtnEls.formStatus.value = 'done';
+  modalBtnEls.formTaskId.value = 'TASK-237-DONE';
+  modalBtnCtx.isOpenedFromArchive = false;
+  modalBtnCtx.currentModalEditingTask = { id: 'TASK-237-DONE', status: 'done' };
+  modalBtnCtx.updateModalButtonState();
+  assert.strictEqual(capturedDoneDeliveryPayload?.id, 'TASK-237-DONE', 'done 狀態應呼叫 initDoneDeliveryPanel 並傳入任務');
+  assert.strictEqual(capturedDoneDeliveryPayload?.status, 'done', 'done 狀態應呼叫 initDoneDeliveryPanel 並傳入 status=done');
+
+  modalBtnCtx.isOpenedFromArchive = true;
+  modalBtnCtx.updateModalButtonState();
+  assert.strictEqual(capturedDoneDeliveryPayload, null, '從封存庫開啟時應傳入 null 隱藏交付塢');
+  modalBtnCtx.isOpenedFromArchive = false;
+
+  // 25-2 在 VM 中驗證 doneDeliveryStudio.js 的 A / B / C 策略渲染、目標分支 <select>、archiveAfter 切換與 submitDoneDelivery 開 PR
+  const deliveryCode = doneDeliverySource
+    .replace(/^import\s+[\s\S]*?from\s+["'][^"']+["'];\s*/gm, '')
+    .replace(/export\s+\{[\s\S]*?\};?\s*/g, '');
+
+  const makeDeliveryDom = () => {
+    const panel = makeModalEl();
+    let capturedOpenPrUrl = null;
+    let capturedFetchCalls = [];
+    let closedModal = false;
+    let reloadedData = false;
+    let currentElMap = {
+      doneDeliveryStudioPanel: panel,
+      modalSpecPane: (() => { const el = makeModalEl(); el.classList.add('hidden'); return el; })(),
+      formTaskId: makeModalEl({ value: 'TASK-240-UI' }),
+      doneDeliveryErrorBox: makeModalEl(),
+      doneDeliveryOptionsDrawer: makeModalEl(),
+      btnToggleDoneDeliveryOptions: makeModalEl(),
+      doneDeliverySourceBranch: makeModalEl(),
+      doneDeliveryTargetBranch: makeModalEl(),
+      doneDeliveryStrategy: makeModalEl({ value: 'merge' }),
+      doneDeliveryDeleteSource: makeModalEl({ checked: false }),
+      doneDeliveryArchiveAfter: makeModalEl({ checked: false }),
+      btnDoneDeliverSubmit: makeModalEl()
+    };
+    const ctx = vm.createContext({
+      document: { getElementById: id => currentElMap[id] || null },
+      window: { closeModal: () => { closedModal = true; }, lucide: null },
+      projects: [
+        { id: 'fetnet-eservice-f2e', name: 'fetnet-eservice-f2e' },
+        { id: 'tool-static-web', name: 'tool-static-web' },
+        { id: 'task-dashboard', name: 'task-dashboard' }
+      ],
+      tasks: [],
+      projectBranchesMap: {
+        'fetnet-eservice-f2e': {
+          defaultBranch: 'master',
+          currentCheckoutBranch: 'feat/eservice-240',
+          branches: [{ name: 'master' }, { name: 'new_dev' }, { name: 'develop' }, { name: 'feat/eservice-240' }]
+        },
+        'tool-static-web': {
+          defaultBranch: 'master',
+          currentCheckoutBranch: 'feat/static-240',
+          branches: [{ name: 'master' }, { name: 'develop' }, { name: 'feat/static-240' }]
+        },
+        'task-dashboard': {
+          defaultBranch: 'main',
+          currentCheckoutBranch: 'feat/td-240',
+          branches: [{ name: 'main' }, { name: 'feat/td-240' }]
+        }
+      },
+      isOpenedFromArchive: false,
+      currentModalEditingTask: null,
+      escapeHtml: v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'),
+      showToast: () => {},
+      withButtonLoading: async (_btn, _txt, fn) => await fn(),
+      openExternalUrl: url => { capturedOpenPrUrl = url; },
+      loadData: async () => { reloadedData = true; },
+      fetch: async (url, init) => {
+        capturedFetchCalls.push({ url, init });
+        if (String(url).endsWith('/deliver')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              success: true,
+              pushed: true,
+              prUrl: 'https://dev.azure.com/org/proj/_git/tool-static-web/pullrequestcreate?sourceRef=feat%2Fstatic-240&targetRef=master',
+              archived: true,
+              task: { id: 'TASK-240-UI', status: 'archived' }
+            })
+          };
+        }
+        return { ok: false, status: 404, json: async () => ({}) };
+      }
+    });
+    vm.runInContext(deliveryCode, ctx);
+    return {
+      ctx,
+      panel,
+      els: currentElMap,
+      getOpenPrUrl: () => capturedOpenPrUrl,
+      getFetchCalls: () => capturedFetchCalls,
+      isModalClosed: () => closedModal,
+      isDataReloaded: () => reloadedData
+    };
+  };
+
+  // Category A: fetnet-eservice-f2e (預設 merge_push -> new_dev, archiveAfter=false; 切 pr_push -> master, archiveAfter=true)
+  const simA = makeDeliveryDom();
+  simA.ctx.initDoneDeliveryPanel({
+    id: 'TASK-240-A',
+    project: 'fetnet-eservice-f2e',
+    status: 'done',
+    branchName: 'feat/eservice-240'
+  });
+  assert(!simA.panel.classList.contains('hidden'), 'Category A done 任務應顯示 #doneDeliveryStudioPanel');
+  assert(simA.panel.innerHTML.includes('id="doneDeliveryTargetBranch"'), '應渲染 <select id="doneDeliveryTargetBranch">');
+  assert(simA.panel.innerHTML.includes('<option value="new_dev" selected>new_dev</option>'), 'fetnet-eservice-f2e 預設 Merge+Push 目標應選中 new_dev');
+  assert(simA.panel.innerHTML.includes('value="develop"'), '目標下拉應列出 repo 現有分支 develop');
+  assert(simA.panel.innerHTML.includes('value="master"'), '目標下拉應列出 repo 現有分支 master');
+  assert(!simA.panel.innerHTML.includes('id="doneDeliveryArchiveAfter" checked'), 'Category A Merge+Push 預設不自動封存 (archiveAfter=false)');
+
+  simA.ctx.selectDoneDeliveryMode('pr_push');
+  assert(simA.panel.innerHTML.includes('<option value="master" selected>master</option>'), '切換為 PR 模式後目標應預設為 master');
+  assert(simA.panel.innerHTML.includes('id="doneDeliveryArchiveAfter" checked'), '切換為 PR 模式後 archiveAfter 應預設勾選為 true');
+
+  // Category B: tool-static-web (僅 PR 模式, 預設目標 master, 執行後透過 openExternalUrl 開啟 PR)
+  const simB = makeDeliveryDom();
+  simB.ctx.initDoneDeliveryPanel({
+    id: 'TASK-240-B',
+    project: 'tool-static-web',
+    status: 'done',
+    branchName: 'feat/static-240'
+  });
+  assert(simB.panel.innerHTML.includes('<option value="master" selected>master</option>'), 'tool-static-web 預設 PR 目標必須為 master');
+  assert(simB.panel.innerHTML.includes('id="doneDeliveryArchiveAfter" checked'), 'Category B 預設 archiveAfter 應為 true');
+  assert(!simB.panel.innerHTML.includes('btnDoneDeliveryModeMergePush'), 'Category B 不應顯示 Merge+Push 切換鈕');
+  simB.els.doneDeliverySourceBranch.value = 'feat/static-240';
+  simB.els.doneDeliveryTargetBranch.value = 'master';
+  simB.els.doneDeliveryArchiveAfter.checked = true;
+  await simB.ctx.submitDoneDelivery();
+  assert(simB.getOpenPrUrl() && simB.getOpenPrUrl().includes('/pullrequestcreate?'), 'submitDoneDelivery 成功回傳 prUrl 後應透過 openExternalUrl 開啟 PR 頁面');
+  assert(simB.isModalClosed() && simB.isDataReloaded(), 'archiveAfter=true 成功後應關閉 Modal 並重載看板資料');
+
+  // Category C: task-dashboard (僅 Merge+Push, 預設目標 main, archiveAfter=true)
+  const simC = makeDeliveryDom();
+  simC.ctx.initDoneDeliveryPanel({
+    id: 'TASK-240-C',
+    project: 'task-dashboard',
+    status: 'done',
+    branchName: 'feat/td-240'
+  });
+  assert(simC.panel.innerHTML.includes('<option value="main" selected>main</option>'), 'task-dashboard 預設目標必須為 main');
+  assert(simC.panel.innerHTML.includes('id="doneDeliveryArchiveAfter" checked'), 'Category C 預設 archiveAfter 應為 true');
+  assert(!simC.panel.innerHTML.includes('btnDoneDeliveryModePrPush'), 'Category C 不應顯示 PR 切換鈕');
+
+  console.log('  ✅ TASK-240 完成任務交付塢 UI、專案策略矩陣與 PR 頁面導流驗證通過');
 
   console.log('🎉 所有前端核心互動邏輯與防禦機制測試通過！\n');
 })().catch(err => {

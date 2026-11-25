@@ -14,6 +14,7 @@ export let currentModalEditingTask = null;
 export let selectedFirstLaunchPath = "";
 export const selectedArchivedTaskIds = new Set();
 export let isOpenedFromArchive = false;
+export let expandedProjectId = null;
 
 export function setProjects(val) { projects = val; if (typeof window !== "undefined") window.projects = val; }
 export function setTasks(val) { tasks = val; if (typeof window !== "undefined") window.tasks = val; }
@@ -30,6 +31,7 @@ export function setCurrentTaskDependencies(val) { currentTaskDependencies = val;
 export function setCurrentModalEditingTask(val) { currentModalEditingTask = val; if (typeof window !== "undefined") window.currentModalEditingTask = val; }
 export function setSelectedFirstLaunchPath(val) { selectedFirstLaunchPath = val; if (typeof window !== "undefined") window.selectedFirstLaunchPath = val; }
 export function setIsOpenedFromArchive(val) { isOpenedFromArchive = Boolean(val); if (typeof window !== "undefined") window.isOpenedFromArchive = isOpenedFromArchive; }
+export function setExpandedProjectId(val) { expandedProjectId = val || null; if (typeof window !== "undefined") window.expandedProjectId = expandedProjectId; }
 
 if (typeof window !== "undefined") {
   window.projects = projects;
@@ -48,6 +50,7 @@ if (typeof window !== "undefined") {
   window.selectedFirstLaunchPath = selectedFirstLaunchPath;
   window.selectedArchivedTaskIds = selectedArchivedTaskIds;
   window.isOpenedFromArchive = isOpenedFromArchive;
+  window.expandedProjectId = expandedProjectId;
   window.setProjects = setProjects;
   window.setTasks = setTasks;
   window.setArchivedTasks = setArchivedTasks;
@@ -63,4 +66,5 @@ if (typeof window !== "undefined") {
   window.setCurrentModalEditingTask = setCurrentModalEditingTask;
   window.setSelectedFirstLaunchPath = setSelectedFirstLaunchPath;
   window.setIsOpenedFromArchive = setIsOpenedFromArchive;
+  window.setExpandedProjectId = setExpandedProjectId;
 }

@@ -1,11 +1,11 @@
 import { KANBAN_STATUSES } from "./constants.js";
 import {
   projects, tasks, archivedTasks, archivedTasksCount, settings, projectGitStatus, currentProject, currentBranch, projectBranchesMap, groupByBranch, currentActiveTaskDiff,
-  currentTaskDependencies, currentModalEditingTask, selectedFirstLaunchPath,
+  currentTaskDependencies, currentModalEditingTask, selectedFirstLaunchPath, expandedProjectId,
   setProjects, setTasks, setArchivedTasks, setArchivedTasksCount, setSettings, setProjectGitStatus, setCurrentProject,
   setCurrentBranch, setProjectBranchesMap, setGroupByBranch,
   setCurrentActiveTaskDiff, setCurrentTaskDependencies, setCurrentModalEditingTask,
-  setSelectedFirstLaunchPath
+  setSelectedFirstLaunchPath, setExpandedProjectId
 } from "./state.js";
 import {
   loadProjectBranches, selectProjectAndBranch, renderProjectBranchTree,
@@ -49,6 +49,13 @@ import {
   restoreSingleArchivedTask, deleteSingleArchivedTask, promptTaskDeleteOrAbandon,
   closeActionConfirmModal, executeTaskActionConfirmed, deleteCurrentTask, closeModal
 } from "./modal.js";
+import {
+  initDoneDeliveryPanel,
+  selectDoneDeliveryMode,
+  submitDoneDelivery,
+  toggleDoneDeliveryOptions,
+  onDoneDeliveryBranchChange
+} from "./doneDeliveryStudio.js";
 
     const macTitlebarEl = document.getElementById('macTitlebar');
     if (macTitlebarEl) {
@@ -669,16 +676,34 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
       document.getElementById('sidebarBackdrop').classList.add('hidden');
     }
 
+    function toggleProjectExpand(projId, event) {
+      if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+      if (!projId || projId === 'ALL') {
+        setExpandedProjectId(null);
+      } else {
+        setExpandedProjectId(expandedProjectId === projId ? null : projId);
+      }
+      renderSidebarProjects();
+    }
+
     function filterByProject(projId) {
-      setCurrentProject(projId);
+      const targetProj = projId || 'ALL';
+      if (targetProj === 'ALL') {
+        setExpandedProjectId(null);
+      } else {
+        const isAlreadyRootAndExpanded = currentProject === targetProj && (!currentBranch || currentBranch === 'ALL') && expandedProjectId === targetProj;
+        setExpandedProjectId(isAlreadyRootAndExpanded ? null : targetProj);
+      }
+      setCurrentProject(targetProj);
       setCurrentBranch('ALL');
       renderSidebarProjects();
       renderProjectBanner();
+      renderContextualHeaderActions();
       renderKanban();
       renderMetrics();
       closeSidebar();
-      if (projId && projId !== 'ALL') {
-        loadProjectBranches(projId, false).then(() => {
+      if (targetProj !== 'ALL') {
+        loadProjectBranches(targetProj, false).then(() => {
           renderSidebarProjects();
           renderContextualHeaderActions();
         });
@@ -739,27 +764,37 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
         if (search && !p.name.toLowerCase().includes(search) && !p.id.toLowerCase().includes(search)) return;
         
         const isProjOnly = currentProject === p.id && (!currentBranch || currentBranch === 'ALL');
+        const isExpanded = expandedProjectId === p.id;
         const taskCount = tasks.filter(t => t.project === p.id && normalizeStatus(t.status) !== 'archived').length;
         const colorClass = p.color === 'purple' ? 'bg-purple-500' :
                            p.color === 'blue' ? 'bg-blue-500' :
                            p.color === 'emerald' ? 'bg-emerald-500' :
                            p.color === 'amber' ? 'bg-amber-500' : 'bg-indigo-500';
+        const deleteBtnClass = isProjOnly
+          ? 'opacity-80 group-hover/proj:opacity-100 focus:opacity-100 p-1 rounded bg-black/20 hover:bg-rose-600 text-white transition flex items-center justify-center'
+          : 'opacity-0 group-hover/proj:opacity-100 focus:opacity-100 p-1 text-[var(--muted-foreground)] hover:text-rose-500 hover:bg-rose-500/10 rounded transition flex items-center justify-center';
+        const expandBtnClass = isProjOnly
+          ? 'p-0.5 rounded hover:bg-black/20 text-white/90 hover:text-white transition flex items-center justify-center flex-shrink-0'
+          : 'p-0.5 rounded hover:bg-[var(--card)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition flex items-center justify-center flex-shrink-0';
 
         html += `
           <div class="p-2 rounded-xl bg-[var(--card)] border border-[var(--border)] space-y-1">
             <div onclick="filterByProject('${p.id}')" class="group/proj px-2 py-1.5 rounded-lg flex items-center justify-between cursor-pointer transition ${isProjOnly ? 'bg-[var(--primary)] text-[var(--primary-foreground)] font-bold' : 'hover:bg-[var(--background)] text-[var(--foreground)] font-bold'}">
-              <div class="flex items-center gap-2 truncate mr-2">
+              <div class="flex items-center gap-1.5 truncate mr-2">
+                <button type="button" onclick="toggleProjectExpand('${p.id}', event)" aria-expanded="${isExpanded}" title="${isExpanded ? '收合分支列表' : '展開分支列表'}" class="${expandBtnClass}">
+                  <i data-lucide="${isExpanded ? 'chevron-down' : 'chevron-right'}" class="w-3.5 h-3.5 pointer-events-none"></i>
+                </button>
                 <span class="w-2 h-2 rounded-full ${colorClass} flex-shrink-0"></span>
                 <span class="text-xs truncate">${escapeHtml(p.name)}</span>
               </div>
               <div class="flex items-center gap-1 flex-shrink-0">
                 <span class="font-mono text-xs px-1.5 py-0.5 rounded ${isProjOnly ? 'bg-black/15 text-white' : 'bg-[var(--background)] text-[var(--foreground)]'}">${taskCount}</span>
-                <button onclick="deleteProject('${p.id}', ${idx}, event)" title="取消追蹤此專案" class="opacity-0 group-hover/proj:opacity-100 p-0.5 text-[var(--muted-foreground)] hover:text-rose-500 rounded transition flex items-center justify-center">
+                <button onclick="deleteProject('${p.id}', ${idx}, event)" title="取消追蹤此專案" class="${deleteBtnClass}">
                   <i data-lucide="trash-2" class="w-3 h-3 pointer-events-none"></i>
                 </button>
               </div>
             </div>
-            ${renderProjectBranchTree(p)}
+            ${isExpanded ? renderProjectBranchTree(p) : ''}
           </div>
         `;
       });
@@ -851,11 +886,11 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
 
 
     function openNewProjectModal() {
-      document.getElementById('projectModal').classList.remove('hidden');
+      document.getElementById('projectModal')?.classList.remove('hidden');
     }
 
     function closeProjectModal() {
-      document.getElementById('projectModal').classList.add('hidden');
+      document.getElementById('projectModal')?.classList.add('hidden');
     }
 
     async function saveNewProject(e) {
@@ -1059,8 +1094,8 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
       await loadData();
     }
 
-    document.getElementById('searchInput').addEventListener('input', renderKanban);
-    document.getElementById('priorityFilter').addEventListener('change', renderKanban);
+    document.getElementById('searchInput')?.addEventListener('input', renderKanban);
+    document.getElementById('priorityFilter')?.addEventListener('change', renderKanban);
     document.getElementById('projectSearchInput').addEventListener('input', renderSidebarProjects);
     document.getElementById('formExecutionPlan')?.addEventListener('input', () => {
       if (typeof updateModalButtonState === 'function') updateModalButtonState();
@@ -1156,6 +1191,7 @@ export {
   saveSettingsFromModal,
   toggleSidebar,
   closeSidebar,
+  toggleProjectExpand,
   filterByProject,
   deleteProject,
   renderSidebarProjects,
@@ -1186,7 +1222,12 @@ export {
   toggleBranchGroupView,
   openCreateBranchPopover,
   closeCreateBranchPopover,
-  submitNewBranch
+  submitNewBranch,
+  initDoneDeliveryPanel,
+  selectDoneDeliveryMode,
+  submitDoneDelivery,
+  toggleDoneDeliveryOptions,
+  onDoneDeliveryBranchChange
 };
 
 if (typeof window !== "undefined") {
@@ -1215,6 +1256,7 @@ if (typeof window !== "undefined") {
   window.saveSettingsFromModal = saveSettingsFromModal;
   window.toggleSidebar = toggleSidebar;
   window.closeSidebar = closeSidebar;
+  window.toggleProjectExpand = toggleProjectExpand;
   window.filterByProject = filterByProject;
   window.deleteProject = deleteProject;
   window.renderSidebarProjects = renderSidebarProjects;
@@ -1246,4 +1288,9 @@ if (typeof window !== "undefined") {
   window.openCreateBranchPopover = openCreateBranchPopover;
   window.closeCreateBranchPopover = closeCreateBranchPopover;
   window.submitNewBranch = submitNewBranch;
+  window.initDoneDeliveryPanel = initDoneDeliveryPanel;
+  window.selectDoneDeliveryMode = selectDoneDeliveryMode;
+  window.submitDoneDelivery = submitDoneDelivery;
+  window.toggleDoneDeliveryOptions = toggleDoneDeliveryOptions;
+  window.onDoneDeliveryBranchChange = onDoneDeliveryBranchChange;
 }

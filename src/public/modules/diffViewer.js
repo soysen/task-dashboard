@@ -151,9 +151,7 @@ import { currentActiveTaskDiff, currentProject, currentModalEditingTask } from "
       const addEl = document.getElementById('diffStatAdditionsBadge');
       const delEl = document.getElementById('diffStatDeletionsBadge');
       if (filesEl) {
-        filesEl.innerText = singleFilePath
-          ? `共 ${trueFilesCount} 檔（正檢視單檔）`
-          : `共 ${trueFilesCount} 個檔案變更`;
+        filesEl.innerText = `共 ${trueFilesCount} 檔`;
       }
       const displayAdd = (singleFilePath && viewStats.additions > 0) ? viewStats.additions : (totalStats.additions || viewStats.additions);
       const displayDel = (singleFilePath && viewStats.deletions > 0) ? viewStats.deletions : (totalStats.deletions || viewStats.deletions);
@@ -187,31 +185,39 @@ import { currentActiveTaskDiff, currentProject, currentModalEditingTask } from "
     function toggleDiffFocusMode() {
       isDiffFocusMode = !isDiffFocusMode;
       const leftCol = document.getElementById('modalLeftColumn');
+      const rightCol = document.getElementById('modalRightColumn');
       const grid = document.getElementById('modalFormGrid');
       const btnText = document.getElementById('btnToggleFocusModeText');
       const btnIcon = document.getElementById('btnToggleFocusModeIcon');
       const container = document.getElementById('modalDialogContainer');
+      const isDiffTabActive = document.getElementById('btnModalTabDiff')?.getAttribute('aria-selected') === 'true';
 
-      if (isDiffFocusMode) {
-        if (leftCol) leftCol.classList.add('hidden');
-        if (grid) grid.classList.remove('lg:grid-cols-2', 'lg:grid-cols-12');
-        const rightCol = document.getElementById('modalRightColumn');
-        if (rightCol) rightCol.classList.remove('lg:col-span-7');
-        if (container) {
-          container.classList.remove('max-w-6xl');
-          container.classList.add('max-w-[98vw]', 'h-[96vh]');
-        }
-        if (btnText) btnText.innerText = '還原雙欄';
-        if (btnIcon) btnIcon.setAttribute('data-lucide', 'minimize-2');
-      } else {
-        if (leftCol) leftCol.classList.remove('hidden');
-        if (grid) grid.classList.add('lg:grid-cols-12');
-        const rightCol = document.getElementById('modalRightColumn');
-        if (rightCol) rightCol.classList.add('lg:col-span-7');
-        if (btnText) btnText.innerText = '專注檢閱';
-        if (btnIcon) btnIcon.setAttribute('data-lucide', 'maximize-2');
+      if (container?.classList) {
+        container.classList.toggle('max-w-6xl', !isDiffFocusMode);
+        container.classList.toggle('h-[90vh]', !isDiffFocusMode);
+        container.classList.toggle('max-w-[98vw]', isDiffFocusMode);
+        container.classList.toggle('h-[96vh]', isDiffFocusMode);
       }
-      if (window.lucide) lucide.createIcons();
+
+      if (isDiffTabActive) {
+        leftCol?.classList?.toggle('hidden', true);
+        grid?.classList?.toggle('lg:grid-cols-12', true);
+        rightCol?.classList?.toggle('lg:col-span-7', false);
+        rightCol?.classList?.toggle('lg:col-span-12', true);
+      } else if (isDiffFocusMode) {
+        leftCol?.classList?.toggle('hidden', true);
+        grid?.classList?.toggle('lg:grid-cols-2', false);
+        grid?.classList?.toggle('lg:grid-cols-12', false);
+        rightCol?.classList?.toggle('lg:col-span-7', false);
+      } else {
+        leftCol?.classList?.toggle('hidden', false);
+        grid?.classList?.toggle('lg:grid-cols-12', true);
+        rightCol?.classList?.toggle('lg:col-span-7', true);
+      }
+
+      if (btnText) btnText.innerText = isDiffFocusMode ? (isDiffTabActive ? '還原視窗' : '還原雙欄') : '專注檢閱';
+      if (btnIcon) btnIcon.setAttribute('data-lucide', isDiffFocusMode ? 'minimize-2' : 'maximize-2');
+      if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons();
     }
 
     let isModalFullscreen = false;
@@ -240,36 +246,43 @@ import { currentActiveTaskDiff, currentProject, currentModalEditingTask } from "
       copyToClipboard(currentActiveTaskDiff, '已複製全量 Git Diff！');
     }
 
+    const MOD_FILE_ITEM_ACTIVE_CLASS = 'mod-file-item flex items-center justify-between gap-2 bg-indigo-100 dark:bg-indigo-900/60 border-indigo-500 font-bold px-2.5 py-1.5 rounded-lg border cursor-pointer transition';
+    const MOD_FILE_ITEM_INACTIVE_CLASS = 'mod-file-item flex items-center justify-between gap-2 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer transition';
+
     async function filterDiffForFile(filePath) {
-      document.getElementById('diffActiveFileBadge').innerText = `檔案: ${filePath}`;
-      
+      const badgeEl = document.getElementById('diffActiveFileBadge');
+      if (badgeEl) badgeEl.innerText = `檔案: ${filePath}`;
+
       // 更新檔案列表的 Active 選中樣式
-      document.querySelectorAll('.mod-file-item').forEach(el => {
-        if (el.getAttribute('data-path') === filePath) {
-          el.className = 'mod-file-item flex items-center justify-between bg-indigo-100 dark:bg-indigo-900/60 border-indigo-500 font-bold px-2.5 py-1.5 rounded-lg border cursor-pointer transition';
-        } else {
-          el.className = 'mod-file-item flex items-center justify-between bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer transition';
-        }
+      document.querySelectorAll?.('.mod-file-item')?.forEach(el => {
+        el.className = el.getAttribute('data-path') === filePath
+          ? MOD_FILE_ITEM_ACTIVE_CLASS
+          : MOD_FILE_ITEM_INACTIVE_CLASS;
       });
 
-      const baseName = filePath.split('/').pop();
+      const cleanTarget = (filePath || '').trim();
+      const baseName = cleanTarget.split('/').pop();
       let matchedSection = null;
 
-      // 1. 先從任務已嵌入的 Diff 字串解析
-      if (currentActiveTaskDiff && currentActiveTaskDiff.trim().length > 0) {
+      // 1. 先從任務已嵌入的 Diff 字串解析（嚴格依 sec.filePath 優先順序比對單檔，絕不比對內文）
+      if (currentActiveTaskDiff && currentActiveTaskDiff.trim().length > 0 && cleanTarget) {
         const sections = splitDiffByFiles(currentActiveTaskDiff);
-        const matched = sections.filter(sec => {
-          const secPath = (sec.filePath || '').trim();
-          const cleanTarget = filePath.trim();
-          return secPath === cleanTarget ||
-                 secPath.endsWith('/' + cleanTarget) ||
-                 cleanTarget.endsWith('/' + secPath) ||
-                 (baseName && secPath.endsWith('/' + baseName)) ||
-                 sec.header.includes(cleanTarget) ||
-                 sec.lines.some(l => l.includes(cleanTarget));
-        });
+        const withPath = sections.filter(sec => (sec.filePath || '').trim().length > 0);
+        let matched = withPath.filter(sec => sec.filePath.trim() === cleanTarget);
+        if (matched.length === 0) {
+          matched = withPath.filter(sec => {
+            const secPath = sec.filePath.trim();
+            return secPath.endsWith('/' + cleanTarget) || cleanTarget.endsWith('/' + secPath);
+          });
+        }
+        if (matched.length === 0 && baseName) {
+          matched = withPath.filter(sec => {
+            const secPath = sec.filePath.trim();
+            return secPath === baseName || secPath.endsWith('/' + baseName);
+          });
+        }
         if (matched.length > 0) {
-          matchedSection = matched.map(m => m.fullText).join('\n\n');
+          matchedSection = matched[0].fullText;
         }
       }
 
@@ -307,88 +320,88 @@ import { currentActiveTaskDiff, currentProject, currentModalEditingTask } from "
     }
 
     function showAllDiffs() {
-      document.getElementById('diffActiveFileBadge').innerText = '全部變更';
-      document.querySelectorAll('.mod-file-item').forEach(el => {
-        el.className = 'mod-file-item flex items-center justify-between bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer transition';
+      const badgeEl = document.getElementById('diffActiveFileBadge');
+      if (badgeEl) badgeEl.innerText = '全部變更';
+      document.querySelectorAll?.('.mod-file-item')?.forEach(el => {
+        el.className = MOD_FILE_ITEM_INACTIVE_CLASS;
       });
       renderDiffViewer(currentActiveTaskDiff);
     }
 
+    function renderUnifiedDiffRow({ rowClass = '', oldNum = '', newNum = '', sign = ' ', signClass = '', content = '' }) {
+      return `
+        <div class="diff-row ${rowClass}">
+          <div class="diff-num">${oldNum}</div>
+          <div class="diff-num">${newNum}</div>
+          <div class="diff-sign ${signClass}">${sign}</div>
+          <div class="diff-content">${escapeHtml(content)}</div>
+        </div>
+      `;
+    }
+
     function renderLineNumberedDiff(lines) {
-      if (!Array.isArray(lines)) return '';
+      if (!Array.isArray(lines) || lines.length === 0) return '';
       let oldLineNum = null;
       let newLineNum = null;
 
       return lines.map(line => {
-        const escaped = escapeHtml(line);
-
-        // 解析 Hunk 標頭 @@ -X,Y +A,B @@
         if (line.startsWith('@@')) {
           const match = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
           if (match) {
             oldLineNum = parseInt(match[1], 10);
             newLineNum = parseInt(match[2], 10);
           }
-          return `
-            <div class="diff-row bg-indigo-50/80 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-bold px-1.5 py-0.5">
-              <div class="diff-num text-indigo-400 dark:text-indigo-500 text-[9px]">...</div>
-              <div class="diff-num text-indigo-400 dark:text-indigo-500 text-[9px]">...</div>
-              <div class="diff-sign text-indigo-500">@</div>
-              <div class="diff-content">${escaped}</div>
-            </div>
-          `;
+          return renderUnifiedDiffRow({
+            rowClass: 'diff-line-chunk bg-indigo-50/80 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-bold px-1 py-0.5 rounded my-0.5',
+            oldNum: '...',
+            newNum: '...',
+            sign: '@',
+            signClass: 'text-indigo-500',
+            content: line
+          });
         }
 
-        // 新增行
         if (line.startsWith('+') && !line.startsWith('+++')) {
           const curNew = newLineNum !== null ? newLineNum++ : '';
-          return `
-            <div class="diff-row diff-line-add hover:bg-emerald-500/20">
-              <div class="diff-num"></div>
-              <div class="diff-num">${curNew}</div>
-              <div class="diff-sign text-emerald-600 dark:text-emerald-400">+</div>
-              <div class="diff-content">${escapeHtml(line.slice(1))}</div>
-            </div>
-          `;
+          return renderUnifiedDiffRow({
+            rowClass: 'diff-line-add hover:bg-emerald-500/20',
+            newNum: curNew,
+            sign: '+',
+            signClass: 'text-emerald-600 dark:text-emerald-400',
+            content: line.slice(1)
+          });
         }
 
-        // 刪除行
         if (line.startsWith('-') && !line.startsWith('---')) {
           const curOld = oldLineNum !== null ? oldLineNum++ : '';
-          return `
-            <div class="diff-row diff-line-del hover:bg-rose-500/20">
-              <div class="diff-num">${curOld}</div>
-              <div class="diff-num"></div>
-              <div class="diff-sign text-rose-600 dark:text-rose-400">-</div>
-              <div class="diff-content">${escapeHtml(line.slice(1))}</div>
-            </div>
-          `;
+          return renderUnifiedDiffRow({
+            rowClass: 'diff-line-del hover:bg-rose-500/20',
+            oldNum: curOld,
+            sign: '-',
+            signClass: 'text-rose-600 dark:text-rose-400',
+            content: line.slice(1)
+          });
         }
 
-        // 一般 context 行
-        if (!line.startsWith('diff --git') && !line.startsWith('index ') && !line.startsWith('---') && !line.startsWith('+++')) {
+        if (!line.startsWith('diff --git') && !line.startsWith('diff --no-index') && !line.startsWith('index ') && !line.startsWith('new file mode') && !line.startsWith('deleted file mode') && !line.startsWith('---') && !line.startsWith('+++')) {
           const curOld = oldLineNum !== null ? oldLineNum++ : '';
           const curNew = newLineNum !== null ? newLineNum++ : '';
-          const content = line.startsWith(' ') ? line.slice(1) : line;
-          return `
-            <div class="diff-row hover:bg-slate-100/70 dark:hover:bg-slate-800/40 text-slate-700 dark:text-slate-300">
-              <div class="diff-num">${curOld}</div>
-              <div class="diff-num">${curNew}</div>
-              <div class="diff-sign text-slate-300 dark:text-slate-700"> </div>
-              <div class="diff-content">${escapeHtml(content)}</div>
-            </div>
-          `;
+          return renderUnifiedDiffRow({
+            rowClass: 'hover:bg-slate-100/70 dark:hover:bg-slate-800/40 text-slate-700 dark:text-slate-300',
+            oldNum: curOld,
+            newNum: curNew,
+            sign: ' ',
+            signClass: 'text-slate-300 dark:text-slate-700',
+            content: line.startsWith(' ') ? line.slice(1) : line
+          });
         }
 
-        // Diff 標頭與元資料
-        return `
-          <div class="diff-row text-slate-400 dark:text-slate-500 italic py-0.5">
-            <div class="diff-num"></div>
-            <div class="diff-num"></div>
-            <div class="diff-sign font-mono">#</div>
-            <div class="diff-content">${escaped}</div>
-          </div>
-        `;
+        return renderUnifiedDiffRow({
+          rowClass: 'text-slate-400 dark:text-slate-500 italic py-0.5',
+          sign: '#',
+          signClass: 'font-mono',
+          content: line
+        });
       }).join('');
     }
 
