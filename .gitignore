@@ -3,3 +3,8 @@ dist/
 *.log
 .DS_Store
 .env
+
+# Harness local runtime worklog & task build plans
+.github/worklog/
+**/agent-status.md
+.github/harness/plan/*-build-plan.md

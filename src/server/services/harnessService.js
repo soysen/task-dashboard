@@ -183,12 +183,43 @@ function scanProjectGithubInfo(projPath) {
   return info;
 }
 
+const HARNESS_GITIGNORE_ENTRIES = [
+  '.github/worklog/',
+  '**/agent-status.md',
+  '.github/harness/plan/*-build-plan.md'
+];
+
+/**
+ * 確保目標專案的 .gitignore 已忽略 Harness 執行期暫存檔 (agent-status / build-plan)
+ * @param {string} projPath
+ * @returns {boolean} 是否建立或更新了 .gitignore
+ */
+function ensureHarnessGitignore(projPath) {
+  if (!projPath || !fs.existsSync(projPath)) return false;
+  const gitignorePath = path.join(projPath, '.gitignore');
+  const existingContent = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : '';
+  const existingLines = new Set(
+    existingContent.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+  );
+  const missingEntries = HARNESS_GITIGNORE_ENTRIES.filter(entry => !existingLines.has(entry));
+  if (missingEntries.length === 0) return false;
+
+  const prefix = existingContent.length > 0 && !existingContent.endsWith('\n') ? '\n' : '';
+  const headerComment = existingContent.includes('# Harness local runtime worklog') ? '' : `${existingContent ? '\n' : ''}# Harness local runtime worklog & task build plans\n`;
+  const appendBlock = `${prefix}${headerComment}${missingEntries.join('\n')}\n`;
+  fs.writeFileSync(gitignorePath, `${existingContent}${appendBlock}`, 'utf8');
+  return true;
+}
+
 function initProjectHarness(projPath) {
   if (!projPath || !fs.existsSync(projPath)) {
     throw new Error(`Project directory not found: ${projPath}`);
   }
 
   const createdFiles = [];
+  if (ensureHarnessGitignore(projPath)) {
+    createdFiles.push('.gitignore');
+  }
   const githubDir = path.join(projPath, '.github');
   const worklogDir = path.join(githubDir, 'worklog');
   const harnessDir = path.join(githubDir, 'harness');
@@ -386,6 +417,7 @@ function scanLocalProjects() {
 
 module.exports = {
   scanProjectGithubInfo,
+  ensureHarnessGitignore,
   initProjectHarness,
   scanLocalProjects
 };
