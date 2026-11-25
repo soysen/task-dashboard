@@ -1881,6 +1881,8 @@ const {
     assert.strictEqual(checkTaskRes.status, 200);
     const checkedDoneTask = await checkTaskRes.json();
     assert.strictEqual(checkedDoneTask.gitLanding?.pushedRemote, true, "push 成功後 done 任務應持久化 gitLanding.pushedRemote === true");
+    assert.strictEqual(checkedDoneTask.status, "archived", "push 成功後 done 任務應自動封存為 archived");
+    assert(Array.isArray(pushData.archivedTaskIds) && pushData.archivedTaskIds.includes(doneTaskId), "push 回應應包含 archivedTaskIds");
 
     // 6. 整合測試：remoteUrl 遮罩與 Azure DevOps 無 PAT 時 POST /api/projects/:id/branches/pr 降級
     execFileSync("git", ["-C", tempRepo, "remote", "set-url", "origin", "https://user:super-secret-pat@dev.azure.com/FET-IDTT/SmartCS/_git/demo-repo"]);

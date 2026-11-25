@@ -534,7 +534,16 @@ async function pushCurrentBranch(projectId, branchName, event, options = {}) {
     if (data.remoteStatus) {
       branchRemoteStatusMap[`${projectId}::${branchName}`] = data.remoteStatus;
     }
-    showToast(`已成功推送分支 ${branchName}`);
+    const archivedCount = Array.isArray(data.archivedTaskIds) ? data.archivedTaskIds.length : 0;
+    showToast(
+      archivedCount > 0
+        ? `已成功推送分支 ${branchName} 並封存 ${archivedCount} 張任務`
+        : `已成功推送分支 ${branchName}`
+    );
+    if (archivedCount > 0 && taskId && typeof window !== "undefined" && typeof window.closeModal === "function") {
+      const modalTaskId = document.getElementById("formTaskId")?.value || "";
+      if (modalTaskId === taskId) window.closeModal();
+    }
     if (typeof window !== "undefined" && typeof window.loadData === "function") {
       await window.loadData();
       window.updateModalButtonState?.();

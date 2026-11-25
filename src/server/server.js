@@ -1832,9 +1832,11 @@ function runNativeFolderPicker(promptText, callback) {
           return;
         }
         const nowIso = new Date().toISOString();
+        const archiveOnPush = data.archiveTasks !== false;
         const freshTasks = readTasks();
         const updatedTasks = [];
         const updatedTaskIds = [];
+        const archivedTaskIds = [];
         for (const t of freshTasks) {
           if (!t || t.project !== proj.id || t.status !== 'done') continue;
           const taskBranch = (t.gitLanding?.landedBranch || t.targetBranch || t.baseBranch || '').trim();
@@ -1844,6 +1846,11 @@ function runNativeFolderPicker(promptText, callback) {
               pushedRemote: true,
               pushedAt: nowIso
             };
+            if (archiveOnPush) {
+              t.status = 'archived';
+              t.archivedAt = nowIso;
+              archivedTaskIds.push(t.id);
+            }
             t.updatedAt = nowIso;
             updatedTasks.push(t);
             updatedTaskIds.push(t.id);
@@ -1859,10 +1866,12 @@ function runNativeFolderPicker(promptText, callback) {
         broadcastSse('project-branch-pushed', {
           projectId: proj.id,
           branch,
-          remoteStatus: pushRes.remoteStatus
+          remoteStatus: pushRes.remoteStatus,
+          updatedTaskIds,
+          archivedTaskIds
         });
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ...pushRes, projectId: proj.id, updatedTaskIds }));
+        res.end(JSON.stringify({ ...pushRes, projectId: proj.id, updatedTaskIds, archivedTaskIds }));
       } catch (err) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: false, error: (err && err.message) || 'Failed to push branch' }));
