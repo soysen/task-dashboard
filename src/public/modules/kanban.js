@@ -30,7 +30,8 @@ import {
         }
       }
 
-      document.getElementById('stat-total').innerText = filtered.length;
+      const totalEl = document.getElementById('stat-total');
+      if (totalEl) totalEl.innerText = filtered.length;
       document.getElementById('stat-todo').innerText = filtered.filter(t => normalizeStatus(t.status) === 'todo').length;
       document.getElementById('stat-in_progress').innerText = filtered.filter(t => normalizeStatus(t.status) === 'in_progress').length;
       document.getElementById('stat-review').innerText = filtered.filter(t => normalizeStatus(t.status) === 'review').length;
@@ -85,8 +86,8 @@ import {
     }
 
     function renderKanban() {
-      const search = document.getElementById('searchInput').value.toLowerCase();
-      const priority = document.getElementById('priorityFilter').value;
+      const search = (document.getElementById('searchInput')?.value || '').toLowerCase();
+      const priority = document.getElementById('priorityFilter')?.value || 'ALL';
 
       let filtered = tasks.filter(t => normalizeStatus(t.status) !== 'archived');
       if (currentProject !== 'ALL') {

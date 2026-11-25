@@ -1,6 +1,6 @@
 import {
-  projects, tasks, currentProject, currentBranch, projectBranchesMap, groupByBranch,
-  setCurrentProject, setCurrentBranch, setProjectBranchesMap, setGroupByBranch
+  projects, tasks, currentProject, currentBranch, projectBranchesMap, groupByBranch, expandedProjectId,
+  setCurrentProject, setCurrentBranch, setProjectBranchesMap, setGroupByBranch, setExpandedProjectId
 } from "./state.js";
 import { escapeHtml, showToast } from "./utils.js";
 
@@ -38,6 +38,10 @@ function selectProjectAndBranch(projectId, branchName = "ALL", event) {
 
   setCurrentProject(targetProject);
   setCurrentBranch(targetBranch);
+  setExpandedProjectId(targetProject === "ALL" ? null : targetProject);
+  if (targetBranch !== "ALL" && groupByBranch) {
+    setGroupByBranch(false);
+  }
 
   if (typeof window !== "undefined") {
     window.renderSidebarProjects?.();
@@ -143,66 +147,80 @@ function renderContextualHeaderActions() {
   }
 
   const container = document.getElementById("contextualHeaderActions");
-  if (!container) return;
+  const boardViewSlot = document.getElementById("boardViewToggleSlot");
+  if (!container && !boardViewSlot) return;
 
   const modalEl = document.getElementById("taskModal");
   const mergeModalEl = document.getElementById("mergeBranchModal");
   if ((modalEl && !modalEl.classList.contains("hidden")) || (mergeModalEl && !mergeModalEl.classList.contains("hidden"))) {
-    container.innerHTML = "";
-    container.classList.add("hidden");
+    if (container) {
+      container.innerHTML = "";
+      container.classList.add("hidden");
+    }
+    if (boardViewSlot) {
+      boardViewSlot.innerHTML = "";
+      boardViewSlot.classList.add("hidden");
+    }
     return;
   }
 
-  container.classList.remove("hidden");
-  const viewToggleHtml = `
-    <div class="inline-flex items-center p-0.5 rounded-lg bg-[var(--background)] border border-[var(--border)] text-xs">
-      <button type="button" onclick="toggleBranchGroupView(false)" class="px-2.5 py-1 rounded-md transition cursor-pointer ${!groupByBranch ? "bg-[var(--card)] font-bold text-[var(--foreground)] shadow-xs" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}">看板</button>
-      <button type="button" onclick="toggleBranchGroupView(true)" class="px-2.5 py-1 rounded-md transition cursor-pointer ${groupByBranch ? "bg-[var(--card)] font-bold text-[var(--foreground)] shadow-xs" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}">按分支看</button>
-    </div>
-  `;
+  if (boardViewSlot) {
+    if (currentProject !== "ALL") {
+      boardViewSlot.classList.remove("hidden");
+      boardViewSlot.innerHTML = `
+        <div class="inline-flex items-center p-0.5 rounded-lg bg-[var(--background)] border border-[var(--border)] text-xs">
+          <button type="button" onclick="toggleBranchGroupView(false)" class="px-2.5 py-1 rounded-md transition cursor-pointer ${!groupByBranch ? "bg-[var(--card)] font-bold text-[var(--foreground)] shadow-xs" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}">看板</button>
+          <button type="button" onclick="toggleBranchGroupView(true)" class="px-2.5 py-1 rounded-md transition cursor-pointer ${groupByBranch ? "bg-[var(--card)] font-bold text-[var(--foreground)] shadow-xs" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}">按分支看</button>
+        </div>
+      `;
+    } else {
+      boardViewSlot.innerHTML = "";
+      boardViewSlot.classList.add("hidden");
+    }
+  }
 
-  if (currentProject === "ALL") {
-    // L0 全局總覽：僅顯示「＋ 新增任務」（隱藏「按分支看」與合併按鈕）
-    container.innerHTML = `
-      <button type="button" onclick="openModal({ status: 'todo' })" class="h-7 sm:h-8 inline-flex items-center gap-1 bg-sky-600 hover:bg-sky-500 text-white text-[11px] sm:text-xs font-semibold px-2.5 rounded-lg shadow-sm transition cursor-pointer whitespace-nowrap">＋ 新增任務</button>
-    `;
-  } else if (!currentBranch || currentBranch === "ALL") {
-    // L1 單一專案・全部分支：顯示「看板 | 按分支看」+「＋ 新建分支」+「＋ 新增任務」
-    const safeProjAttr = escapeAttrJs(currentProject);
-    const showNewBranchBtn = !branchData || branchData.isGitRepo !== false;
-    const fromAttr = escapeAttrJs(branchData?.defaultBranch || branchData?.currentCheckoutBranch || "main");
-    container.innerHTML = `
-      ${viewToggleHtml}
-      ${showNewBranchBtn ? `<button type="button" onclick="openCreateBranchPopover('${safeProjAttr}', '${fromAttr}', event)" class="h-7 sm:h-8 inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-slate-300 dark:border-slate-700 text-[11px] sm:text-xs font-semibold px-2.5 rounded-lg transition cursor-pointer whitespace-nowrap">＋ 新建分支</button>` : ""}
-      <button type="button" onclick="openModal({ status: 'todo', project: '${safeProjAttr}' })" class="h-7 sm:h-8 inline-flex items-center gap-1 bg-sky-600 hover:bg-sky-500 text-white text-[11px] sm:text-xs font-semibold px-2.5 rounded-lg shadow-sm transition cursor-pointer whitespace-nowrap">＋ 新增任務</button>
-    `;
-  } else {
-    // L2 單一分支：自動收起「看板 | 按分支看」，非主幹且有已提交任務時顯示「合併回 <defaultBranch>」
-    const safeProjAttr = escapeAttrJs(currentProject);
-    const safeBranchAttr = escapeAttrJs(currentBranch);
-    const defaultBranch = String(branchData?.defaultBranch || "main").trim();
-    const isNonDefaultBranch = Boolean(currentBranch && defaultBranch && currentBranch !== defaultBranch);
-    const hasCommittedDoneOnBranch = isNonDefaultBranch && (tasks || []).some(t =>
-      t.project === currentProject &&
-      t.status === "done" &&
-      (Boolean(t.gitLanding && t.gitLanding.isCommitted) || Boolean(t.gitLanding?.commitSha)) &&
-      (t.targetBranch === currentBranch || t.gitLanding?.landedBranch === currentBranch || t.baseBranch === currentBranch)
-    );
-    const safeDefaultAttr = escapeAttrJs(defaultBranch);
+  if (container) {
+    if (currentProject !== "ALL" && currentBranch && currentBranch !== "ALL") {
+      // L2 單一分支：非主幹且有已提交任務時顯示「合併回 <defaultBranch>」
+      const safeProjAttr = escapeAttrJs(currentProject);
+      const safeBranchAttr = escapeAttrJs(currentBranch);
+      const defaultBranch = String(branchData?.defaultBranch || "main").trim();
+      const isNonDefaultBranch = Boolean(currentBranch && defaultBranch && currentBranch !== defaultBranch);
+      const hasCommittedDoneOnBranch = isNonDefaultBranch && (tasks || []).some(t =>
+        t.project === currentProject &&
+        t.status === "done" &&
+        (Boolean(t.gitLanding && t.gitLanding.isCommitted) || Boolean(t.gitLanding?.commitSha)) &&
+        (t.targetBranch === currentBranch || t.gitLanding?.landedBranch === currentBranch || t.baseBranch === currentBranch)
+      );
+      const safeDefaultAttr = escapeAttrJs(defaultBranch);
 
-    container.innerHTML = `
-      ${hasCommittedDoneOnBranch ? `<button type="button" onclick="openMergeBranchModal('${safeProjAttr}', '${safeBranchAttr}', '${safeDefaultAttr}')" class="h-7 sm:h-8 inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-semibold px-2.5 rounded-lg shadow-sm transition cursor-pointer whitespace-nowrap">合併回 ${escapeHtml(defaultBranch)}</button>` : ""}
-      <button type="button" onclick="openCreateBranchPopover('${safeProjAttr}', '${safeBranchAttr}', event)" class="h-7 sm:h-8 inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-slate-300 dark:border-slate-700 text-[11px] sm:text-xs font-semibold px-2.5 rounded-lg transition cursor-pointer whitespace-nowrap">＋ 新建分支</button>
-      <button type="button" onclick="openModal({ status: 'todo', project: '${safeProjAttr}', targetBranch: '${safeBranchAttr}' })" class="h-7 sm:h-8 inline-flex items-center gap-1 bg-sky-600 hover:bg-sky-500 text-white text-[11px] sm:text-xs font-semibold px-2.5 rounded-lg shadow-sm transition cursor-pointer whitespace-nowrap">＋ 新增任務</button>
-    `;
+      if (hasCommittedDoneOnBranch) {
+        container.classList.remove("hidden");
+        container.innerHTML = `<button type="button" onclick="openMergeBranchModal('${safeProjAttr}', '${safeBranchAttr}', '${safeDefaultAttr}')" class="h-7 sm:h-8 inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-semibold px-2.5 rounded-lg shadow-sm transition cursor-pointer whitespace-nowrap">合併回 ${escapeHtml(defaultBranch)}</button>`;
+      } else {
+        container.innerHTML = "";
+        container.classList.add("hidden");
+      }
+    } else {
+      container.innerHTML = "";
+      container.classList.add("hidden");
+    }
   }
   if (window.lucide) lucide.createIcons();
 }
 
 function toggleBranchGroupView(enabled) {
-  setGroupByBranch(typeof enabled === "boolean" ? enabled : !groupByBranch);
+  const nextEnabled = typeof enabled === "boolean" ? enabled : !groupByBranch;
+  setGroupByBranch(nextEnabled);
+  if (nextEnabled && currentBranch && currentBranch !== "ALL") {
+    setCurrentBranch("ALL");
+  }
   renderContextualHeaderActions();
-  if (typeof window !== "undefined") window.renderKanban?.();
+  if (typeof window !== "undefined") {
+    window.renderSidebarProjects?.();
+    window.renderKanban?.();
+    window.renderMetrics?.();
+  }
 }
 
 function ensureCreateBranchPopoverEl() {

@@ -197,6 +197,9 @@ assert.strictEqual(projectElements.formProjectInput.value, 'task-dashboard');
 console.log('  ✅ 專案名稱與 ID 去重、搜尋、選取及 HTML escaping 驗證通過');
 
 // 13. 驗證 頂部工作流階段導覽列 (Workflow Stage Bar)、移除阻礙欄位、單一主色+局部狀態色彩計劃與無框線色塊陰影系統
+assert(!htmlContent.includes('id="stage-pill-ALL"'), '頂部工作流導覽列必須移除 stage-pill-ALL 全部階段膠囊');
+assert(htmlContent.includes('sm:grid-cols-4'), '頂部工作流導覽列必須調整為四階段格線 (sm:grid-cols-4)');
+assert(htmlContent.includes('id="boardViewToggleSlot"'), '頂部工作流導覽列右側必須配置 boardViewToggleSlot 專屬位置');
 assert(allUiContent.includes('id="stage-pill-review"'), '頂部工作流導覽列必須包含 stage-pill-review 階段膠囊');
 assert(!allUiContent.includes('id="stage-pill-blocked"'), '頂部工作流導覽列必須移除實務未使用的 stage-pill-blocked 阻礙膠囊');
 assert(!allUiContent.includes('id="col-wrapper-blocked"'), '看板必須移除實務未使用的 col-wrapper-blocked 阻礙欄位');
@@ -222,11 +225,9 @@ const makeClassMock = () => {
 };
 
 const stageMockElements = {};
-['ALL', 'todo', 'in_progress', 'review', 'done'].forEach(st => {
+['todo', 'in_progress', 'review', 'done'].forEach(st => {
   stageMockElements[`stage-pill-${st}`] = makeClassMock();
-  if (st !== 'ALL') {
-    stageMockElements[`col-wrapper-${st}`] = makeClassMock();
-  }
+  stageMockElements[`col-wrapper-${st}`] = makeClassMock();
 });
 let kanbanReRendered = 0;
 const stageFilterContext = vm.createContext({
@@ -242,7 +243,6 @@ assert(!stageMockElements['col-wrapper-review'].classList.contains('hidden'), '�
 assert(stageMockElements['col-wrapper-todo'].classList.contains('hidden'), '過濾 review 時非目標欄位 col-wrapper-todo 應隱藏');
 stageFilterContext.filterByStage('review');
 assert.strictEqual(stageFilterContext.window.currentStageFilter, 'ALL', '再次點擊相同階段膠囊應重置為 ALL 顯示全部欄位');
-assert.strictEqual(stageMockElements['stage-pill-ALL'].getAttribute('aria-pressed'), 'true', '重置為 ALL 後 stage-pill-ALL 之 aria-pressed 應為 true');
 assert.strictEqual(stageMockElements['stage-pill-review'].getAttribute('aria-pressed'), 'false', '重置為 ALL 後 stage-pill-review 之 aria-pressed 應為 false');
 assert(!stageMockElements['col-wrapper-todo'].classList.contains('hidden'), '重置為 ALL 後所有欄位應恢復顯示');
 console.log('  ✅ 頂部工作流階段導覽列、移除阻礙欄位與無框線色塊陰影系統驗證通過');
@@ -313,8 +313,9 @@ assert(!allUiContent.includes('id="formTitle" required placeholder="請輸入簡
 assert(!allUiContent.includes('td-surface-panel rounded-lg space-y-1"><div class="font-medium text-slate-600 dark:text-slate-300">無任務卡片'), '無任務卡牌不得套用底色 (td-surface-panel)');
 assert(allUiContent.includes('id="modalLeftColumn" class="flex-1 overflow-y-auto pl-1 pr-2'), 'modalLeftColumn 必須增加 pl-1 避免左側內容過於貼齊');
 assert(allUiContent.includes('id="modalLeftWorkspaceTabs"') && allUiContent.includes('!mt-0'), 'modalLeftWorkspaceTabs 必須包含 !mt-0 移除上方多餘間距');
-assert(allUiContent.includes('id="headerWorkflowHint"') && allUiContent.includes('border-sky-300') && allUiContent.includes('border-amber-300') && allUiContent.includes('border-emerald-300'), '流程說明各步驟必須具備獨立底色與框線');
-assert(!allUiContent.includes('id="headerWorkflowHint"') || !htmlContent.split('id="headerWorkflowHint"')[1].split('</div>')[0].includes('→'), '流程說明各步驟間必須以線條連結取代箭頭 (→)');
+assert(!htmlContent.includes('id="headerWorkflowHint"'), '頂部控制列必須移除冗餘的 headerWorkflowHint 流程指引');
+assert(!htmlContent.includes('id="searchInput"') && !htmlContent.includes('id="priorityFilter"'), '頂部控制列必須移除冗餘的 searchInput 與 priorityFilter');
+assert(!htmlContent.includes('openNewProjectModal()'), '左側專案列表底部必須移除手動加入專案按鈕');
 
 // 17. 驗證 TASK-121 UI 回歸防禦與無障礙強化 (內縮 outline、開工引擎模式與離線狀態、退回任務審核可見性純函式、狀態常數)
 assert(allUiContent.includes('outline-offset: -2px !important;') && allUiContent.includes('--td-focus'), '表單文字控制項必須套用內縮 outline (outline-offset: -2px) 避免被捲動容器裁切');
@@ -531,6 +532,122 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
   assert(allUiContent.includes('function selectDesktopTierFilter('), 'app.js 必須實作 selectDesktopTierFilter');
   assert(allUiContent.includes('--tier=micro,standard') && allUiContent.includes('--tier=heavy'), 'updateAiPromptDisplay 必須支援輸出 --tier=micro,standard 與 --tier=heavy');
   console.log('  ✅ Tier 分流切換器與 --tier Prompt 生成契約驗證通過');
+
+  // 22. 驗證 TASK-236 3.0 UI/UX 優化（單一展開手風琴、刪除 icon 高對比、#boardViewToggleSlot、頂部控制列精簡與暗黑模式對比）
+  const stateMod = await import('../src/public/modules/state.js');
+  assert.strictEqual(stateMod.expandedProjectId, null, 'state.js 初始 expandedProjectId 應為 null');
+  stateMod.setExpandedProjectId('proj-1');
+  assert.strictEqual(stateMod.expandedProjectId, 'proj-1', 'setExpandedProjectId 應正確更新展開專案 ID');
+  stateMod.setExpandedProjectId(null);
+
+  // 測試手風琴單一展開與選取狀態刪除按鈕高對比樣式
+  const sidebarListEl = { innerHTML: '' };
+  const sidebarCountEl = { innerText: '' };
+  const sidebarContext = vm.createContext({
+    projects: [
+      { id: 'proj-1', name: 'Project One', color: 'blue' },
+      { id: 'proj-2', name: 'Project Two', color: 'emerald' }
+    ],
+    tasks: [],
+    currentProject: 'proj-1',
+    currentBranch: 'ALL',
+    expandedProjectId: null,
+    setExpandedProjectId: (val) => { sidebarContext.expandedProjectId = val || null; },
+    normalizeStatus: (s) => s,
+    escapeHtml: (s) => String(s || ''),
+    renderProjectBranchTree: (p) => `<div data-branch-tree="${p.id}"></div>`,
+    document: {
+      getElementById: (id) => {
+        if (id === 'projectSidebarList') return sidebarListEl;
+        if (id === 'projectSearchInput') return { value: '' };
+        if (id === 'sidebarProjectCount') return sidebarCountEl;
+        return null;
+      }
+    },
+    window: {}
+  });
+  vm.runInContext(actualFunction('toggleProjectExpand') + '\n' + actualFunction('renderSidebarProjects'), sidebarContext);
+  sidebarContext.toggleProjectExpand('proj-1');
+  assert.strictEqual(sidebarContext.expandedProjectId, 'proj-1', 'toggleProjectExpand 應展開目標專案');
+  assert(sidebarListEl.innerHTML.includes('data-branch-tree="proj-1"') && !sidebarListEl.innerHTML.includes('data-branch-tree="proj-2"'), '僅已展開之專案應渲染分支樹');
+  assert(sidebarListEl.innerHTML.includes('aria-expanded="true"') && sidebarListEl.innerHTML.includes('chevron-down'), '已展開專案必須標示 aria-expanded=true 與 chevron-down');
+  assert(sidebarListEl.innerHTML.includes('bg-black/20 hover:bg-rose-600 text-white'), '選取狀態 (isProjOnly) 專案列刪除 icon 必須套用高對比樣式');
+  sidebarContext.toggleProjectExpand('proj-2');
+  assert.strictEqual(sidebarContext.expandedProjectId, 'proj-2', '展開另一專案時應自動收合前一個專案（手風琴單一展開）');
+  assert(!sidebarListEl.innerHTML.includes('data-branch-tree="proj-1"') && sidebarListEl.innerHTML.includes('data-branch-tree="proj-2"'), '手風琴切換後前一個專案分支樹必須收合');
+  sidebarContext.toggleProjectExpand('proj-2');
+  assert.strictEqual(sidebarContext.expandedProjectId, null, '再次點擊已展開專案應收合');
+
+  // 測試 #boardViewToggleSlot 與 #contextualHeaderActions 分層職責
+  const makeSlotMock = () => {
+    const cls = new Set(['hidden']);
+    return {
+      innerHTML: '',
+      classList: {
+        add: (c) => cls.add(c),
+        remove: (c) => cls.delete(c),
+        toggle: (c, force) => { if (force) cls.add(c); else cls.delete(c); },
+        contains: (c) => cls.has(c)
+      }
+    };
+  };
+  const headerActionsEl = makeSlotMock();
+  const boardViewSlotEl = makeSlotMock();
+  const branchNavRaw = fs.readFileSync(path.join(__dirname, '../src/public/modules/branchNavigator.js'), 'utf8')
+    .replace(/^import[\s\S]*?;\s*/gm, '')
+    .replace(/export\s*\{[\s\S]*?\};?\s*$/m, '');
+  const branchNavCtx = vm.createContext({
+    projects: [{ id: 'proj-1', name: 'Project One', path: '/tmp/p1' }],
+    tasks: [{ id: 'TASK-1', project: 'proj-1', status: 'done', targetBranch: 'feat/ui', gitLanding: { isCommitted: true } }],
+    currentProject: 'ALL',
+    currentBranch: 'ALL',
+    projectBranchesMap: { 'proj-1': { isGitRepo: true, defaultBranch: 'main', currentCheckoutBranch: 'main', branches: [] } },
+    groupByBranch: false,
+    expandedProjectId: null,
+    setCurrentProject: (v) => { branchNavCtx.currentProject = v; },
+    setCurrentBranch: (v) => { branchNavCtx.currentBranch = v; },
+    setProjectBranchesMap: (v) => { branchNavCtx.projectBranchesMap = v; },
+    setGroupByBranch: (v) => { branchNavCtx.groupByBranch = Boolean(v); },
+    setExpandedProjectId: (v) => { branchNavCtx.expandedProjectId = v || null; },
+    escapeHtml: (s) => String(s || ''),
+    showToast: () => {},
+    document: {
+      getElementById: (id) => {
+        if (id === 'contextualHeaderActions') return headerActionsEl;
+        if (id === 'boardViewToggleSlot') return boardViewSlotEl;
+        return null;
+      }
+    },
+    window: {
+      renderSidebarProjects: () => {},
+      renderKanban: () => {},
+      renderMetrics: () => {}
+    }
+  });
+  vm.runInContext(branchNavRaw, branchNavCtx);
+  branchNavCtx.renderContextualHeaderActions();
+  assert(boardViewSlotEl.classList.contains('hidden'), 'currentProject === ALL 時 #boardViewToggleSlot 必須隱藏');
+  assert(headerActionsEl.classList.contains('hidden'), 'currentProject === ALL 時 #contextualHeaderActions 必須隱藏');
+
+  branchNavCtx.setCurrentProject('proj-1');
+  branchNavCtx.setCurrentBranch('ALL');
+  branchNavCtx.renderContextualHeaderActions();
+  assert(!boardViewSlotEl.classList.contains('hidden') && boardViewSlotEl.innerHTML.includes('按分支看'), '選取專案後 #boardViewToggleSlot 必須顯示「看板 / 按分支看」');
+  assert(headerActionsEl.classList.contains('hidden') && !headerActionsEl.innerHTML.includes('新建分支') && !headerActionsEl.innerHTML.includes('新增任務'), '#contextualHeaderActions 不得包含「新建分支」與「新增任務」');
+
+  branchNavCtx.setCurrentBranch('feat/ui');
+  branchNavCtx.renderContextualHeaderActions();
+  assert(!boardViewSlotEl.classList.contains('hidden'), '選取特定分支時 #boardViewToggleSlot 仍須保持可見');
+  assert(!headerActionsEl.classList.contains('hidden') && headerActionsEl.innerHTML.includes('合併回 main') && !headerActionsEl.innerHTML.includes('新建分支') && !headerActionsEl.innerHTML.includes('新增任務'), 'L2 非主幹已提交分支僅顯示「合併回 <defaultBranch>」');
+
+  branchNavCtx.toggleBranchGroupView(true);
+  assert.strictEqual(branchNavCtx.currentBranch, 'ALL', '由特定分支切換為「按分支看」時應重置 currentBranch 為 ALL');
+
+  // 驗證暗黑模式 CSS 變數與表面層次規則強化
+  assert(styleContent.includes('--background: #0c0f14') && styleContent.includes('--sidebar: #141922') && styleContent.includes('--card: #1d2430') && styleContent.includes('--border: #3a4659') && styleContent.includes('--muted-foreground: #a3b2c7'), 'style.css 暗黑模式變數必須提升層次與邊框/文字對比');
+  assert(styleContent.includes('.dark .td-surface-well') && styleContent.includes('.dark .td-surface-card') && styleContent.includes('.dark .td-surface-panel'), 'style.css 必須包含 .dark 專屬表面階層對比規則');
+  assert(htmlContent.includes("700: '#354052'") && htmlContent.includes("darkborder: '#3a4659'"), 'index.html Tailwind 深色階必須同步提升對比');
+  console.log('  ✅ TASK-236 3.0 UI/UX 優化（手風琴展開、高對比、視圖切換位置與暗黑模式對比）驗證通過');
 
   console.log('🎉 所有前端核心互動邏輯與防禦機制測試通過！\n');
 })().catch(err => {
