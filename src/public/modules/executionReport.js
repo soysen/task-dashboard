@@ -166,7 +166,7 @@ ${p3 ? p3.split('\n').map(l => l.trim().startsWith('-') ? l : `- ${l}`).join('\n
 
         const formatInlineReportText = (str) => escapeHtml(str)
           .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-slate-900 dark:text-slate-100">$1</strong>')
-          .replace(/`([^`]+)`/g, '<code class="px-1.5 py-0.5 rounded bg-white/90 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-[11px] border border-slate-200/70 dark:border-slate-700">$1</code>');
+          .replace(/`([^`]+)`/g, '<code class="px-1.5 py-0.5 rounded break-all [overflow-wrap:anywhere] bg-white/90 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-[11px] border border-slate-200/70 dark:border-slate-700">$1</code>');
 
         const flushCard = () => {
           if (!curCardTitle && curCardLines.length === 0) return;
@@ -200,7 +200,7 @@ ${p3 ? p3.split('\n').map(l => l.trim().startsWith('-') ? l : `- ${l}`).join('\n
                 </span>
                 ${curBadge}
               </div>
-              <ul class="space-y-0.5 text-xs pl-6">
+              <ul class="space-y-0.5 text-xs pl-6 min-w-0 break-words [overflow-wrap:anywhere]">
                 ${bodyHtml}
               </ul>
             </div>
@@ -274,7 +274,7 @@ ${p3 ? p3.split('\n').map(l => l.trim().startsWith('-') ? l : `- ${l}`).join('\n
                   </span>
                   <span class="text-[10px] text-slate-400 group-open:rotate-180 transition-transform flex-shrink-0">▼</span>
                 </summary>
-                <pre class="p-3 text-[11px] font-mono text-emerald-400/90 whitespace-pre-wrap overflow-x-auto leading-relaxed max-h-64 custom-scrollbar">${escapeHtml(cleanDump)}</pre>
+                <pre class="p-3 text-[11px] font-mono text-emerald-400/90 whitespace-pre-wrap break-all [overflow-wrap:anywhere] max-w-full overflow-x-hidden leading-relaxed max-h-64 custom-scrollbar">${escapeHtml(cleanDump)}</pre>
               </details>
             </div>
           `;
@@ -299,7 +299,7 @@ ${p3 ? p3.split('\n').map(l => l.trim().startsWith('-') ? l : `- ${l}`).join('\n
               </span>
               <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 whitespace-nowrap flex-shrink-0">終端記錄</span>
             </div>
-            <pre class="bg-slate-950 text-amber-200/90 p-3 rounded-lg font-mono text-xs whitespace-pre-wrap leading-relaxed max-h-72 overflow-y-auto custom-scrollbar">${escapeHtml(raw)}</pre>
+            <pre class="bg-slate-950 text-amber-200/90 p-3 rounded-lg font-mono text-xs whitespace-pre-wrap break-all [overflow-wrap:anywhere] max-w-full overflow-x-hidden leading-relaxed max-h-72 overflow-y-auto custom-scrollbar">${escapeHtml(raw)}</pre>
           </div>
         `;
       }
@@ -401,7 +401,7 @@ ${p3 ? p3.split('\n').map(l => l.trim().startsWith('-') ? l : `- ${l}`).join('\n
               </span>
               ${curBadge}
             </div>
-            <div class="space-y-1 text-xs pl-6">
+            <div class="space-y-1 text-xs pl-6 min-w-0 break-words [overflow-wrap:anywhere]">
               ${bodyHtml}
             </div>
           </div>

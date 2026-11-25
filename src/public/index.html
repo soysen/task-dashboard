@@ -525,7 +525,7 @@
         <div id="modalFormGrid" class="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0 p-4 sm:p-5 overflow-hidden">
           
           <!-- LEFT COLUMN (5/12): 依據資訊架構學 (IA) 分離「審核與執行成果」與「需求規格與屬性」雙視圖 (可滾動) -->
-          <div id="modalLeftColumn" class="flex-1 overflow-y-auto pl-1 pr-2 space-y-3.5 custom-scrollbar lg:col-span-5">
+          <div id="modalLeftColumn" class="flex-1 overflow-y-auto pl-1 pr-2 overflow-x-hidden min-w-0 space-y-3.5 custom-scrollbar lg:col-span-5">
             
             <!-- 進行中任務唯讀提示 -->
             <div id="modalInProgressNotice" class="hidden items-center gap-2 p-2.5 mb-3.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-700 dark:text-amber-300 text-xs font-medium">
@@ -718,7 +718,7 @@
             </div>
 
             <!-- ==================== PANE B: 審核與執行成果 (Review & Execution Workspace — 無框線色塊＋陰影) ==================== -->
-            <div id="modalReviewPane" role="tabpanel" class="space-y-3.5">
+            <div id="modalReviewPane" role="tabpanel" class="space-y-3.5 min-w-0 max-w-full overflow-x-hidden">
               <!-- 任務背景與需求精簡摘要橫幅 (Compact Context Summary — 統一樣式圓角淺灰底 td-surface-panel) -->
               <div id="modalReviewContextSummary" class="hidden td-surface-panel rounded-xl p-3.5 space-y-2">
                 <div class="flex items-start justify-between gap-2">
@@ -739,13 +739,13 @@
                     <span id="modalReviewDescPreviewLine" class="truncate pr-2">點擊展開原始需求描述...</span>
                     <span class="text-[10px] font-mono text-slate-400 group-open:rotate-180 transition-transform flex-shrink-0">▼</span>
                   </summary>
-                  <div id="modalReviewDescFullText" class="mt-2 p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700/80 text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto custom-scrollbar"></div>
+                  <div id="modalReviewDescFullText" class="mt-2 p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700/80 text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap break-words [overflow-wrap:anywhere] max-w-full leading-relaxed max-h-48 overflow-y-auto custom-scrollbar"></div>
                 </details>
               </div>
 
               <!-- 完整執行計劃 (Execution Plan - 需確認機制) -->
               <div id="formExecutionPlanBox" class="hidden td-surface-panel border-l-[3px] border-l-amber-500 rounded-xl p-3.5 space-y-2.5">
-                <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center justify-between gap-2 flex-wrap">
                   <label class="text-sm font-bold text-amber-900 dark:text-amber-300 flex items-center gap-2 min-w-0">
                     <i id="formExecutionPlanLabelIcon" data-lucide="clipboard-check" class="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0"></i>
                     <span id="formExecutionPlanLabelText" class="truncate">完整執行計劃 (Execution Plan)</span>
@@ -787,7 +787,7 @@
                 </div>
 
                 <!-- 結構化 HTML 計劃檢視容器 -->
-                <div id="formPlanVisual" class="text-xs"></div>
+                <div id="formPlanVisual" class="text-xs min-w-0 max-w-full break-words [overflow-wrap:anywhere]"></div>
 
                 <textarea id="formExecutionPlan" oninput="updateModalButtonState()" rows="6" placeholder="此任務之預計執行計劃、步驟與驗證指標..." class="hidden w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs leading-relaxed text-slate-900 dark:text-slate-100 focus:outline-none custom-scrollbar font-mono transition"></textarea>
               </div>
@@ -820,8 +820,8 @@
                     <i data-lucide="target" class="w-3 h-3 text-sky-500 flex-shrink-0"></i>
                     <span id="sliceGoalLabel">本輪切片目標</span>
                   </div>
-                  <p id="sliceGoalContent" class="text-xs text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-900 p-2.5 rounded-lg shadow-xs leading-relaxed font-sans"></p>
-                  <div id="sliceInOutScope" class="text-[10px] font-mono text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 p-2 rounded-lg shadow-xs hidden">
+                  <p id="sliceGoalContent" class="text-xs text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-900 p-2.5 rounded-lg shadow-xs leading-relaxed font-sans break-words [overflow-wrap:anywhere] max-w-full"></p>
+                  <div id="sliceInOutScope" class="text-[10px] font-mono text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 p-2 rounded-lg shadow-xs break-words [overflow-wrap:anywhere] max-w-full hidden">
                     <strong class="text-slate-700 dark:text-slate-200">範圍 (In/Out):</strong> <span id="sliceInOutScopeText"></span>
                   </div>
                 </div>
@@ -833,14 +833,14 @@
                       <span class="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0"></span>
                       <span>當前步驟 (CurrentStep)</span>
                     </div>
-                    <p id="sliceCurrentStepText" class="text-emerald-900 dark:text-emerald-200 font-mono text-xs leading-relaxed"></p>
+                    <p id="sliceCurrentStepText" class="text-emerald-900 dark:text-emerald-200 font-mono text-xs leading-relaxed break-words [overflow-wrap:anywhere] max-w-full"></p>
                   </div>
                   <div id="sliceEvidenceBox" class="p-2.5 rounded-lg bg-white dark:bg-slate-900 shadow-xs text-xs hidden">
                     <div class="flex items-center gap-1.5 text-slate-700 dark:text-slate-200 font-semibold mb-1 text-[11px]">
                       <i data-lucide="check-circle" class="w-3 h-3 text-emerald-500 flex-shrink-0"></i>
                       <span>驗證證據 (Evidence)</span>
                     </div>
-                    <p id="sliceEvidenceText" class="text-slate-700 dark:text-slate-200 font-mono text-[11px] leading-relaxed whitespace-pre-wrap"></p>
+                    <p id="sliceEvidenceText" class="text-slate-700 dark:text-slate-200 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] max-w-full"></p>
                   </div>
                 </div>
 
@@ -863,7 +863,7 @@
 
               <!-- 執行紀錄與測試 Log / 任務執行報告 (置於意見欄之前，符合「先看報告、再做決策」直覺動線) -->
               <div id="formLogBox" class="hidden td-surface-panel rounded-xl p-3.5 space-y-2.5">
-                <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center justify-between gap-2 flex-wrap">
                   <label class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2 min-w-0">
                     <i data-lucide="file-check-2" class="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0"></i>
                     <span class="truncate">AI 執行重點報告</span>
@@ -879,10 +879,10 @@
                 </div>
 
                 <!-- 結構化分隔線式報告視圖 -->
-                <div id="formReportVisual" class="text-xs"></div>
+                <div id="formReportVisual" class="text-xs min-w-0 max-w-full break-words [overflow-wrap:anywhere]"></div>
 
                 <!-- 原生文字視圖 -->
-                <pre id="formLogVisual" class="hidden bg-white/80 dark:bg-slate-950 rounded-lg p-3 text-xs font-mono text-slate-800 dark:text-slate-200 whitespace-pre-wrap leading-relaxed max-h-96 overflow-y-auto custom-scrollbar"></pre>
+                <pre id="formLogVisual" class="hidden bg-white/80 dark:bg-slate-950 rounded-lg p-3 text-xs font-mono text-slate-800 dark:text-slate-200 whitespace-pre-wrap break-words [overflow-wrap:anywhere] max-w-full leading-relaxed max-h-96 overflow-y-auto custom-scrollbar"></pre>
                 <input type="hidden" id="formExecutionLog">
               </div>
 
@@ -996,20 +996,6 @@
             <button type="button" id="btnConfirmAndExecute" onclick="confirmAndExecuteTask()" class="hidden bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-md shadow-amber-500/25 transition flex items-center gap-1.5" title="確認執行計劃並立即啟動任務執行">
               <i id="btnConfirmAndExecuteIcon" data-lucide="play-circle" class="w-4 h-4"></i>
               <span id="btnConfirmAndExecuteText">確認並執行</span>
-            </button>
-            <button type="button" id="btnLandTask" onclick="landTaskChanges(event)" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-emerald-500/25 transition flex items-center gap-1.5">
-              <i data-lucide="check-circle-2" class="w-4 h-4"></i>
-              <span>通過並提交</span>
-              <span id="btnLandTaskTargetBranch" class="ml-1 px-1.5 py-0.5 rounded bg-emerald-700/80 text-[10px] font-mono text-emerald-100">寫入 ⎇ main</span>
-            </button>
-            <button type="button" id="btnApproveTask" onclick="approveTaskAsDone()" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-emerald-500/25 transition flex items-center gap-1.5">
-              <i data-lucide="check-circle" class="w-4 h-4"></i> 驗收通過
-            </button>
-            <button type="button" id="btnMergeWorktreeModal" onclick="mergeWorktreeFromTaskModal(event)" class="hidden bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-md shadow-sky-500/20 transition flex items-center gap-1.5" title="執行 Worktree 序列化安全合併 (Rebase → 重驗 → Squash / PR)">
-              <i data-lucide="git-merge" class="w-3.5 h-3.5"></i> Done & Merge
-            </button>
-            <button type="button" id="btnCommitTaskModal" onclick="openCommitModalFromTaskModal(event)" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-md shadow-emerald-500/20 transition flex items-center gap-1.5" title="以專案 Commit Skill / Agent 產出並提交 Git Commit">
-              <i data-lucide="git-commit" class="w-3.5 h-3.5"></i> Commit
             </button>
             <button type="button" id="btnArchiveTaskModal" onclick="archiveCurrentTaskFromModal()" class="hidden bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold px-3 py-1.5 rounded-lg transition flex items-center gap-1">
               <i data-lucide="archive" class="w-3.5 h-3.5 text-indigo-500"></i> 封存任務
@@ -1280,40 +1266,6 @@
         <button type="button" onclick="closeHelpModal()" class="px-4 h-8 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow transition">關閉</button>
       </div>
 
-    </div>
-  </div>
-
-  <!-- New Project Modal -->
-  <div id="projectModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl w-full max-w-md max-h-[85vh] flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100 my-auto">
-      <div class="p-3.5 px-4 sm:px-5 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
-        <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-          <i data-lucide="folder-plus" class="w-4 h-4 text-indigo-600 dark:text-indigo-400"></i> 手動引入本機新專案
-        </h3>
-        <button onclick="closeProjectModal()" class="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition">
-          <i data-lucide="x" class="w-4 h-4"></i>
-        </button>
-      </div>
-      <form onsubmit="saveNewProject(event)" class="flex-1 flex flex-col min-h-0 overflow-hidden">
-        <div class="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3 custom-scrollbar text-xs">
-          <div>
-            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 專案 ID (資料夾名稱)</label>
-            <input type="text" id="newProjId" required placeholder="例如: my-new-project" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500">
-          </div>
-          <div>
-            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 專案顯示名稱</label>
-            <input type="text" id="newProjName" placeholder="例如: 客服中心前端專案" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500">
-          </div>
-          <div>
-            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"> 實體路徑 (Path)</label>
-            <input type="text" id="newProjPath" placeholder="請輸入專案實體目錄路徑" class="w-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500">
-          </div>
-        </div>
-        <div class="p-3 px-4 sm:px-5 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-2 bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
-          <button type="button" onclick="closeProjectModal()" class="px-3.5 h-8 rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-medium"> 取消</button>
-          <button type="submit" id="btnSaveProject" class="px-4 h-8 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow transition"> 加入專案</button>
-        </div>
-      </form>
     </div>
   </div>
 

@@ -420,11 +420,6 @@ import {
                       <button onclick="archiveTaskFromCard('${t.id}', event)" class="bg-slate-200/90 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 px-2 py-0.5 rounded font-medium flex items-center gap-1 transition whitespace-nowrap flex-shrink-0" title="手動將此任務移入封存庫">
                         <i data-lucide="archive" class="w-3 h-3 text-slate-500 dark:text-slate-300 flex-shrink-0"></i> 封存
                       </button>
-                      ${!landingSha && isLatestInProj && hasDiff ? `
-                        <button onclick="commitTaskFromCard('${t.id}', event)" class="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-0.5 rounded font-semibold flex items-center gap-1 transition shadow-xs whitespace-nowrap flex-shrink-0" title="提交 Git Commit 並封存">
-                          <i data-lucide="git-commit" class="w-3 h-3 flex-shrink-0"></i> Commit
-                        </button>
-                      ` : ''}
                     </div>
                   </div>
                 `;

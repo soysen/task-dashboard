@@ -879,11 +879,11 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
 
 
     function openNewProjectModal() {
-      document.getElementById('projectModal').classList.remove('hidden');
+      document.getElementById('projectModal')?.classList.remove('hidden');
     }
 
     function closeProjectModal() {
-      document.getElementById('projectModal').classList.add('hidden');
+      document.getElementById('projectModal')?.classList.add('hidden');
     }
 
     async function saveNewProject(e) {

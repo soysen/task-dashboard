@@ -9,6 +9,10 @@ import { renderContextualHeaderActions } from "./branchNavigator.js";
 import { selectedArchiveTaskIds, loadArchivedTasks, openArchiveModal, closeArchiveModal, renderArchiveTasksList, toggleArchiveTaskSelect, toggleArchiveSelectAll, batchDeleteSelectedArchived, deleteAllArchivedTasks, batchRestoreSelectedArchived, restoreSingleArchivedTask, deleteSingleArchivedTask } from "./modalArchive.js";
 import { initReviewLandPanel } from "./reviewLandStudio.js";
 
+    function isDiffVisibleStatus(status) {
+      return ['review', 'pending_review', 'done', 'archived'].includes(status);
+    }
+
     function switchModalWorkspaceTab(mode = 'review') {
       const reviewPane = document.getElementById('modalReviewPane');
       const specPane = document.getElementById('modalSpecPane');
@@ -19,23 +23,39 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       const leftCol = document.getElementById('modalLeftColumn');
       const formGrid = document.getElementById('modalFormGrid');
       const isSpec = mode === 'spec';
+      const allowDiff = Boolean(currentModalEditingTask && isDiffVisibleStatus(currentModalEditingTask.status));
 
       if (specPane) specPane.classList.toggle('hidden', !isSpec);
       if (reviewPane) reviewPane.classList.toggle('hidden', isSpec);
       if (contextSummary) contextSummary.classList.toggle('hidden', isSpec || !currentModalEditingTask);
 
-      // 切換至「需求規格與屬性」時自動收起右側 Diff 欄與底部審核決策塢，提供清爽單欄表單編輯體驗
+      // 切換至「需求規格與屬性」或退回重做／進行中狀態時收起右側 Diff 欄，提供清爽單欄滿版編輯體驗
       if (currentModalEditingTask) {
-        if (rightCol) rightCol.classList.toggle('hidden', isSpec);
-        if (leftCol) {
-          leftCol.classList.toggle('lg:col-span-5', !isSpec);
-          leftCol.classList.toggle('lg:col-span-12', isSpec);
-        }
-        if (formGrid && isSpec) {
-          formGrid.classList.remove('lg:grid-cols-2');
+        if (!allowDiff) {
+          if (rightCol) rightCol.classList.toggle('hidden', true);
+          if (leftCol) {
+            leftCol.classList.toggle('lg:col-span-5', false);
+            leftCol.classList.toggle('lg:col-span-12', false);
+            leftCol.classList.toggle('w-full', true);
+          }
+          if (formGrid && formGrid.classList) {
+            formGrid.classList.remove('lg:grid-cols-2', 'lg:grid-cols-12');
+            formGrid.classList.toggle?.('grid-cols-1', true);
+          }
+        } else {
+          if (rightCol) rightCol.classList.toggle('hidden', isSpec);
+          if (leftCol) {
+            leftCol.classList.toggle('w-full', false);
+            leftCol.classList.toggle('lg:col-span-5', !isSpec);
+            leftCol.classList.toggle('lg:col-span-12', isSpec);
+          }
+          if (formGrid && formGrid.classList) {
+            formGrid.classList.remove('lg:grid-cols-2');
+            formGrid.classList.toggle?.('lg:grid-cols-12', true);
+          }
         }
         if (typeof initReviewLandPanel === 'function') {
-          initReviewLandPanel(isSpec ? null : currentModalEditingTask);
+          initReviewLandPanel(isSpec || !allowDiff ? null : currentModalEditingTask);
         }
       }
 
@@ -403,19 +423,25 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       }
       setCurrentModalEditingTask(task);
 
-      if (task.diffPath) {
-        fetch(`/api/tasks/${task.id}/diff?t=${Date.now()}`)
-          .then(res => res.json())
-          .then(data => {
-            if (data && data.diff) {
-              task.diff = data.diff;
-              if (currentModalEditingTask && currentModalEditingTask.id === task.id) {
-                setCurrentActiveTaskDiff(data.diff);
-                renderDiffViewer(data.diff);
+      if (isDiffVisibleStatus(task.status)) {
+        if (task.diffPath) {
+          fetch(`/api/tasks/${task.id}/diff?t=${Date.now()}`)
+            .then(res => res.json())
+            .then(data => {
+              if (data && data.diff) {
+                task.diff = data.diff;
+                if (currentModalEditingTask && currentModalEditingTask.id === task.id) {
+                  setCurrentActiveTaskDiff(data.diff);
+                  renderDiffViewer(data.diff);
+                }
               }
-            }
-          })
-          .catch(() => {});
+            })
+            .catch(() => {});
+        }
+      } else {
+        setCurrentActiveTaskDiff('');
+        renderDiffViewer('');
+        document.getElementById('modalRightColumn')?.classList.add('hidden');
       }
 
       const fromArchive = Boolean(options && options.fromArchive) || task.status === 'archived';
@@ -586,12 +612,18 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
         }
       }
 
-      // 右欄：Git Diff 檢視器 (若有異動檔案則預設呈現第一個檔案，否則顯示全部)
-      if (task.modifiedFiles && task.modifiedFiles.length > 0) {
-        const firstFile = typeof task.modifiedFiles[0] === 'string' ? task.modifiedFiles[0] : task.modifiedFiles[0].path;
-        filterDiffForFile(firstFile);
+      // 右欄：Git Diff 檢視器 (僅審核/已完成/封存狀態呈現；若有異動檔案則預設呈現第一個檔案，否則顯示全部)
+      if (isDiffVisibleStatus(task.status)) {
+        if (task.modifiedFiles && task.modifiedFiles.length > 0) {
+          const firstFile = typeof task.modifiedFiles[0] === 'string' ? task.modifiedFiles[0] : task.modifiedFiles[0].path;
+          filterDiffForFile(firstFile);
+        } else {
+          showAllDiffs();
+        }
       } else {
-        showAllDiffs();
+        setCurrentActiveTaskDiff('');
+        renderDiffViewer('');
+        document.getElementById('modalRightColumn')?.classList.add('hidden');
       }
 
 
@@ -605,10 +637,6 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
         } else {
           btnAbandonEdit.classList.remove('hidden');
         }
-      }
-      updateModalButtonState();
-      if (typeof initReviewLandPanel === 'function') {
-        initReviewLandPanel(task);
       }
 
       // 填充 IA 審核上下文摘要 (Compact Context Summary) 並根據任務階段預設切換分頁
@@ -648,6 +676,11 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
           reviewDot.classList.toggle('hidden', !needsReviewAttention);
         }
         switchModalWorkspaceTab('review');
+      }
+
+      updateModalButtonState();
+      if (typeof initReviewLandPanel === 'function') {
+        initReviewLandPanel(isDiffVisibleStatus(task.status) ? task : null);
       }
 
       document.getElementById('taskModal').classList.remove('hidden');
@@ -928,8 +961,8 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       const formGrid = document.getElementById('modalFormGrid');
       const leftCol = document.getElementById('modalLeftColumn');
 
-      // 待處理、進行中或新增任務時：隱藏審查回饋、異動檔案與 Git Diff，左側欄位 100% 滿版展開
-      const isSimpleMode = (status === 'todo' || status === 'in_progress' || !taskId);
+      // 待處理、進行中、待人工協助或新增任務時：隱藏審查回饋、異動檔案與 Git Diff，左側欄位 100% 滿版展開
+      const isSimpleMode = (status === 'todo' || status === 'in_progress' || status === 'needs_human' || !taskId);
 
       if (isSimpleMode) {
         if (reviewFeedbackBox) reviewFeedbackBox.classList.add('hidden');
@@ -938,7 +971,7 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
           formGrid.className = 'grid grid-cols-1 gap-5 flex-1 min-h-0 p-5 overflow-hidden';
         }
         if (leftCol) {
-          leftCol.className = 'flex-1 overflow-y-auto pl-1 pr-2 space-y-4 custom-scrollbar w-full';
+          leftCol.className = 'flex-1 overflow-y-auto pl-1 pr-2 overflow-x-hidden min-w-0 space-y-4 custom-scrollbar w-full';
         }
         if (dialogEl) {
           dialogEl.className = 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100 transition-all';
@@ -970,7 +1003,7 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
           formGrid.className = 'grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0 p-4 sm:p-5 overflow-hidden';
         }
         if (leftCol) {
-          leftCol.className = `flex-1 overflow-y-auto pl-1 pr-2 space-y-3.5 custom-scrollbar ${isSpecActive ? 'lg:col-span-12' : 'lg:col-span-5'}`;
+          leftCol.className = `flex-1 overflow-y-auto pl-1 pr-2 overflow-x-hidden min-w-0 space-y-3.5 custom-scrollbar ${isSpecActive ? 'lg:col-span-12' : 'lg:col-span-5'}`;
         }
         if (dialogEl) {
           dialogEl.className = 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-6xl h-[90vh] flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100 transition-all';
@@ -979,58 +1012,13 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
 
       const btnArchiveModal = document.getElementById('btnArchiveTaskModal');
       const btnCommitModal = document.getElementById('btnCommitTaskModal');
-      const currentProjectVal = document.getElementById('formProject').value || 'task-dashboard';
-      const proj = projects.find(p => p.id === currentProjectVal);
-      const projSkills = (proj && Array.isArray(proj.skills)) ? proj.skills : [];
-      const hasCommitSkill = projSkills.some(s => 
-        (s.id && (s.id.includes('commit') || s.id.includes('git-workflow') || s.id.includes('versioning'))) ||
-        (s.label && (s.label.includes('commit') || s.label.includes('git-workflow'))) ||
-        (s.desc && /commit|conventional/i.test(s.desc))
-      );
-
-      // 檢查是否為該專案最新已完成任務且有未提交之異動
-      const newestDoneTaskIdByProject = {};
-      const allDoneTasks = tasks.filter(t => t.status === 'done');
-      allDoneTasks.forEach(t => {
-        const projKey = t.project || 'default';
-        const cur = newestDoneTaskIdByProject[projKey];
-        const tTime = new Date(t.updatedAt || t.createdAt || 0).getTime();
-        if (!cur || tTime > cur.time) {
-          newestDoneTaskIdByProject[projKey] = { id: t.id, time: tTime };
-        }
-      });
-      const isLatestInProj = (!taskId) || (newestDoneTaskIdByProject[currentProjectVal]?.id === taskId);
-      const projGit = projectGitStatus[currentProjectVal];
-      const hasDiff = projGit ? projGit.hasDiff : false;
-
-      // 只有「已完成 (done)」且為該專案最新任務且有異動時，才在彈窗顯示 Commit 按鈕
-      // 尚未驗收 (todo, in_progress, review) 絕不顯示 Commit 按鈕
-      if (btnCommitModal) {
-        if (status === 'done' && isLatestInProj && hasDiff && taskId) {
-          btnCommitModal.classList.remove('hidden');
-          btnCommitModal.title = hasCommitSkill ? '專案配備 Commit 規範技能，點擊開啟 Agent 產出與提交確認' : '點擊開啟 Git Commit 提交確認彈窗';
-        } else {
-          btnCommitModal.classList.add('hidden');
-        }
-      }
-
+      if (btnCommitModal) btnCommitModal.classList.add('hidden');
       const btnMergeWorktree = document.getElementById('btnMergeWorktreeModal');
-      if (btnMergeWorktree) {
-        const hasWorktreeBranch = Boolean(currentModalEditingTask && (currentModalEditingTask.worktreePath || currentModalEditingTask.branchName));
-        if (taskId && hasWorktreeBranch && status === 'done') {
-          btnMergeWorktree.classList.remove('hidden');
-          btnMergeWorktree.title = `執行 Worktree 安全合併至 ${currentModalEditingTask.baseBranch || '來源分支'} (Rebase → 重驗 → Squash / PR)`;
-        } else {
-          btnMergeWorktree.classList.add('hidden');
-        }
-      }
-
+      if (btnMergeWorktree) btnMergeWorktree.classList.add('hidden');
       const btnLandTask = document.getElementById('btnLandTask');
+      if (btnLandTask) btnLandTask.classList.add('hidden');
+
       const isReviewLandState = Boolean(taskId && (status === 'review' || status === 'pending_review'));
-      if (btnLandTask) {
-        // #reviewLandStudioPanel 內已提供 Mockup 風格主按鈕「通過並提交」，避免底部重複按鈕
-        btnLandTask.classList.add('hidden');
-      }
       if (typeof initReviewLandPanel === 'function') {
         const activeTask = (currentModalEditingTask && currentModalEditingTask.id === taskId)
           ? currentModalEditingTask
@@ -1062,6 +1050,9 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       const planBadge = document.getElementById('formExecutionPlanBadge');
       const planNotice = document.getElementById('formExecutionPlanNotice');
       const grillMeBanner = document.getElementById('grillMeBanner');
+      const currentProjectVal = document.getElementById('formProject')?.value || 'task-dashboard';
+      const proj = (Array.isArray(projects) ? projects : []).find(p => p.id === currentProjectVal);
+      const projSkills = (proj && Array.isArray(proj.skills)) ? proj.skills : [];
       const hasGrillMeSkill = projSkills.some(s => (s.id === 'grill-me' || s.label === 'grill-me'));
 
       if (grillMeBanner) {
@@ -1165,32 +1156,38 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
 
       const isArchivedView = Boolean(isOpenedFromArchive || status === 'archived');
       if (isArchivedView) {
-        if (btnApprove) btnApprove.classList.add('hidden');
-        if (btnReject) btnReject.classList.add('hidden');
-        if (btnArchiveModal) btnArchiveModal.classList.add('hidden');
-        if (btnSubmit) btnSubmit.classList.add('hidden');
+        btnApprove?.classList.add('hidden');
+        btnReject?.classList.add('hidden');
+        btnArchiveModal?.classList.add('hidden');
+        btnSubmit?.classList.add('hidden');
         document.getElementById('btnAbandonTask')?.classList.add('hidden');
       } else if (status === 'review') {
-        if (btnSubmit) btnSubmit.classList.remove('hidden');
-        if (btnApprove) btnApprove.classList.add('hidden');
-        btnReject.classList.remove('hidden');
-        if (btnArchiveModal) btnArchiveModal.classList.add('hidden');
-        btnSubmit.innerHTML = '儲存規格變更';
-        btnSubmit.className = 'bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-indigo-500/25 transition';
+        btnSubmit?.classList.remove('hidden');
+        btnApprove?.classList.add('hidden');
+        btnReject?.classList.remove('hidden');
+        btnArchiveModal?.classList.add('hidden');
+        if (btnSubmit) {
+          btnSubmit.innerHTML = '儲存規格變更';
+          btnSubmit.className = 'bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-indigo-500/25 transition';
+        }
       } else if (status === 'done') {
-        if (btnSubmit) btnSubmit.classList.remove('hidden');
-        btnApprove.classList.add('hidden');
-        btnReject.classList.add('hidden');
-        if (btnArchiveModal) btnArchiveModal.classList.remove('hidden');
-        btnSubmit.innerHTML = '儲存變更';
-        btnSubmit.className = 'bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-indigo-500/25 transition';
+        btnSubmit?.classList.remove('hidden');
+        btnApprove?.classList.add('hidden');
+        btnReject?.classList.add('hidden');
+        btnArchiveModal?.classList.remove('hidden');
+        if (btnSubmit) {
+          btnSubmit.innerHTML = '儲存變更';
+          btnSubmit.className = 'bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-indigo-500/25 transition';
+        }
       } else {
-        if (btnSubmit) btnSubmit.classList.remove('hidden');
-        btnApprove.classList.add('hidden');
-        btnReject.classList.add('hidden');
-        if (btnArchiveModal) btnArchiveModal.classList.add('hidden');
-        btnSubmit.innerHTML = '儲存變更';
-        btnSubmit.className = 'bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-indigo-500/25 transition';
+        btnSubmit?.classList.remove('hidden');
+        btnApprove?.classList.add('hidden');
+        btnReject?.classList.add('hidden');
+        btnArchiveModal?.classList.add('hidden');
+        if (btnSubmit) {
+          btnSubmit.innerHTML = '儲存變更';
+          btnSubmit.className = 'bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-indigo-500/25 transition';
+        }
       }
 
       // 進行中任務欄位鎖定唯讀與隱藏日誌
@@ -1500,6 +1497,9 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
               ...task,
               status: 'in_progress',
               feedback: feedback,
+              modifiedFiles: [],
+              diff: '',
+              diffPath: '',
               updatedAt: new Date().toISOString()
             })
           });
