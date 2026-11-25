@@ -1818,6 +1818,7 @@ function runNativeFolderPicker(promptText, callback) {
           return;
         }
         const branch = String(data.branch || data.branchName || '').trim();
+        const taskId = String(data.taskId || '').trim();
         if (!branch) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: false, error: 'Missing branch' }));
@@ -1830,6 +1831,30 @@ function runNativeFolderPicker(promptText, callback) {
           res.end(JSON.stringify({ ...pushRes, projectId: proj.id }));
           return;
         }
+        const nowIso = new Date().toISOString();
+        const freshTasks = readTasks();
+        const updatedTasks = [];
+        const updatedTaskIds = [];
+        for (const t of freshTasks) {
+          if (!t || t.project !== proj.id || t.status !== 'done') continue;
+          const taskBranch = (t.gitLanding?.landedBranch || t.targetBranch || t.baseBranch || '').trim();
+          if ((taskId && t.id === taskId) || taskBranch === branch) {
+            t.gitLanding = {
+              ...(t.gitLanding || { isCommitted: true, commitSha: t.mergeCommit || '', landedBranch: branch, landedAt: nowIso }),
+              pushedRemote: true,
+              pushedAt: nowIso
+            };
+            t.updatedAt = nowIso;
+            updatedTasks.push(t);
+            updatedTaskIds.push(t.id);
+          }
+        }
+        if (updatedTaskIds.length > 0) {
+          writeTasks(freshTasks);
+          for (const t of updatedTasks) {
+            broadcastSse('task-update', { taskId: t.id, status: t.status, gitLanding: t.gitLanding });
+          }
+        }
         gitProjectsStatusCache = { timestamp: 0, data: null };
         broadcastSse('project-branch-pushed', {
           projectId: proj.id,
@@ -1837,7 +1862,7 @@ function runNativeFolderPicker(promptText, callback) {
           remoteStatus: pushRes.remoteStatus
         });
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ...pushRes, projectId: proj.id }));
+        res.end(JSON.stringify({ ...pushRes, projectId: proj.id, updatedTaskIds }));
       } catch (err) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: false, error: (err && err.message) || 'Failed to push branch' }));
@@ -1863,6 +1888,7 @@ function runNativeFolderPicker(promptText, callback) {
           return;
         }
         const sourceBranch = String(data.sourceBranch || '').trim();
+        const taskId = String(data.taskId || '').trim();
         if (!sourceBranch) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: false, error: 'Missing sourceBranch' }));
@@ -1883,6 +1909,33 @@ function runNativeFolderPicker(promptText, callback) {
           customEnv: buildCustomEnv()
         });
         if (prRes.success) {
+          const updatedTaskIds = [];
+          if (prRes.prUrl) {
+            const nowIso = new Date().toISOString();
+            const freshTasks = readTasks();
+            const updatedTasks = [];
+            for (const t of freshTasks) {
+              if (!t || t.project !== proj.id || t.status !== 'done') continue;
+              const taskBranch = (t.gitLanding?.landedBranch || t.targetBranch || t.baseBranch || '').trim();
+              if ((taskId && t.id === taskId) || taskBranch === sourceBranch) {
+                t.prUrl = prRes.prUrl;
+                t.gitLanding = {
+                  ...(t.gitLanding || { isCommitted: true, commitSha: t.mergeCommit || '', landedBranch: sourceBranch, landedAt: nowIso }),
+                  pushedRemote: true,
+                  prUrl: prRes.prUrl
+                };
+                t.updatedAt = nowIso;
+                updatedTasks.push(t);
+                updatedTaskIds.push(t.id);
+              }
+            }
+            if (updatedTaskIds.length > 0) {
+              writeTasks(freshTasks);
+              for (const t of updatedTasks) {
+                broadcastSse('task-update', { taskId: t.id, status: t.status, gitLanding: t.gitLanding, prUrl: t.prUrl });
+              }
+            }
+          }
           broadcastSse('project-pr-created', {
             projectId: proj.id,
             sourceBranch,
@@ -1891,7 +1944,7 @@ function runNativeFolderPicker(promptText, callback) {
             provider: prRes.provider
           });
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ...prRes, projectId: proj.id }));
+          res.end(JSON.stringify({ ...prRes, projectId: proj.id, updatedTaskIds }));
           return;
         }
         if (prRes.degraded && prRes.fallbackCreateUrl) {

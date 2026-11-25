@@ -1,4 +1,4 @@
-import { projects, tasks, archivedTasks, archivedTasksCount, settings, projectGitStatus, currentProject, currentBranch, currentTaskDependencies, currentActiveTaskDiff, currentModalEditingTask, selectedArchivedTaskIds, isOpenedFromArchive, setTasks, setArchivedTasks, setArchivedTasksCount, setCurrentModalEditingTask, setCurrentTaskDependencies, setCurrentActiveTaskDiff, setIsOpenedFromArchive } from "./state.js";
+import { projects, tasks, archivedTasks, archivedTasksCount, settings, projectGitStatus, projectBranchesMap, currentProject, currentBranch, currentTaskDependencies, currentActiveTaskDiff, currentModalEditingTask, selectedArchivedTaskIds, isOpenedFromArchive, setTasks, setArchivedTasks, setArchivedTasksCount, setCurrentModalEditingTask, setCurrentTaskDependencies, setCurrentActiveTaskDiff, setIsOpenedFromArchive } from "./state.js";
 import { escapeHtml, autoResizeTextarea, resetTextareaHeight, formatDuration, showToast, withButtonLoading, copyPrompt, copySessionId, copyToClipboard, normalizeLogText } from "./utils.js";
 import { renderKanban, renderMetrics } from "./kanban.js";
 import { renderDiffViewer, parseDiffStats, filterDiffForFile, showAllDiffs, splitDiffByFiles } from "./diffViewer.js";
@@ -1238,6 +1238,11 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
         }
       }
 
+      const btnPushDone = document.getElementById('btnPushDoneTaskModal');
+      const btnCreatePrDone = document.getElementById('btnCreatePrDoneTaskModal');
+      btnPushDone?.classList.add('hidden');
+      btnCreatePrDone?.classList.add('hidden');
+
       const isArchivedView = Boolean(isOpenedFromArchive || status === 'archived');
       if (isArchivedView) {
         btnApprove?.classList.add('hidden');
@@ -1259,6 +1264,22 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
         btnApprove?.classList.add('hidden');
         btnReject?.classList.add('hidden');
         btnArchiveModal?.classList.remove('hidden');
+        const currentTask = tasks.find(t => t.id === taskId) || currentModalEditingTask;
+        const branchName = (currentTask?.gitLanding?.landedBranch || currentTask?.targetBranch || currentTask?.baseBranch || '').trim();
+        const branchesMap = typeof projectBranchesMap !== 'undefined' ? projectBranchesMap : null;
+        const defaultBranch = (branchesMap?.[currentTask?.project]?.defaultBranch || 'main').trim();
+        const prUrl = (currentTask?.gitLanding?.prUrl || currentTask?.prUrl || '').trim();
+        const pushedRemote = Boolean(currentTask?.gitLanding?.pushedRemote);
+        if (btnPushDone) {
+          btnPushDone.classList.toggle('hidden', !(currentTask?.project && branchName));
+          const pushTextEl = document.getElementById('btnPushDoneTaskModalText');
+          if (pushTextEl) pushTextEl.innerText = pushedRemote ? '重新推送' : '推送分支';
+        }
+        if (btnCreatePrDone) {
+          btnCreatePrDone.classList.toggle('hidden', !(currentTask?.project && branchName && (prUrl || branchName !== defaultBranch)));
+          const prTextEl = document.getElementById('btnCreatePrDoneTaskModalText');
+          if (prTextEl) prTextEl.innerText = prUrl ? '查看 PR ↗' : '開立 PR';
+        }
         if (btnSubmit) {
           btnSubmit.innerHTML = '儲存變更';
           btnSubmit.className = 'bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-indigo-500/25 transition';

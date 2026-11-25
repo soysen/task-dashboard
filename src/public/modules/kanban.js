@@ -403,20 +403,33 @@ import {
               ` : ''}
 
               ${t.status === 'done' ? (() => {
-                const isLatestInProj = newestDoneTaskIdByProject[t.project || 'default']?.id === t.id;
-                const projGit = projectGitStatus[t.project];
-                const hasDiff = projGit ? projGit.hasDiff : false;
                 const landingSha = t.gitLanding && t.gitLanding.commitSha ? String(t.gitLanding.commitSha).slice(0, 7) : '';
-                const landedBranch = t.gitLanding && t.gitLanding.landedBranch ? String(t.gitLanding.landedBranch) : '';
+                const landedBranch = (t.gitLanding && t.gitLanding.landedBranch) || t.targetBranch || t.baseBranch || '';
+                const pushedRemote = Boolean(t.gitLanding && t.gitLanding.pushedRemote);
+                const prUrl = (t.gitLanding && t.gitLanding.prUrl) || t.prUrl || '';
+                const defaultBranch = (projectBranchesMap && projectBranchesMap[t.project] && projectBranchesMap[t.project].defaultBranch) || 'main';
+                const canCreatePr = Boolean(t.project && landedBranch && (prUrl || landedBranch !== defaultBranch));
+                const canPush = Boolean(t.project && landedBranch);
 
                 return `
-                  <div class="td-surface-panel rounded-lg p-1.5 flex items-center justify-between gap-1.5 text-[10px] text-slate-700 dark:text-slate-200">
+                  <div class="td-surface-panel rounded-lg p-1.5 flex flex-wrap items-center justify-between gap-1.5 text-[10px] text-slate-700 dark:text-slate-200">
                     <span class="flex items-center gap-1 font-medium text-emerald-700 dark:text-emerald-400 min-w-0 truncate">
                       <i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-600 dark:text-emerald-400 flex-shrink-0"></i>
                       <span class="truncate">${landingSha ? `✓ 已提交 ${escapeHtml(landingSha)}` : '已完成'}</span>
                       ${landedBranch ? `<span class="px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-mono text-[9px] truncate">⎇ ${escapeHtml(landedBranch)}</span>` : ''}
+                      ${pushedRemote ? `<span class="px-1 py-0.5 rounded bg-sky-500/15 text-sky-700 dark:text-sky-300 font-medium text-[9px] whitespace-nowrap flex-shrink-0">已推送</span>` : ''}
                     </span>
                     <div class="flex items-center gap-1 flex-shrink-0">
+                      ${canPush ? `
+                        <button type="button" onclick="pushTaskBranchFromCard('${t.id}', event)" class="bg-slate-700 hover:bg-slate-600 text-white px-2 py-0.5 rounded font-medium flex items-center gap-1 transition whitespace-nowrap flex-shrink-0" title="推送分支 ${escapeHtml(landedBranch)} 至遠端">
+                          <i data-lucide="upload-cloud" class="w-3 h-3 flex-shrink-0"></i> ${pushedRemote ? '重推' : '推送'}
+                        </button>
+                      ` : ''}
+                      ${canCreatePr ? `
+                        <button type="button" onclick="openCreatePrForTask('${t.id}', event)" class="bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-0.5 rounded font-medium flex items-center gap-1 transition whitespace-nowrap flex-shrink-0" title="${prUrl ? '開啟 Pull Request' : `開立 ${escapeHtml(landedBranch)} → ${escapeHtml(defaultBranch)} PR`}">
+                          <i data-lucide="git-pull-request" class="w-3 h-3 flex-shrink-0"></i> ${prUrl ? 'PR ↗' : '開 PR'}
+                        </button>
+                      ` : ''}
                       <button onclick="archiveTaskFromCard('${t.id}', event)" class="bg-slate-200/90 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 px-2 py-0.5 rounded font-medium flex items-center gap-1 transition whitespace-nowrap flex-shrink-0" title="手動將此任務移入封存庫">
                         <i data-lucide="archive" class="w-3 h-3 text-slate-500 dark:text-slate-300 flex-shrink-0"></i> 封存
                       </button>

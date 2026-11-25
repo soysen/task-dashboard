@@ -1846,19 +1846,41 @@ const {
     assert.strictEqual(statusData.hasUpstream, false);
     assert(statusData.ahead >= 1, "未推送新分支 ahead 應 >= 1");
 
-    // 5. 整合測試：POST /api/projects/:id/branches/push
+    // 5. 整合測試：建立 done 任務後呼叫 POST /api/projects/:id/branches/push 並驗證任務 gitLanding.pushedRemote 持久化
+    const createDoneRes = await fetch(`${base}/api/tasks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "TASK-243 done branch push persistence",
+        project: projId,
+        status: "done",
+        targetBranch: "feat/pr-demo",
+        baseBranch: "main"
+      })
+    });
+    assert(createDoneRes.ok, "建立 done 測試任務應成功");
+    const createdDoneTask = await createDoneRes.json();
+    const doneTaskId = createdDoneTask.id;
+    assert(doneTaskId, "應回傳建立的 done 任務 ID");
+
     const pushRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/branches/push`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ branch: "feat/pr-demo" })
+      body: JSON.stringify({ branch: "feat/pr-demo", taskId: doneTaskId })
     });
     assert.strictEqual(pushRes.status, 200);
     const pushData = await pushRes.json();
     assert.strictEqual(pushData.success, true);
+    assert(Array.isArray(pushData.updatedTaskIds) && pushData.updatedTaskIds.includes(doneTaskId), "push 回應應包含 updatedTaskIds 且含 doneTaskId");
     assert.strictEqual(pushData.remoteStatus.hasUpstream, true);
     assert.strictEqual(pushData.remoteStatus.ahead, 0);
     const bareRef = execFileSync("git", ["-C", originBare, "rev-parse", "--verify", "refs/heads/feat/pr-demo"], { encoding: "utf8" }).trim();
     assert(bareRef.length >= 7, "bare origin 應已有 refs/heads/feat/pr-demo");
+
+    const checkTaskRes = await fetch(`${base}/api/tasks/${encodeURIComponent(doneTaskId)}`);
+    assert.strictEqual(checkTaskRes.status, 200);
+    const checkedDoneTask = await checkTaskRes.json();
+    assert.strictEqual(checkedDoneTask.gitLanding?.pushedRemote, true, "push 成功後 done 任務應持久化 gitLanding.pushedRemote === true");
 
     // 6. 整合測試：remoteUrl 遮罩與 Azure DevOps 無 PAT 時 POST /api/projects/:id/branches/pr 降級
     execFileSync("git", ["-C", tempRepo, "remote", "set-url", "origin", "https://user:super-secret-pat@dev.azure.com/FET-IDTT/SmartCS/_git/demo-repo"]);

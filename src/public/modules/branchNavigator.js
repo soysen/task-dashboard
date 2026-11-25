@@ -512,8 +512,9 @@ async function submitMergeBranch(projectId, sourceBranch, targetBranch) {
   }
 }
 
-async function pushCurrentBranch(projectId, branchName, event) {
+async function pushCurrentBranch(projectId, branchName, event, options = {}) {
   if (!projectId || !branchName) return;
+  const taskId = String(options?.taskId || "").trim();
   const btn = event?.currentTarget || event?.target?.closest?.("button") || null;
   const originalText = btn ? btn.innerHTML : "";
   if (btn) {
@@ -524,7 +525,7 @@ async function pushCurrentBranch(projectId, branchName, event) {
     const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/branches/push`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ branch: branchName })
+      body: JSON.stringify({ branch: branchName, ...(taskId ? { taskId } : {}) })
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.success === false) {
@@ -534,6 +535,10 @@ async function pushCurrentBranch(projectId, branchName, event) {
       branchRemoteStatusMap[`${projectId}::${branchName}`] = data.remoteStatus;
     }
     showToast(`已成功推送分支 ${branchName}`);
+    if (typeof window !== "undefined" && typeof window.loadData === "function") {
+      await window.loadData();
+      window.updateModalButtonState?.();
+    }
     renderContextualHeaderActions();
   } catch (err) {
     showToast(`推送失敗：${err.message || "未知錯誤"}`);
@@ -578,7 +583,7 @@ function closeCreatePrModal() {
   renderContextualHeaderActions();
 }
 
-function openCreatePrModal(projectId, sourceBranch, targetBranch) {
+function openCreatePrModal(projectId, sourceBranch, targetBranch, options = {}) {
   if (typeof document === "undefined") return;
   const existing = document.getElementById("createPrModal");
   if (existing) existing.remove();
@@ -586,6 +591,7 @@ function openCreatePrModal(projectId, sourceBranch, targetBranch) {
   const branchData = projectBranchesMap[projectId];
   const src = String(sourceBranch || currentBranch || "").trim();
   const tgt = String(targetBranch || branchData?.defaultBranch || "main").trim();
+  const taskId = String(options?.taskId || "").trim();
   if (!projectId || !src) return;
 
   const branchNames = (branchData?.branches || [])
@@ -599,10 +605,11 @@ function openCreatePrModal(projectId, sourceBranch, targetBranch) {
 
   const safeProjAttr = escapeAttrJs(projectId);
   const safeSrcAttr = escapeAttrJs(src);
+  const safeTaskAttr = escapeAttrJs(taskId);
 
   const modalEl = document.createElement("div");
   modalEl.id = "createPrModal";
-  modalEl.className = "fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4";
+  modalEl.className = "fixed inset-0 z-[65] flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4";
   modalEl.innerHTML = `
     <div class="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100" onclick="event.stopPropagation()">
       <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
@@ -639,7 +646,7 @@ function openCreatePrModal(projectId, sourceBranch, targetBranch) {
       </div>
       <div class="px-4 py-3 bg-slate-50 dark:bg-slate-900/90 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2">
         <button type="button" onclick="closeCreatePrModal()" class="px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-xs font-medium cursor-pointer">取消</button>
-        <button type="button" id="btnConfirmCreatePr" onclick="submitCreatePr('${safeProjAttr}', '${safeSrcAttr}')" class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-sm transition cursor-pointer">建立 PR</button>
+        <button type="button" id="btnConfirmCreatePr" onclick="submitCreatePr('${safeProjAttr}', '${safeSrcAttr}', '${safeTaskAttr}')" class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-sm transition cursor-pointer">建立 PR</button>
       </div>
     </div>
   `;
@@ -649,11 +656,12 @@ function openCreatePrModal(projectId, sourceBranch, targetBranch) {
   if (window.lucide) window.lucide.createIcons();
 }
 
-async function submitCreatePr(projectId, sourceBranch) {
+async function submitCreatePr(projectId, sourceBranch, taskId = "") {
   const targetBranch = document.getElementById("prTargetBranchSelect")?.value?.trim() || "main";
   const title = document.getElementById("prTitleInput")?.value?.trim() || "";
   const description = document.getElementById("prDescriptionInput")?.value || "";
   const autoPush = Boolean(document.getElementById("prAutoPushCheckbox")?.checked);
+  const normalizedTaskId = String(taskId || "").trim();
   const feedbackEl = document.getElementById("createPrModalFeedback");
   const btn = document.getElementById("btnConfirmCreatePr");
 
@@ -670,7 +678,14 @@ async function submitCreatePr(projectId, sourceBranch) {
     const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/branches/pr`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sourceBranch, targetBranch, title, description, autoPush })
+      body: JSON.stringify({
+        sourceBranch,
+        targetBranch,
+        title,
+        description,
+        autoPush,
+        ...(normalizedTaskId ? { taskId: normalizedTaskId } : {})
+      })
     });
     const data = await res.json().catch(() => ({}));
 
@@ -685,6 +700,10 @@ async function submitCreatePr(projectId, sourceBranch) {
         `;
       }
       loadBranchRemoteStatus(projectId, sourceBranch, true);
+      if (typeof window !== "undefined") {
+        await window.loadData?.();
+        window.updateModalButtonState?.();
+      }
       return;
     }
 
@@ -717,6 +736,51 @@ async function submitCreatePr(projectId, sourceBranch) {
   }
 }
 
+async function pushTaskBranchFromCard(taskId, event) {
+  if (event && typeof event.stopPropagation === "function") event.stopPropagation();
+  const task =
+    (tasks || []).find(t => t.id === taskId) ||
+    (typeof window !== "undefined" && window.currentModalEditingTask && window.currentModalEditingTask.id === taskId
+      ? window.currentModalEditingTask
+      : null);
+  const projId = task?.project || "";
+  const branchName = (task?.gitLanding?.landedBranch || task?.targetBranch || task?.baseBranch || "").trim();
+  if (!projId || !branchName) {
+    showToast("找不到此任務對應的分支資訊");
+    return;
+  }
+  await pushCurrentBranch(projId, branchName, event, { taskId });
+}
+
+function openCreatePrForTask(taskId, event) {
+  if (event && typeof event.stopPropagation === "function") event.stopPropagation();
+  const task =
+    (tasks || []).find(t => t.id === taskId) ||
+    (typeof window !== "undefined" && window.currentModalEditingTask && window.currentModalEditingTask.id === taskId
+      ? window.currentModalEditingTask
+      : null);
+  if (!task || !task.project) {
+    showToast("找不到此任務資訊");
+    return;
+  }
+  const prUrl = (task.gitLanding && task.gitLanding.prUrl) || task.prUrl || "";
+  if (prUrl) {
+    if (typeof openExternalUrl === "function") {
+      openExternalUrl(prUrl, event);
+    } else if (typeof window !== "undefined") {
+      window.open(prUrl, "_blank");
+    }
+    return;
+  }
+  const sourceBranch = (task.gitLanding?.landedBranch || task.targetBranch || task.baseBranch || "").trim();
+  const defaultBranch = (projectBranchesMap[task.project]?.defaultBranch || "main").trim();
+  if (!sourceBranch) {
+    showToast("找不到此任務對應的分支資訊");
+    return;
+  }
+  openCreatePrModal(task.project, sourceBranch, defaultBranch, { taskId });
+}
+
 export {
   loadProjectBranches,
   loadBranchRemoteStatus,
@@ -731,8 +795,10 @@ export {
   closeMergeBranchModal,
   submitMergeBranch,
   pushCurrentBranch,
+  pushTaskBranchFromCard,
   buildPrSummaryFromDoneTasks,
   openCreatePrModal,
+  openCreatePrForTask,
   closeCreatePrModal,
   submitCreatePr
 };
@@ -751,8 +817,10 @@ if (typeof window !== "undefined") {
   window.closeMergeBranchModal = closeMergeBranchModal;
   window.submitMergeBranch = submitMergeBranch;
   window.pushCurrentBranch = pushCurrentBranch;
+  window.pushTaskBranchFromCard = pushTaskBranchFromCard;
   window.buildPrSummaryFromDoneTasks = buildPrSummaryFromDoneTasks;
   window.openCreatePrModal = openCreatePrModal;
+  window.openCreatePrForTask = openCreatePrForTask;
   window.closeCreatePrModal = closeCreatePrModal;
   window.submitCreatePr = submitCreatePr;
 }

@@ -1164,6 +1164,29 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
 
   console.log('  ✅ TASK-239 看板切換置左、異動內容檢查分頁與左右兩欄 Master-Detail Diff 檢視器驗證通過');
 
+  // 25. 驗證 TASK-243 已提交 (done) 任務卡片與彈窗之 Push / 開 PR 按鈕與對應全域函式綁定
+  const branchNavSource = fs.readFileSync(path.join(__dirname, '../src/public/modules/branchNavigator.js'), 'utf8');
+  assert(
+    branchNavSource.includes('window.pushTaskBranchFromCard = pushTaskBranchFromCard') &&
+    branchNavSource.includes('window.openCreatePrForTask = openCreatePrForTask'),
+    'branchNavigator.js 必須將 pushTaskBranchFromCard 與 openCreatePrForTask 綁定至 window'
+  );
+  assert(
+    branchNavSource.includes('z-[65]'),
+    '#createPrModal 必須使用 z-[65] 以確保在 #taskModal (z-50) 上方顯示'
+  );
+  assert(
+    kanbanSrc237.includes("pushTaskBranchFromCard('${t.id}', event)") &&
+    kanbanSrc237.includes("openCreatePrForTask('${t.id}', event)"),
+    'kanban.js 之 done 卡片模板必須渲染 pushTaskBranchFromCard 與 openCreatePrForTask 按鈕'
+  );
+  assert(
+    htmlContent.includes('id="btnPushDoneTaskModal"') &&
+    htmlContent.includes('id="btnCreatePrDoneTaskModal"'),
+    'index.html 之任務彈窗底部必須包含 #btnPushDoneTaskModal 與 #btnCreatePrDoneTaskModal'
+  );
+  console.log('  ✅ TASK-243 已提交 (done) 任務 Push 與開立 PR 按鈕及綁定驗證通過');
+
   console.log('🎉 所有前端核心互動邏輯與防禦機制測試通過！\n');
 })().catch(err => {
   console.error(err);
