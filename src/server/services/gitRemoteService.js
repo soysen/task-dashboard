@@ -338,11 +338,29 @@ async function pushBranch(repoPath, branchName, options = {}) {
     }
 
     try {
+      const rawUrl = readOriginRawUrl(cleanRepo, customEnv);
+      const providerInfo = detectRemoteProvider(rawUrl);
+      const pushEnv = buildNonInteractiveGitEnv(customEnv);
+      const pushArgs = ['-C', cleanRepo];
+
+      if (providerInfo.provider === 'github' && /^https?:\/\//i.test(rawUrl) && !extractPatFromRemoteUrl(rawUrl)) {
+        const ghToken = resolveGitHubToken(providerInfo.owner, customEnv);
+        if (ghToken) {
+          pushEnv.TD_GH_TOKEN = ghToken;
+          pushArgs.push(
+            '-c', 'credential.helper=',
+            '-c', 'credential.helper=!f() { echo username=x-access-token; echo password=$TD_GH_TOKEN; }; f'
+          );
+        }
+      }
+
+      pushArgs.push('push', '-u', 'origin', branch);
+
       const { stdout = '', stderr = '' } = await execFileAsync(
         'git',
-        ['-C', cleanRepo, 'push', '-u', 'origin', branch],
+        pushArgs,
         {
-          env: buildNonInteractiveGitEnv(customEnv),
+          env: pushEnv,
           timeout: 60000
         }
       );
@@ -364,6 +382,37 @@ async function pushBranch(repoPath, branchName, options = {}) {
       };
     }
   });
+}
+
+function resolveGitHubToken(owner, customEnv) {
+  const env = customEnv || process.env;
+  if (env.GH_TOKEN && String(env.GH_TOKEN).trim()) return String(env.GH_TOKEN).trim();
+  if (env.GITHUB_TOKEN && String(env.GITHUB_TOKEN).trim()) return String(env.GITHUB_TOKEN).trim();
+
+  const ghEnv = buildNonInteractiveGitEnv(env);
+  if (owner) {
+    try {
+      const ownerToken = execFileSync('gh', ['auth', 'token', '--user', owner], {
+        env: ghEnv,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 5000
+      }).trim();
+      if (ownerToken) return ownerToken;
+    } catch (e) {}
+  }
+
+  try {
+    const activeToken = execFileSync('gh', ['auth', 'token'], {
+      env: ghEnv,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 5000
+    }).trim();
+    if (activeToken) return activeToken;
+  } catch (e) {}
+
+  return '';
 }
 
 function extractPatFromRemoteUrl(rawUrl) {
@@ -549,9 +598,14 @@ async function createPullRequest(repoPath, options = {}) {
     if (draft) args.push('--draft');
 
     try {
+      const ghEnv = buildNonInteractiveGitEnv(customEnv);
+      if (!ghEnv.GH_TOKEN) {
+        const ghToken = resolveGitHubToken(providerInfo.owner, customEnv);
+        if (ghToken) ghEnv.GH_TOKEN = ghToken;
+      }
       const { stdout = '' } = await execFileAsync('gh', args, {
         cwd: cleanRepo,
-        env: buildNonInteractiveGitEnv(customEnv),
+        env: ghEnv,
         timeout: 30000
       });
       const urlMatch = stdout.match(/https:\/\/github\.com\/\S+/i);
