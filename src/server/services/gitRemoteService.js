@@ -9,6 +9,10 @@ const {
   withRepoMergeLock,
   buildNonInteractiveGitEnv
 } = require('./gitService');
+const {
+  getAzureDevOpsPatFromKeychain,
+  resolveGithubAccountForOwner
+} = require('./gitAccountService');
 
 const execFileAsync = promisify(execFile);
 
@@ -352,6 +356,15 @@ async function pushBranch(repoPath, branchName, options = {}) {
             '-c', 'credential.helper=!f() { echo username=x-access-token; echo password=$TD_GH_TOKEN; }; f'
           );
         }
+      } else if (providerInfo.provider === 'azure-devops' && /^https?:\/\//i.test(rawUrl) && !extractPatFromRemoteUrl(rawUrl)) {
+        const azPat = getAzureDevOpsPatFromKeychain(providerInfo.org) || customEnv.AZURE_DEVOPS_PAT || customEnv.AZDO_PAT || '';
+        if (azPat) {
+          pushEnv.TD_AZDO_PAT = azPat;
+          pushArgs.push(
+            '-c', 'credential.helper=',
+            '-c', 'credential.helper=!f() { echo username=pat; echo password=$TD_AZDO_PAT; }; f'
+          );
+        }
       }
 
       pushArgs.push('push', '-u', 'origin', branch);
@@ -400,6 +413,20 @@ function resolveGitHubToken(owner, customEnv) {
       }).trim();
       if (ownerToken) return ownerToken;
     } catch (e) {}
+
+    // 若 owner 為組織名稱（例如 farfarfar-away），透過所屬 Org 自動對應已登入帳號
+    const mappedUser = resolveGithubAccountForOwner(owner, env);
+    if (mappedUser) {
+      try {
+        const mappedToken = execFileSync('gh', ['auth', 'token', '--user', mappedUser], {
+          env: ghEnv,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+          timeout: 5000
+        }).trim();
+        if (mappedToken) return mappedToken;
+      } catch (e) {}
+    }
   }
 
   try {
@@ -502,7 +529,7 @@ async function createPullRequest(repoPath, options = {}) {
   }
 
   if (providerInfo.provider === 'azure-devops') {
-    const pat = extractPatFromRemoteUrl(rawUrl) || customEnv.AZURE_DEVOPS_PAT || customEnv.AZDO_PAT || '';
+    const pat = extractPatFromRemoteUrl(rawUrl) || getAzureDevOpsPatFromKeychain(providerInfo.org) || customEnv.AZURE_DEVOPS_PAT || customEnv.AZDO_PAT || '';
     if (!pat) {
       return {
         success: false,

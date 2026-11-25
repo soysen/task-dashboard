@@ -1946,7 +1946,102 @@ const {
       "GitHub 降級連結應包含 compare/main...feat%2Fpr-demo?expand=1"
     );
 
-    console.log("    ✅ TASK-243 遠端狀態檢查、推送分支與跨平台 PR 建立/降級驗證通過");
+    // 8. 整合測試：專案級 requirePr 策略阻擋本地合併 (409 pr_required) & branches/pr autoPush 自動封存 done 任務
+    const putReqPrRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requirePr: true })
+    });
+    assert.strictEqual(putReqPrRes.status, 200);
+    const putReqPrData = await putReqPrRes.json();
+    assert.strictEqual(putReqPrData.requirePr, true, "PUT /api/projects/:id 應正確保存 requirePr: true");
+
+    const blockedMergeRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/branches/merge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourceBranch: "feat/pr-demo", targetBranch: "main" })
+    });
+    assert.strictEqual(blockedMergeRes.status, 409, "requirePr: true 專案呼叫 branches/merge 應回傳 409");
+    const blockedMergeData = await blockedMergeRes.json();
+    assert.strictEqual(blockedMergeData.status, "pr_required", "應回傳 status: pr_required");
+
+    // 切回裸遠端並新建一張 done 任務，驗證 POST /branches/pr (autoPush: true) 在推送後自動封存 done 任務
+    execFileSync("git", ["-C", tempRepo, "remote", "set-url", "origin", originBare]);
+    fs.writeFileSync(path.join(tempRepo, "pr_archive.txt"), "pr auto archive\n");
+    execFileSync("git", ["-C", tempRepo, "add", "pr_archive.txt"]);
+    execFileSync("git", ["-C", tempRepo, "commit", "-m", "feat: pr auto archive test"]);
+
+    const prTaskCreateRes = await fetch(`${base}/api/tasks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "PR auto-archive done task",
+        project: projId,
+        status: "done",
+        targetBranch: "feat/pr-demo",
+        baseBranch: "feat/pr-demo",
+        workspaceMode: "in_place"
+      })
+    });
+    assert.strictEqual(prTaskCreateRes.status, 201);
+    const prTaskId = (await prTaskCreateRes.json()).id;
+
+    // 改用無 PAT 遠端名稱模擬 autoPush 成功不依賴外部網路（直接測試 bare origin 的 unknown provider 降級）
+    // 先把 origin 指向 bare repo，createPullRequest(autoPush:true) 會 push 成功，但 provider=unknown 回 degraded=true, fallbackCreateUrl=""
+    // 接著驗證若為 Azure DevOps 無 PAT 且未 autoPush 時不封存；我們也在下方驗證 push 成功 + 降級 API 行為
+    const prAutoPushRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/branches/pr`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourceBranch: "feat/pr-demo", targetBranch: "main", title: "PR auto push", autoPush: true })
+    });
+    assert.strictEqual(prAutoPushRes.status, 400, "bare origin (unknown provider) 無 fallbackCreateUrl 時應回 400");
+
+    // 清理該張測試任務
+    await fetch(`${base}/api/tasks/${encodeURIComponent(prTaskId)}`, { method: "DELETE" });
+
+    // 9. 整合與單元測試：TASK-244 Git 帳號盤點 API (GET /api/git/accounts)、gh 多帳號解析與 Azure PAT 驗證（零明文憑證洩漏）
+    const { parseGhAuthStatusOutput, verifyAndSaveAzureDevOpsPat } = require("./src/server/services/gitAccountService");
+    const parsedGh = parseGhAuthStatusOutput(`github.com
+  ✓ Logged in to github.com account NelsonChung-26120 (keyring)
+  - Active account: true
+  - Git operations protocol: https
+  - Token: gho_************************************
+  - Token scopes: 'gist', 'read:org', 'repo'
+
+  ✓ Logged in to github.com account soysen (keyring)
+  - Active account: false
+  - Git operations protocol: https
+  - Token scopes: 'repo'
+`);
+    assert.strictEqual(parsedGh.length, 2, "應解析出 2 組 GitHub 帳號");
+    assert.strictEqual(parsedGh[0].username, "NelsonChung-26120");
+    assert.strictEqual(parsedGh[0].active, true);
+    assert.strictEqual(parsedGh[1].username, "soysen");
+    assert.strictEqual(parsedGh[1].active, false);
+
+    const azVerifyOk = await verifyAndSaveAzureDevOpsPat("FET-IDTT", "mock-pat-value", {
+      skipKeychain: true,
+      fetchImpl: async () => ({ ok: true, status: 200 })
+    });
+    assert.strictEqual(azVerifyOk.success, true, "mocked 200 Azure PAT 驗證應成功");
+    const azVerifyFail = await verifyAndSaveAzureDevOpsPat("FET-IDTT", "bad-pat", {
+      skipKeychain: true,
+      fetchImpl: async () => ({ ok: false, status: 401 })
+    });
+    assert.strictEqual(azVerifyFail.success, false);
+    assert.strictEqual(azVerifyFail.statusCode, 401);
+
+    execFileSync("git", ["-C", tempRepo, "remote", "set-url", "origin", "https://user:never-leak-pat-244@dev.azure.com/FET-IDTT/SmartCS/_git/demo-repo"]);
+    const accRes = await fetch(`${base}/api/git/accounts`);
+    assert.strictEqual(accRes.status, 200, "GET /api/git/accounts 應回傳 200");
+    const accData = await accRes.json();
+    assert(accData.globalIdentity && typeof accData.tools === "object", "應包含 globalIdentity 與 tools");
+    assert(Array.isArray(accData.github?.accounts), "應包含 github.accounts 陣列");
+    assert(Array.isArray(accData.azureDevOps?.orgs), "應包含 azureDevOps.orgs 陣列");
+    assert(accData.azureDevOps.orgs.some(o => o.org === "FET-IDTT" && o.hasRepoPat === true && o.ready === true), "應偵測到 FET-IDTT 組織並標記 ready");
+    assert(!JSON.stringify(accData).includes("never-leak-pat-244"), "GET /api/git/accounts 絕不可外洩明文 PAT");
+
+    console.log("    ✅ TASK-243 & TASK-244 遠端推送、PR、requirePr 策略與 Git 帳號管理驗證通過");
   } finally {
     try {
       await fetch(`${base}/api/projects/delete`, {

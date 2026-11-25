@@ -607,6 +607,241 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
       });
     }
 
+    let _azdoPatFormVisible = false;
+
+    function renderGitAccountsSettings(data) {
+      const container = document.getElementById('gitAccountsSettingsContainer');
+      const badge = document.getElementById('settingsGitConnectedBadge');
+      if (!container) return;
+
+      if (!data) {
+        if (badge) badge.textContent = '偵測失敗';
+        container.innerHTML = `<div class="text-rose-600 dark:text-rose-400">無法讀取本機 Git 帳號狀態，請稍後重試。</div>`;
+        return;
+      }
+
+      const ghAccounts = (data.github && Array.isArray(data.github.accounts)) ? data.github.accounts : [];
+      const forkMissing = (data.github && Array.isArray(data.github.forkMissingAccounts)) ? data.github.forkMissingAccounts : [];
+      const azdoOrgs = (data.azureDevOps && Array.isArray(data.azureDevOps.orgs)) ? data.azureDevOps.orgs : [];
+      const totalConnected = Number(data.totalConnected || 0);
+      const pending = data.pendingGithubLogin && data.pendingGithubLogin.active ? data.pendingGithubLogin : null;
+      const ident = data.globalIdentity || {};
+      const tools = data.tools || {};
+
+      if (badge) {
+        badge.textContent = `已連線 ${totalConnected} 個帳號/組織`;
+        badge.className = totalConnected > 0
+          ? 'text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-semibold'
+          : 'text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 font-semibold';
+      }
+
+      const identText = ident.name || ident.email
+        ? `${escapeHtml(ident.name || '(未設名稱)')}${ident.email ? ` <${escapeHtml(ident.email)}>` : ''}`
+        : '尚未設定 git global user.name / email';
+
+      const ghRows = ghAccounts.length > 0
+        ? ghAccounts.map(acc => {
+            const safeUser = escapeHtml(acc.username);
+            const attrUser = escapeHtml(acc.username).replace(/'/g, "\\'");
+            return `
+              <div class="flex items-center justify-between gap-2 py-1 px-2 rounded-lg bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-700/80">
+                <div class="min-w-0 flex items-center gap-1.5">
+                  <span class="w-1.5 h-1.5 rounded-full ${acc.active ? 'bg-emerald-500' : 'bg-slate-400'} flex-shrink-0"></span>
+                  <span class="font-mono font-semibold text-slate-800 dark:text-slate-100 truncate">${safeUser}</span>
+                  ${acc.active ? `<span class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-semibold">預設</span>` : ''}
+                </div>
+                ${!acc.active ? `
+                  <button type="button" onclick="switchGithubAccountFromSettings('${attrUser}')" class="text-[10px] px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-slate-700 dark:text-slate-200 font-medium cursor-pointer flex-shrink-0">設為預設</button>
+                ` : `<span class="text-[10px] text-slate-400 font-mono flex-shrink-0">${escapeHtml(acc.protocol || 'https')}</span>`}
+              </div>
+            `;
+          }).join('')
+        : `<div class="text-[11px] text-slate-500 dark:text-slate-400 py-1">尚未登入任何 GitHub CLI 帳號${tools.gh ? '，點擊右側按鈕即可免終端機一鍵登入。' : '（請先安裝 gh：brew install gh）。'}</div>`;
+
+      const pendingBox = pending ? `
+        <div class="rounded-lg p-2.5 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 space-y-1.5">
+          <div class="font-semibold text-indigo-800 dark:text-indigo-200">等待 GitHub 瀏覽器授權中...</div>
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-mono text-sm font-bold tracking-wider text-indigo-700 dark:text-indigo-300 select-all">${escapeHtml(pending.deviceCode)}</span>
+            <div class="flex items-center gap-1.5">
+              <button type="button" onclick="copyGithubDeviceCode('${escapeHtml(pending.deviceCode)}')" class="px-2 py-1 rounded bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 text-[10px] font-semibold text-indigo-700 dark:text-indigo-300 cursor-pointer">複製驗證碼</button>
+              <a href="${escapeHtml(pending.verificationUri || 'https://github.com/login/device')}" target="_blank" rel="noopener noreferrer" class="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-semibold no-underline">前往授權 ↗</a>
+            </div>
+          </div>
+        </div>
+      ` : '';
+
+      const forkHint = forkMissing.length > 0
+        ? `<div class="text-[10px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-lg px-2 py-1">Fork 偵測到尚未在 gh 登入之帳號：<span class="font-mono font-semibold">${forkMissing.map(escapeHtml).join(', ')}</span></div>`
+        : '';
+
+      const azdoRows = azdoOrgs.length > 0
+        ? azdoOrgs.map(item => {
+            const sourceTags = [];
+            if (item.hasKeychainPat) sourceTags.push('Keychain ✓');
+            if (item.hasRepoPat) sourceTags.push('Repo PAT ✓');
+            if (item.hasEnvPat) sourceTags.push('Env ✓');
+            const statusText = sourceTags.length > 0 ? sourceTags.join(' · ') : '未設定 PAT';
+            return `
+              <div class="flex items-center justify-between gap-2 py-1 px-2 rounded-lg bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-700/80">
+                <div class="min-w-0 flex items-center gap-1.5">
+                  <span class="w-1.5 h-1.5 rounded-full ${item.ready ? 'bg-emerald-500' : 'bg-amber-500'} flex-shrink-0"></span>
+                  <span class="font-mono font-semibold text-slate-800 dark:text-slate-100 truncate">${escapeHtml(item.org)}</span>
+                  <span class="text-[10px] text-slate-400">(${item.projectCount} 專案)</span>
+                </div>
+                <span class="text-[10px] font-medium ${item.ready ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-600 dark:text-amber-400'} flex-shrink-0">${escapeHtml(statusText)}</span>
+              </div>
+            `;
+          }).join('')
+        : `<div class="text-[11px] text-slate-500 dark:text-slate-400 py-1">目前受管專案中無 Azure DevOps 組織。</div>`;
+
+      const azdoForm = _azdoPatFormVisible ? `
+        <div class="rounded-lg p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 space-y-2">
+          <div class="text-[10px] text-slate-500 dark:text-slate-400">PAT 驗證通過後會安全存於 macOS Keychain，絕不以明文寫入設定檔。</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            <input type="text" id="settingAzdoOrgInput" placeholder="組織名稱（如 FET-IDTT）" class="h-7 px-2 rounded-md bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-[11px] font-mono focus:outline-none">
+            <input type="password" id="settingAzdoPatInput" placeholder="Azure DevOps PAT" class="h-7 px-2 rounded-md bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-[11px] font-mono focus:outline-none">
+          </div>
+          <div class="flex items-center justify-end gap-1.5">
+            <button type="button" onclick="toggleAzdoPatForm(false)" class="px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-medium cursor-pointer">取消</button>
+            <button type="button" id="btnSaveAzdoPat" onclick="saveAzdoPatFromSettings(event)" class="px-2.5 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-semibold cursor-pointer">驗證並存入 Keychain</button>
+          </div>
+        </div>
+      ` : '';
+
+      container.innerHTML = `
+        <div class="flex flex-wrap items-center justify-between gap-1.5 text-[10px] text-slate-500 dark:text-slate-400 pb-1.5 border-b border-slate-200/70 dark:border-slate-700/70">
+          <span class="truncate" title="${identText}">本機身分：<span class="font-mono text-slate-700 dark:text-slate-200">${identText}</span></span>
+          <span class="font-mono flex-shrink-0">git ${tools.git ? '✓' : '✕'} · gh ${tools.gh ? '✓' : '✕'} · ssh ${tools.hasSshKey ? '✓' : '—'}</span>
+        </div>
+
+        <div class="space-y-1.5">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-slate-700 dark:text-slate-200">GitHub (${ghAccounts.length} 個帳號)</span>
+            <button type="button" id="btnStartGithubLogin" onclick="startGithubLoginFromSettings(event)" class="text-[10px] px-2 py-0.5 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white font-semibold cursor-pointer">＋ 登入 GitHub 帳號</button>
+          </div>
+          ${pendingBox}
+          <div class="space-y-1">${ghRows}</div>
+          ${forkHint}
+        </div>
+
+        <div class="space-y-1.5 pt-1.5 border-t border-slate-200/70 dark:border-slate-700/70">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-slate-700 dark:text-slate-200">Azure DevOps (${azdoOrgs.length} 個組織)</span>
+            <button type="button" onclick="toggleAzdoPatForm()" class="text-[10px] px-2 py-0.5 rounded-md bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-semibold cursor-pointer">＋ 設定組織 PAT</button>
+          </div>
+          ${azdoForm}
+          <div class="space-y-1">${azdoRows}</div>
+        </div>
+      `;
+      if (window.lucide) window.lucide.createIcons();
+    }
+
+    async function loadGitAccountsSettings() {
+      const container = document.getElementById('gitAccountsSettingsContainer');
+      if (container && !container.innerHTML.trim()) {
+        container.innerHTML = `<div class="text-slate-400">正在掃描本機 Git 帳號...</div>`;
+      }
+      try {
+        const res = await fetch('/api/git/accounts');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        renderGitAccountsSettings(data);
+        return data;
+      } catch (err) {
+        renderGitAccountsSettings(null);
+        return null;
+      }
+    }
+
+    function copyGithubDeviceCode(code) {
+      if (!code) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).catch(() => {});
+      }
+      showToast(`已複製一次性驗證碼：${code}`);
+    }
+
+    async function startGithubLoginFromSettings(event) {
+      const btn = event ? event.currentTarget : document.getElementById('btnStartGithubLogin');
+      await withButtonLoading(btn, '取得驗證碼...', async () => {
+        try {
+          const res = await fetch('/api/git/accounts/github/login', { method: 'POST' });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.success) {
+            throw new Error(data.error || `啟動登入失敗 (HTTP ${res.status})`);
+          }
+          if (data.deviceCode && navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(data.deviceCode).catch(() => {});
+          }
+          showToast(`驗證碼 ${data.deviceCode} 已複製，請於瀏覽器完成授權`);
+          await loadGitAccountsSettings();
+        } catch (err) {
+          showToast(`GitHub 登入啟動失敗：${err.message || '未知錯誤'}`);
+        }
+      });
+    }
+
+    async function switchGithubAccountFromSettings(username) {
+      if (!username) return;
+      try {
+        const res = await fetch('/api/git/accounts/github/switch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || `切換失敗 (HTTP ${res.status})`);
+        }
+        showToast(`已將預設 GitHub 帳號切換為 ${username}`);
+        if (data.accounts) {
+          renderGitAccountsSettings(data.accounts);
+        } else {
+          await loadGitAccountsSettings();
+        }
+      } catch (err) {
+        showToast(`切換 GitHub 帳號失敗：${err.message || '未知錯誤'}`);
+      }
+    }
+
+    function toggleAzdoPatForm(forceState) {
+      _azdoPatFormVisible = typeof forceState === 'boolean' ? forceState : !_azdoPatFormVisible;
+      loadGitAccountsSettings();
+    }
+
+    async function saveAzdoPatFromSettings(event) {
+      const btn = event ? event.currentTarget : document.getElementById('btnSaveAzdoPat');
+      const org = (document.getElementById('settingAzdoOrgInput')?.value || '').trim();
+      const pat = (document.getElementById('settingAzdoPatInput')?.value || '').trim();
+      if (!org || !pat) {
+        showToast('請輸入 Azure DevOps 組織名稱與 PAT');
+        return;
+      }
+      await withButtonLoading(btn, '驗證中...', async () => {
+        try {
+          const res = await fetch('/api/git/accounts/azdo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ org, pat })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.success) {
+            throw new Error(data.error || `驗證失敗 (HTTP ${res.status})`);
+          }
+          _azdoPatFormVisible = false;
+          showToast(`組織 ${org} 的 PAT 已驗證並安全存入 macOS Keychain！`);
+          if (data.accounts) {
+            renderGitAccountsSettings(data.accounts);
+          } else {
+            await loadGitAccountsSettings();
+          }
+        } catch (err) {
+          showToast(`Azure DevOps PAT 設定失敗：${err.message || '未知錯誤'}`);
+        }
+      });
+    }
+
     function openSettingsModal() {
       updateThemeButtons();
       updateFontSizeButtons();
@@ -615,6 +850,7 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
         pathDisplay.innerText = settings.dataDirectoryPath || settings.defaultDataDir || '預設專案 data 目錄';
       }
       document.getElementById('settingsModal').classList.remove('hidden');
+      loadGitAccountsSettings();
       if (window.lucide) lucide.createIcons();
     }
 
@@ -820,11 +1056,40 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
       }
     }
 
+    async function toggleProjectRequirePrFromUI(projectId) {
+      const targetProjId = projectId || currentProject;
+      if (!targetProjId || targetProjId === 'ALL') return;
+      const proj = projects.find(p => p.id === targetProjId);
+      if (!proj) return;
+      const nextRequirePr = !Boolean(proj.requirePr);
+      try {
+        const res = await fetch(`/api/projects/${encodeURIComponent(targetProjId)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ requirePr: nextRequirePr })
+        });
+        const updated = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(updated.error || `HTTP ${res.status}`);
+        proj.requirePr = Boolean(updated.requirePr);
+        renderProjectBanner();
+        if (typeof window !== 'undefined') {
+          window.renderKanban?.();
+        }
+        showToast(proj.requirePr
+          ? `已為「${proj.name}」啟用強制走 PR 流程（非預設分支停用本地合併）`
+          : `已關閉「${proj.name}」的強制 PR 流程`);
+      } catch (err) {
+        showToast(`更新專案 PR 策略失敗：${err.message || '未知錯誤'}`);
+      }
+    }
+
     function renderProjectBanner() {
       const banner = document.getElementById('projectBanner');
       const headerTitle = document.getElementById('headerCurrentProjectName');
       const bannerPath = document.getElementById('bannerPath');
       const harnessBtn = document.getElementById('bannerHarnessBtn');
+      const requirePrBtn = document.getElementById('bannerRequirePrBtn');
+      const requirePrText = document.getElementById('bannerRequirePrText');
 
       if (currentProject === 'ALL') {
         if (banner) banner.classList.add('hidden');
@@ -834,6 +1099,10 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
           bannerPath.classList.add('hidden');
         }
         if (harnessBtn) harnessBtn.classList.add('hidden');
+        if (requirePrBtn) {
+          requirePrBtn.classList.add('hidden');
+          requirePrBtn.classList.remove('flex');
+        }
         if (headerTitle) headerTitle.innerText = '全部專案';
         renderContextualHeaderActions();
         return;
@@ -848,6 +1117,10 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
           bannerPath.classList.add('hidden');
         }
         if (harnessBtn) harnessBtn.classList.add('hidden');
+        if (requirePrBtn) {
+          requirePrBtn.classList.add('hidden');
+          requirePrBtn.classList.remove('flex');
+        }
         if (headerTitle) headerTitle.innerText = currentProject;
         renderContextualHeaderActions();
         return;
@@ -871,6 +1144,20 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
         } else {
           harnessBtn.classList.add('hidden');
           harnessBtn.classList.remove('flex');
+        }
+      }
+      if (requirePrBtn) {
+        const isReqPr = Boolean(proj.requirePr);
+        requirePrBtn.classList.remove('hidden');
+        requirePrBtn.classList.add('flex');
+        requirePrBtn.className = isReqPr
+          ? 'text-[10px] bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-500 px-2 py-0.5 rounded-full font-semibold transition flex items-center gap-1 flex-shrink-0 cursor-pointer shadow-xs'
+          : 'text-[10px] bg-slate-500/10 hover:bg-slate-500/20 text-slate-600 dark:text-slate-300 border border-slate-400/30 px-2 py-0.5 rounded-full font-medium transition flex items-center gap-1 flex-shrink-0 cursor-pointer';
+        requirePrBtn.title = isReqPr
+          ? '此專案已啟用「強制走 PR 流程」（非預設分支停用本地合併回主幹），點擊切換'
+          : '點擊為此專案啟用「強制走 PR 流程」（非預設分支以開立 PR 為主，停用本地合併）';
+        if (requirePrText) {
+          requirePrText.textContent = isReqPr ? 'PR 必走 ✓' : 'PR 流程';
         }
       }
       renderContextualHeaderActions();
@@ -1145,6 +1432,17 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
         showToast(`任務 ${data.taskId} CLI Agent 執行失敗，正在重試...`);
         loadData();
       });
+      evtSource.addEventListener('git-accounts-updated', (e) => {
+        let data = {};
+        try { data = JSON.parse(e.data); } catch (_) {}
+        const settingsModal = document.getElementById('settingsModal');
+        if (settingsModal && !settingsModal.classList.contains('hidden')) {
+          loadGitAccountsSettings();
+        }
+        if (data.provider === 'github' && data.success) {
+          showToast('GitHub 帳號授權完成，已自動更新連線清單！');
+        }
+      });
       evtSource.onerror = (err) => {
         console.error('[SSE] 連線錯誤，5秒後自動重連:', err);
       };
@@ -1182,6 +1480,12 @@ export {
   openSettingsModal,
   closeSettingsModal,
   saveSettingsFromModal,
+  loadGitAccountsSettings,
+  startGithubLoginFromSettings,
+  switchGithubAccountFromSettings,
+  toggleAzdoPatForm,
+  saveAzdoPatFromSettings,
+  copyGithubDeviceCode,
   toggleSidebar,
   closeSidebar,
   toggleProjectExpand,
@@ -1189,6 +1493,7 @@ export {
   deleteProject,
   renderSidebarProjects,
   initProjectHarnessFromUI,
+  toggleProjectRequirePrFromUI,
   renderProjectBanner,
   openNewProjectModal,
   closeProjectModal,
@@ -1242,6 +1547,12 @@ if (typeof window !== "undefined") {
   window.openSettingsModal = openSettingsModal;
   window.closeSettingsModal = closeSettingsModal;
   window.saveSettingsFromModal = saveSettingsFromModal;
+  window.loadGitAccountsSettings = loadGitAccountsSettings;
+  window.startGithubLoginFromSettings = startGithubLoginFromSettings;
+  window.switchGithubAccountFromSettings = switchGithubAccountFromSettings;
+  window.toggleAzdoPatForm = toggleAzdoPatForm;
+  window.saveAzdoPatFromSettings = saveAzdoPatFromSettings;
+  window.copyGithubDeviceCode = copyGithubDeviceCode;
   window.toggleSidebar = toggleSidebar;
   window.closeSidebar = closeSidebar;
   window.toggleProjectExpand = toggleProjectExpand;
@@ -1249,6 +1560,7 @@ if (typeof window !== "undefined") {
   window.deleteProject = deleteProject;
   window.renderSidebarProjects = renderSidebarProjects;
   window.initProjectHarnessFromUI = initProjectHarnessFromUI;
+  window.toggleProjectRequirePrFromUI = toggleProjectRequirePrFromUI;
   window.renderProjectBanner = renderProjectBanner;
   window.openNewProjectModal = openNewProjectModal;
   window.closeProjectModal = closeProjectModal;

@@ -229,6 +229,7 @@ function renderContextualHeaderActions() {
       );
       const safeDefaultAttr = escapeAttrJs(defaultBranch);
       const remoteKey = `${currentProject}::${currentBranch}`;
+      const requirePr = Boolean(proj && proj.requirePr);
 
       if (branchData?.isGitRepo && !branchRemoteStatusMap[remoteKey]) {
         loadBranchRemoteStatus(currentProject, currentBranch);
@@ -246,12 +247,13 @@ function renderContextualHeaderActions() {
       }
 
       if (branchData?.isGitRepo && isNonDefaultBranch) {
+        const prBtnLabel = requirePr ? "推送並開立 PR" : "開立 PR";
         actionButtons.push(
-          `<button type="button" onclick="openCreatePrModal('${safeProjAttr}', '${safeBranchAttr}', '${safeDefaultAttr}')" class="h-7 sm:h-8 inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] sm:text-xs font-semibold px-2.5 rounded-lg shadow-sm transition cursor-pointer whitespace-nowrap">開立 PR</button>`
+          `<button type="button" onclick="openCreatePrModal('${safeProjAttr}', '${safeBranchAttr}', '${safeDefaultAttr}')" class="h-7 sm:h-8 inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] sm:text-xs font-semibold px-2.5 rounded-lg shadow-sm transition cursor-pointer whitespace-nowrap">${escapeHtml(prBtnLabel)}</button>`
         );
       }
 
-      if (hasCommittedDoneOnBranch) {
+      if (hasCommittedDoneOnBranch && !requirePr) {
         actionButtons.push(
           `<button type="button" onclick="openMergeBranchModal('${safeProjAttr}', '${safeBranchAttr}', '${safeDefaultAttr}')" class="h-7 sm:h-8 inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-semibold px-2.5 rounded-lg shadow-sm transition cursor-pointer whitespace-nowrap">合併回 ${escapeHtml(defaultBranch)}</button>`
         );
@@ -610,7 +612,9 @@ function openCreatePrModal(projectId, sourceBranch, targetBranch, options = {}) 
 
   const summary = buildPrSummaryFromDoneTasks(projectId, src, tgt);
   const remoteInfo = branchRemoteStatusMap[`${projectId}::${src}`];
-  const shouldAutoPush = !remoteInfo || !remoteInfo.hasUpstream || remoteInfo.ahead > 0;
+  const proj = (projects || []).find(p => p.id === projectId);
+  const requirePr = Boolean(proj && proj.requirePr);
+  const shouldAutoPush = requirePr || !remoteInfo || !remoteInfo.hasUpstream || remoteInfo.ahead > 0;
 
   const safeProjAttr = escapeAttrJs(projectId);
   const safeSrcAttr = escapeAttrJs(src);
@@ -699,17 +703,27 @@ async function submitCreatePr(projectId, sourceBranch, taskId = "") {
     const data = await res.json().catch(() => ({}));
 
     if (data.success && data.prUrl) {
-      showToast("Pull Request 已建立成功！");
+      const archivedIds = Array.isArray(data.archivedTaskIds) ? data.archivedTaskIds : [];
+      const archivedCount = archivedIds.length;
+      showToast(
+        archivedCount > 0
+          ? `Pull Request 已建立成功，並自動封存 ${archivedCount} 張任務！`
+          : "Pull Request 已建立成功！"
+      );
       if (feedbackEl) {
         const safeUrlAttr = escapeAttrJs(data.prUrl);
         feedbackEl.className = "rounded-lg p-2.5 text-[11px] bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 space-y-1.5";
         feedbackEl.innerHTML = `
-          <div class="font-semibold">PR 已成功建立：</div>
+          <div class="font-semibold">PR 已成功建立${archivedCount > 0 ? `（已自動封存 ${archivedCount} 張任務）` : ""}：</div>
           <a href="${escapeHtml(data.prUrl)}" onclick="openExternalUrl('${safeUrlAttr}', event)" class="inline-flex items-center gap-1 underline font-mono break-all hover:text-emerald-600 dark:hover:text-emerald-100">${escapeHtml(data.prUrl)}</a>
         `;
       }
       loadBranchRemoteStatus(projectId, sourceBranch, true);
       if (typeof window !== "undefined") {
+        const editingTaskId = window.currentModalEditingTask?.id || document.getElementById("formTaskId")?.value || "";
+        if (editingTaskId && archivedIds.includes(editingTaskId)) {
+          window.closeModal?.();
+        }
         await window.loadData?.();
         window.updateModalButtonState?.();
       }
@@ -717,15 +731,29 @@ async function submitCreatePr(projectId, sourceBranch, taskId = "") {
     }
 
     if (data.degraded && data.fallbackCreateUrl) {
+      const archivedIds = Array.isArray(data.archivedTaskIds) ? data.archivedTaskIds : [];
+      const archivedCount = archivedIds.length;
+      if (archivedCount > 0) {
+        showToast(`分支已推送並封存 ${archivedCount} 張任務，請前往網頁完成建立 PR`);
+      }
       if (feedbackEl) {
         const safeFallbackAttr = escapeAttrJs(data.fallbackCreateUrl);
         feedbackEl.className = "rounded-lg p-2.5 text-[11px] bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 space-y-2";
         feedbackEl.innerHTML = `
-          <div>${escapeHtml(data.error || "無法自動建立 PR，請透過網頁完成建立。")}</div>
+          <div>${escapeHtml(data.error || "無法自動建立 PR，請透過網頁完成建立。")}${archivedCount > 0 ? `（已自動推送並封存 ${archivedCount} 張任務）` : ""}</div>
           <div>
             <a href="${escapeHtml(data.fallbackCreateUrl)}" onclick="openExternalUrl('${safeFallbackAttr}', event)" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-600 hover:bg-amber-500 text-white font-semibold no-underline">前往網頁開立 PR ↗</a>
           </div>
         `;
+      }
+      if (archivedCount > 0 && typeof window !== "undefined") {
+        loadBranchRemoteStatus(projectId, sourceBranch, true);
+        const editingTaskId = window.currentModalEditingTask?.id || document.getElementById("formTaskId")?.value || "";
+        if (editingTaskId && archivedIds.includes(editingTaskId)) {
+          window.closeModal?.();
+        }
+        await window.loadData?.();
+        window.updateModalButtonState?.();
       }
       return;
     }

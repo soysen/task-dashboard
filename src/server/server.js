@@ -62,6 +62,12 @@ const {
   pushBranch,
   createPullRequest
 } = require('./services/gitRemoteService');
+const {
+  listGitAccounts,
+  startGithubDeviceLogin,
+  switchGithubAccount,
+  verifyAndSaveAzureDevOpsPat
+} = require('./services/gitAccountService');
 
 /**
  * 統一於任務開工時準備隔離工作區（Worktree）或檢查共享工作區排隊互斥狀態
@@ -1649,6 +1655,7 @@ function runNativeFolderPicker(promptText, callback) {
           prompts: githubInfo.prompts,
           harness: githubInfo.harness,
           color: data.color || 'indigo',
+          requirePr: Boolean(data.requirePr),
           conversations: data.conversations || []
         };
         projects.push(newProj);
@@ -1736,6 +1743,15 @@ function runNativeFolderPicker(promptText, callback) {
         if (!proj) {
           res.writeHead(404, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: false, error: 'Project not found' }));
+          return;
+        }
+        if (proj.requirePr === true && data.forceLocalMerge !== true) {
+          res.writeHead(409, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            success: false,
+            status: 'pr_required',
+            error: '此專案已啟用「強制走 PR 流程」，請改用「開立 PR」送出變更（若確需本地合併請傳入 forceLocalMerge: true）。'
+          }));
           return;
         }
         const repoPath = proj.path || path.join(PROJECTS_ROOT, proj.id);
@@ -1917,48 +1933,94 @@ function runNativeFolderPicker(promptText, callback) {
           autoPush: Boolean(data.autoPush),
           customEnv: buildCustomEnv()
         });
-        if (prRes.success) {
+        const archiveOnPr = data.archiveTasks !== false;
+        const applyBranchPrTaskUpdates = (prUrlValue) => {
+          const nowIso = new Date().toISOString();
+          const freshTasks = readTasks();
+          const updatedTasks = [];
           const updatedTaskIds = [];
-          if (prRes.prUrl) {
-            const nowIso = new Date().toISOString();
-            const freshTasks = readTasks();
-            const updatedTasks = [];
-            for (const t of freshTasks) {
-              if (!t || t.project !== proj.id || t.status !== 'done') continue;
-              const taskBranch = (t.gitLanding?.landedBranch || t.targetBranch || t.baseBranch || '').trim();
-              if ((taskId && t.id === taskId) || taskBranch === sourceBranch) {
-                t.prUrl = prRes.prUrl;
-                t.gitLanding = {
-                  ...(t.gitLanding || { isCommitted: true, commitSha: t.mergeCommit || '', landedBranch: sourceBranch, landedAt: nowIso }),
-                  pushedRemote: true,
-                  prUrl: prRes.prUrl
-                };
-                t.updatedAt = nowIso;
-                updatedTasks.push(t);
-                updatedTaskIds.push(t.id);
+          const archivedTaskIds = [];
+          for (const t of freshTasks) {
+            if (!t || t.project !== proj.id || t.status !== 'done') continue;
+            const taskBranch = (t.gitLanding?.landedBranch || t.targetBranch || t.baseBranch || '').trim();
+            if ((taskId && t.id === taskId) || taskBranch === sourceBranch) {
+              if (prUrlValue) t.prUrl = prUrlValue;
+              t.gitLanding = {
+                ...(t.gitLanding || { isCommitted: true, commitSha: t.mergeCommit || '', landedBranch: sourceBranch, landedAt: nowIso }),
+                pushedRemote: true,
+                pushedAt: t.gitLanding?.pushedAt || nowIso,
+                ...(prUrlValue ? { prUrl: prUrlValue } : {})
+              };
+              if (archiveOnPr) {
+                t.status = 'archived';
+                t.archivedAt = nowIso;
+                archivedTaskIds.push(t.id);
               }
-            }
-            if (updatedTaskIds.length > 0) {
-              writeTasks(freshTasks);
-              for (const t of updatedTasks) {
-                broadcastSse('task-update', { taskId: t.id, status: t.status, gitLanding: t.gitLanding, prUrl: t.prUrl });
-              }
+              t.updatedAt = nowIso;
+              updatedTasks.push(t);
+              updatedTaskIds.push(t.id);
             }
           }
+          if (updatedTaskIds.length > 0) {
+            writeTasks(freshTasks);
+            for (const t of updatedTasks) {
+              broadcastSse('task-update', { taskId: t.id, status: t.status, gitLanding: t.gitLanding, prUrl: t.prUrl });
+            }
+          } else if (prUrlValue) {
+            // 若使用者先前已按「推送」自動封存該分支任務，補寫 prUrl 至最近已推送且尚無 prUrl 的封存紀錄
+            const archivedList = readArchivedTasks();
+            let archivedChanged = false;
+            for (const t of archivedList) {
+              if (!t || t.project !== proj.id) continue;
+              const taskBranch = (t.gitLanding?.landedBranch || t.targetBranch || t.baseBranch || '').trim();
+              const alreadyHasPr = Boolean(t.prUrl || t.gitLanding?.prUrl);
+              if (!alreadyHasPr && ((taskId && t.id === taskId) || (taskBranch === sourceBranch && t.gitLanding?.pushedRemote))) {
+                t.prUrl = prUrlValue;
+                t.gitLanding = {
+                  ...(t.gitLanding || { isCommitted: true, landedBranch: sourceBranch }),
+                  pushedRemote: true,
+                  prUrl: prUrlValue
+                };
+                t.updatedAt = nowIso;
+                updatedTaskIds.push(t.id);
+                archivedChanged = true;
+              }
+            }
+            if (archivedChanged) {
+              writeArchivedTasks(archivedList);
+            }
+          }
+          return { updatedTaskIds, archivedTaskIds };
+        };
+
+        if (prRes.success) {
+          const { updatedTaskIds, archivedTaskIds } = applyBranchPrTaskUpdates(prRes.prUrl || '');
+          gitProjectsStatusCache = { timestamp: 0, data: null };
           broadcastSse('project-pr-created', {
             projectId: proj.id,
             sourceBranch,
             targetBranch,
             prUrl: prRes.prUrl,
-            provider: prRes.provider
+            provider: prRes.provider,
+            updatedTaskIds,
+            archivedTaskIds
           });
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ...prRes, projectId: proj.id, updatedTaskIds }));
+          res.end(JSON.stringify({ ...prRes, projectId: proj.id, updatedTaskIds, archivedTaskIds }));
           return;
         }
         if (prRes.degraded && prRes.fallbackCreateUrl) {
+          let updatedTaskIds = [];
+          let archivedTaskIds = [];
+          // 若 autoPush 已成功推送至遠端，只是 PR API 降級為網頁開單，仍同步標記已推送並封存對應 done 任務
+          if (Boolean(data.autoPush)) {
+            const synced = applyBranchPrTaskUpdates('');
+            updatedTaskIds = synced.updatedTaskIds;
+            archivedTaskIds = synced.archivedTaskIds;
+            gitProjectsStatusCache = { timestamp: 0, data: null };
+          }
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ...prRes, projectId: proj.id }));
+          res.end(JSON.stringify({ ...prRes, projectId: proj.id, updatedTaskIds, archivedTaskIds }));
           return;
         }
         res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -3584,6 +3646,112 @@ function runNativeFolderPicker(promptText, callback) {
   }
 
   // 查詢所有專案的 Git Diff 狀態 (是否有未提交異動，快取 10 秒)
+  // 查詢本機已連線之 Git 帳號與遠端平台狀態（絕不回傳明文 Token/PAT）
+  if (pathname === '/api/git/accounts' && req.method === 'GET') {
+    try {
+      const projects = readProjects();
+      const settings = readSettings();
+      const extraAzdoOrgs = Array.isArray(settings.azureDevOpsOrgs) ? settings.azureDevOpsOrgs : [];
+      const accountInfo = listGitAccounts(projects, {
+        customEnv: buildCustomEnv(),
+        extraAzdoOrgs
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(accountInfo));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: (err && err.message) || 'Failed to inspect Git accounts' }));
+    }
+    return;
+  }
+
+  // 啟動 GitHub CLI OAuth Device Flow（回傳 One-time code 供使用者在瀏覽器授權）
+  if (pathname === '/api/git/accounts/github/login' && req.method === 'POST') {
+    startGithubDeviceLogin({
+      customEnv: buildCustomEnv(),
+      onComplete: (result) => {
+        broadcastSse('git-accounts-updated', {
+          provider: 'github',
+          success: Boolean(result && result.success)
+        });
+      }
+    }).then((loginRes) => {
+      res.writeHead(loginRes.success ? 200 : 400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(loginRes));
+    }).catch((err) => {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: (err && err.message) || 'Failed to start GitHub login' }));
+    });
+    return;
+  }
+
+  // 切換預設 GitHub CLI 帳號
+  if (pathname === '/api/git/accounts/github/switch' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => (body += chunk));
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body || '{}');
+        const username = String(data.username || '').trim();
+        const switchRes = switchGithubAccount(username, buildCustomEnv());
+        if (!switchRes.success) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(switchRes));
+          return;
+        }
+        broadcastSse('git-accounts-updated', { provider: 'github', switchedTo: username });
+        const projects = readProjects();
+        const settings = readSettings();
+        const accountInfo = listGitAccounts(projects, {
+          customEnv: buildCustomEnv(),
+          extraAzdoOrgs: Array.isArray(settings.azureDevOpsOrgs) ? settings.azureDevOpsOrgs : []
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ...switchRes, accounts: accountInfo }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: (err && err.message) || 'Invalid JSON' }));
+      }
+    });
+    return;
+  }
+
+  // 驗證並安全儲存 Azure DevOps 組織 PAT 至 macOS Keychain（不寫入明文至 settings.json）
+  if (pathname === '/api/git/accounts/azdo' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => (body += chunk));
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body || '{}');
+        const org = String(data.org || '').trim();
+        const pat = String(data.pat || '').trim();
+        const saveRes = await verifyAndSaveAzureDevOpsPat(org, pat);
+        if (!saveRes.success) {
+          res.writeHead(saveRes.statusCode === 401 || saveRes.statusCode === 403 ? 401 : 400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(saveRes));
+          return;
+        }
+        const curSettings = readSettings();
+        const existingOrgs = Array.isArray(curSettings.azureDevOpsOrgs) ? curSettings.azureDevOpsOrgs : [];
+        if (!existingOrgs.includes(org)) {
+          writeSettings({ ...curSettings, azureDevOpsOrgs: [...existingOrgs, org] });
+        }
+        broadcastSse('git-accounts-updated', { provider: 'azure-devops', org });
+        const projects = readProjects();
+        const accountInfo = listGitAccounts(projects, {
+          customEnv: buildCustomEnv(),
+          extraAzdoOrgs: existingOrgs.includes(org) ? existingOrgs : [...existingOrgs, org]
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ...saveRes, accounts: accountInfo }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: (err && err.message) || 'Invalid JSON' }));
+      }
+    });
+    return;
+  }
+
   if (pathname === '/api/git/projects-status' && req.method === 'GET') {
     const now = Date.now();
     if (gitProjectsStatusCache.data && (now - gitProjectsStatusCache.timestamp < 10000)) {

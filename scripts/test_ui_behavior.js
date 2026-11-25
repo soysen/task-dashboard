@@ -1185,7 +1185,38 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
     htmlContent.includes('id="btnCreatePrDoneTaskModal"'),
     'index.html 之任務彈窗底部必須包含 #btnPushDoneTaskModal 與 #btnCreatePrDoneTaskModal'
   );
-  console.log('  ✅ TASK-243 已提交 (done) 任務 Push 與開立 PR 按鈕及綁定驗證通過');
+  assert(
+    htmlContent.includes('id="bannerRequirePrBtn"') &&
+    htmlContent.includes('toggleProjectRequirePrFromUI()'),
+    'index.html 之專案橫幅必須包含 #bannerRequirePrBtn 與 toggleProjectRequirePrFromUI()'
+  );
+  const appModuleSource = fs.readFileSync(path.join(__dirname, '../src/public/modules/app.js'), 'utf8');
+  assert(
+    appModuleSource.includes('window.toggleProjectRequirePrFromUI = toggleProjectRequirePrFromUI'),
+    'app.js 必須將 toggleProjectRequirePrFromUI 綁定至 window'
+  );
+  assert(
+    branchNavSource.includes('hasCommittedDoneOnBranch && !requirePr') &&
+    branchNavSource.includes('archivedTaskIds'),
+    'branchNavigator.js 必須在 requirePr 時隱藏本地合併按鈕並處理 PR 自動封存 archivedTaskIds'
+  );
+  assert(
+    htmlContent.includes('id="gitAccountsSettingsContainer"') &&
+    htmlContent.includes('id="settingsGitConnectedBadge"') &&
+    htmlContent.includes('loadGitAccountsSettings()'),
+    'index.html 之 settingsModal 必須包含 Git 帳號與遠端連線區塊'
+  );
+  assert(
+    appModuleSource.includes('window.loadGitAccountsSettings = loadGitAccountsSettings') &&
+    appModuleSource.includes('window.startGithubLoginFromSettings = startGithubLoginFromSettings') &&
+    appModuleSource.includes('window.switchGithubAccountFromSettings = switchGithubAccountFromSettings') &&
+    appModuleSource.includes('window.toggleAzdoPatForm = toggleAzdoPatForm') &&
+    appModuleSource.includes('window.saveAzdoPatFromSettings = saveAzdoPatFromSettings') &&
+    appModuleSource.includes('window.copyGithubDeviceCode = copyGithubDeviceCode') &&
+    appModuleSource.includes("evtSource.addEventListener('git-accounts-updated'"),
+    'app.js 必須完整掛載 Git 帳號管理全域函式並監聽 git-accounts-updated SSE 事件'
+  );
+  console.log('  ✅ TASK-243 & TASK-244 Push/PR 自動封存、requirePr 策略與 Git 帳號設定 UI 綁定驗證通過');
 
   console.log('🎉 所有前端核心互動邏輯與防禦機制測試通過！\n');
 })().catch(err => {
