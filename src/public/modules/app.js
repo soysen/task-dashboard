@@ -49,6 +49,13 @@ import {
   restoreSingleArchivedTask, deleteSingleArchivedTask, promptTaskDeleteOrAbandon,
   closeActionConfirmModal, executeTaskActionConfirmed, deleteCurrentTask, closeModal
 } from "./modal.js";
+import {
+  initDoneDeliveryPanel,
+  selectDoneDeliveryMode,
+  submitDoneDelivery,
+  toggleDoneDeliveryOptions,
+  onDoneDeliveryBranchChange
+} from "./doneDeliveryStudio.js";
 
     const macTitlebarEl = document.getElementById('macTitlebar');
     if (macTitlebarEl) {
@@ -1215,7 +1222,12 @@ export {
   toggleBranchGroupView,
   openCreateBranchPopover,
   closeCreateBranchPopover,
-  submitNewBranch
+  submitNewBranch,
+  initDoneDeliveryPanel,
+  selectDoneDeliveryMode,
+  submitDoneDelivery,
+  toggleDoneDeliveryOptions,
+  onDoneDeliveryBranchChange
 };
 
 if (typeof window !== "undefined") {
@@ -1276,4 +1288,9 @@ if (typeof window !== "undefined") {
   window.openCreateBranchPopover = openCreateBranchPopover;
   window.closeCreateBranchPopover = closeCreateBranchPopover;
   window.submitNewBranch = submitNewBranch;
+  window.initDoneDeliveryPanel = initDoneDeliveryPanel;
+  window.selectDoneDeliveryMode = selectDoneDeliveryMode;
+  window.submitDoneDelivery = submitDoneDelivery;
+  window.toggleDoneDeliveryOptions = toggleDoneDeliveryOptions;
+  window.onDoneDeliveryBranchChange = onDoneDeliveryBranchChange;
 }

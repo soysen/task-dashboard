@@ -8,6 +8,7 @@ import { setIsCurrentModalReadOnly, setFormProject, updateConfirmationGateForPro
 import { renderContextualHeaderActions } from "./branchNavigator.js";
 import { selectedArchiveTaskIds, loadArchivedTasks, openArchiveModal, closeArchiveModal, renderArchiveTasksList, toggleArchiveTaskSelect, toggleArchiveSelectAll, batchDeleteSelectedArchived, deleteAllArchivedTasks, batchRestoreSelectedArchived, restoreSingleArchivedTask, deleteSingleArchivedTask } from "./modalArchive.js";
 import { initReviewLandPanel } from "./reviewLandStudio.js";
+import { initDoneDeliveryPanel } from "./doneDeliveryStudio.js";
 
     function isDiffVisibleStatus(status) {
       return ['review', 'pending_review', 'done', 'archived'].includes(status);
@@ -164,6 +165,10 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
 
       if (currentModalEditingTask && typeof initReviewLandPanel === 'function') {
         initReviewLandPanel(isSpec || !allowDiff ? null : currentModalEditingTask);
+      }
+      if (currentModalEditingTask && typeof initDoneDeliveryPanel === 'function') {
+        const isDoneDeliverState = Boolean(currentModalEditingTask.status === 'done' && !isOpenedFromArchive);
+        initDoneDeliveryPanel(isSpec || !isDoneDeliverState ? null : currentModalEditingTask);
       }
 
       applyModalTabButtonStyles({ review: btnReview, spec: btnSpec, diff: btnDiff }, activeMode);
@@ -760,6 +765,9 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       if (typeof initReviewLandPanel === 'function') {
         initReviewLandPanel(isDiffVisibleStatus(task.status) ? task : null);
       }
+      if (typeof initDoneDeliveryPanel === 'function') {
+        initDoneDeliveryPanel(task.status === 'done' && !isOpenedFromArchive ? task : null);
+      }
 
       document.getElementById('taskModal').classList.remove('hidden');
       if (typeof renderContextualHeaderActions === 'function') renderContextualHeaderActions();
@@ -1108,6 +1116,14 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
           ? currentModalEditingTask
           : (tasks.find(t => t.id === taskId) || null);
         initReviewLandPanel(isReviewLandState ? { ...(activeTask || {}), id: taskId, status } : null);
+      }
+
+      const isDoneDeliverState = Boolean(taskId && status === 'done' && !isOpenedFromArchive);
+      if (typeof initDoneDeliveryPanel === 'function') {
+        const activeDoneTask = (currentModalEditingTask && currentModalEditingTask.id === taskId)
+          ? currentModalEditingTask
+          : (tasks.find(t => t.id === taskId) || null);
+        initDoneDeliveryPanel(isDoneDeliverState ? { ...(activeDoneTask || {}), id: taskId, status } : null);
       }
 
       const btnConfirmAndExecute = document.getElementById('btnConfirmAndExecute');
