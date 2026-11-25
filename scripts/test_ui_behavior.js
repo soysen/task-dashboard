@@ -951,7 +951,7 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
   const fileListPaneTagMatch = htmlContent.match(/<div id="diffFileListPane"[^>]*>/);
   const contentPaneTagMatch = htmlContent.match(/<div id="diffContentPane"[^>]*>/);
   assert(masterGridTagMatch && masterGridTagMatch[0].includes('flex-col lg:flex-row'), '#diffMasterDetailGrid 必須使用 flex-col lg:flex-row 佈局');
-  assert(fileListPaneTagMatch && fileListPaneTagMatch[0].includes('lg:w-64') && fileListPaneTagMatch[0].includes('flex-shrink-0'), '#diffFileListPane 必須具備 lg:w-64 flex-shrink-0');
+  assert(fileListPaneTagMatch && fileListPaneTagMatch[0].includes('lg:w-[28%]') && fileListPaneTagMatch[0].includes('lg:min-w-[230px]') && fileListPaneTagMatch[0].includes('flex-shrink-0'), '#diffFileListPane 必須具備 lg:w-[28%] lg:min-w-[230px] flex-shrink-0');
   assert(contentPaneTagMatch && contentPaneTagMatch[0].includes('flex-1 min-w-0'), '#diffContentPane 必須具備 flex-1 min-w-0');
 
   // 24-1 updateModalButtonState 保留 diff 分頁作用狀態
@@ -1107,6 +1107,46 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
       { path: 'scripts/test_ui_behavior.js', description: '' }
     ],
     'modifiedFiles 為空時 resolveModifiedFileEntries 應從 diff 解析出檔案清單'
+  );
+
+  // renderModifiedFilesList 應於第一行突顯檔名，並於下方以小字顯示目錄路徑，且不限制 max-w-[140px]
+  const modListEl = { innerHTML: '' };
+  const renderModListCtx = vm.createContext({
+    escapeHtml: value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'),
+    parseDiffStats: () => ({
+      filesMap: {
+        'src/public/modules/modal.js': { status: 'M', additions: 5, deletions: 2 }
+      }
+    })
+  });
+  vm.runInContext(
+    ['extractFilePathFromDiffSection', 'parseFileStatusFromLines', 'splitDiffByFiles', 'resolveModifiedFileEntries', 'renderModifiedFilesList'].map(actualFunction).join('\n'),
+    renderModListCtx
+  );
+  renderModListCtx.renderModifiedFilesList(
+    { modifiedFiles: ['src/public/modules/modal.js', 'README.md'], diff: '' },
+    modListEl
+  );
+  assert(!modListEl.innerHTML.includes('max-w-[140px]'), 'renderModifiedFilesList 不得保留 max-w-[140px] 寬度截斷限制');
+  assert(
+    modListEl.innerHTML.includes('data-path="src/public/modules/modal.js"') &&
+      modListEl.innerHTML.includes('title="src/public/modules/modal.js"') &&
+      modListEl.innerHTML.includes("onclick=\"filterDiffForFile('src/public/modules/modal.js')\""),
+    'renderModifiedFilesList 必須保留完整路徑的 data-path、title 與 onclick 屬性'
+  );
+  assert(
+    /<span class="[^"]*font-semibold[^"]*text-xs[^"]*">modal\.js<\/span>/.test(modListEl.innerHTML),
+    'renderModifiedFilesList 第一行必須以 text-xs font-semibold 突顯檔名 modal.js'
+  );
+  const modalIdx = modListEl.innerHTML.indexOf('>modal.js</span>');
+  const dirIdx = modListEl.innerHTML.indexOf('>src/public/modules</div>');
+  assert(
+    modalIdx !== -1 && dirIdx > modalIdx && /<div class="text-\[10px\][^"]*">src\/public\/modules<\/div>/.test(modListEl.innerHTML),
+    'renderModifiedFilesList 必須在檔名下方以 text-[10px] 小字顯示目錄路徑 src/public/modules'
+  );
+  assert(
+    /<span class="[^"]*font-semibold[^"]*text-xs[^"]*">README\.md<\/span>/.test(modListEl.innerHTML),
+    '無目錄前綴的根目錄檔案 README.md 也應正確顯示檔名'
   );
 
   // diffViewer.js 必須保留 showAllDiffs 與 toggleCollapseAllDiffs export 以維持 app.js 相容性

@@ -48,8 +48,10 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       if (resolvedFiles.length > 0) {
         const stats = parseDiffStats(task.diff || '');
         modFilesList.innerHTML = resolvedFiles.map(({ path: filePath, description: desc }) => {
-          const baseName = filePath.split('/').pop();
-          const fStat = (stats.filesMap && (stats.filesMap[filePath] || stats.filesMap[baseName])) || { status: 'M', additions: 0, deletions: 0 };
+          const lastSlashIdx = filePath.lastIndexOf('/');
+          const fileName = lastSlashIdx >= 0 ? filePath.slice(lastSlashIdx + 1) : filePath;
+          const dirPath = lastSlashIdx > 0 ? filePath.slice(0, lastSlashIdx) : '';
+          const fStat = (stats.filesMap && (stats.filesMap[filePath] || stats.filesMap[fileName])) || { status: 'M', additions: 0, deletions: 0 };
           const status = fStat.status || 'M';
           const statusBadge = status === 'A'
             ? '<span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex-shrink-0">A</span>'
@@ -59,17 +61,21 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
           const linesStat = (fStat.additions > 0 || fStat.deletions > 0)
             ? `<span class="text-[10px] font-mono flex items-center gap-1 flex-shrink-0"><span class="text-emerald-600 font-bold">+${fStat.additions}</span><span class="text-rose-600 font-bold">-${fStat.deletions}</span></span>`
             : '';
+          const dirPathHtml = dirPath
+            ? `<div class="text-[10px] text-slate-400 dark:text-slate-500 font-mono truncate mt-0.5 pl-5">${escapeHtml(dirPath)}</div>`
+            : '';
           const descHtml = desc
-            ? `<div class="text-slate-500 dark:text-slate-400 text-[10px] truncate mt-0.5 pl-6">${escapeHtml(desc)}</div>`
+            ? `<div class="text-slate-500 dark:text-slate-400 text-[10px] truncate mt-0.5 pl-5">${escapeHtml(desc)}</div>`
             : '';
 
           return `
             <div data-path="${escapeHtml(filePath)}" onclick="filterDiffForFile('${escapeHtml(filePath)}')" class="mod-file-item flex items-center justify-between gap-2 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer transition">
-              <div class="min-w-0 flex-1${linesStat ? ' max-w-[140px]' : ''}" title="${escapeHtml(filePath)}">
+              <div class="min-w-0 flex-1" title="${escapeHtml(filePath)}">
                 <div class="flex items-center gap-1.5 min-w-0">
                   ${statusBadge}
-                  <span class="text-indigo-600 dark:text-indigo-300 font-semibold truncate text-xs font-mono">${escapeHtml(filePath)}</span>
+                  <span class="text-indigo-600 dark:text-indigo-300 font-semibold truncate text-xs font-mono">${escapeHtml(fileName)}</span>
                 </div>
+                ${dirPathHtml}
                 ${descHtml}
               </div>
               ${linesStat ? `<div class="flex items-center gap-1.5 flex-shrink-0">${linesStat}</div>` : ''}
