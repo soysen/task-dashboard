@@ -255,6 +255,7 @@
     }
     .diff-content {
       flex: 1;
+      min-width: 0;
       padding-left: 6px;
       white-space: pre;
       overflow-x: auto;
