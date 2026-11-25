@@ -1,7 +1,8 @@
-import { projects, tasks, archivedTasks, currentTaskDependencies, currentModalEditingTask, setCurrentTaskDependencies } from "./state.js";
+import { projects, tasks, archivedTasks, currentBranch, projectBranchesMap, currentTaskDependencies, currentModalEditingTask, setCurrentTaskDependencies, setProjectBranchesMap } from "./state.js";
 import { escapeHtml, autoResizeTextarea, showToast } from "./utils.js";
+import { loadProjectBranches } from "./branchNavigator.js";
 
-    function setFormProject(projId) {
+    function setFormProject(projId, options = {}) {
       if (!projId) {
         const formProj = document.getElementById('formProject');
         const formProjInput = document.getElementById('formProjectInput');
@@ -12,6 +13,9 @@ import { escapeHtml, autoResizeTextarea, showToast } from "./utils.js";
         initSelect2Dropdown('');
         renderSelect2Chips();
         updateDependencyOptions(currentModalEditingTask ? currentModalEditingTask.id : '');
+        if (typeof onFormProjectChangeLoadBranches === 'function') {
+          onFormProjectChangeLoadBranches('', '');
+        }
         return;
       }
       const proj = projects.find(p => p.id === projId) || { id: projId, name: projId };
@@ -27,6 +31,9 @@ import { escapeHtml, autoResizeTextarea, showToast } from "./utils.js";
       renderSelect2Chips();
       updateDependencyOptions(currentModalEditingTask ? currentModalEditingTask.id : '');
       updateConfirmationGateForProject(proj.id);
+      if (typeof onFormProjectChangeLoadBranches === 'function') {
+        onFormProjectChangeLoadBranches(proj.id, options.targetBranch);
+      }
     }
 
     function updateConfirmationGateForProject(projId) {
@@ -523,6 +530,183 @@ import { escapeHtml, autoResizeTextarea, showToast } from "./utils.js";
       showToast(`已套用邊界決策標籤：「${decisionText}」`);
     }
 
+    async function onFormProjectChangeLoadBranches(projId, preselectBranch) {
+      const targetSelect = document.getElementById('formTargetBranch');
+      const fromSelect = document.getElementById('formQuickBranchFrom');
+      const fromLabel = document.getElementById('formQuickBranchFromLabel');
+      const toggleBtn = document.getElementById('btnToggleQuickBranchBox');
+
+      if (!projId) {
+        if (targetSelect) {
+          targetSelect.innerHTML = '<option value="">（不指定 / 跟隨專案預設分支）</option>';
+          targetSelect.value = '';
+        }
+        if (fromSelect) fromSelect.innerHTML = '';
+        if (fromLabel) fromLabel.innerText = 'main';
+        if (toggleBtn) toggleBtn.classList.add('hidden');
+        toggleQuickBranchBox(false);
+        updateInPlaceDirtyWarning();
+        return;
+      }
+
+      if (toggleBtn) toggleBtn.classList.remove('hidden');
+      let branchData = projectBranchesMap[projId];
+      if (!branchData) {
+        branchData = await loadProjectBranches(projId, false);
+      }
+
+      // 確認載入完成後表單仍維持同一個專案
+      const currentFormProj = document.getElementById('formProject')?.value || '';
+      if (currentFormProj && currentFormProj !== projId) return;
+
+      const branches = (branchData && Array.isArray(branchData.branches)) ? branchData.branches : [];
+      const isGitRepo = !branchData || branchData.isGitRepo !== false;
+
+      if (toggleBtn) toggleBtn.classList.toggle('hidden', !isGitRepo);
+
+      if (targetSelect) {
+        const optionList = ['<option value="">（不指定 / 跟隨專案預設分支）</option>'];
+        branches.forEach(b => {
+          optionList.push(`<option value="${escapeHtml(b.name)}">${escapeHtml(b.name)}${b.isCurrentCheckout ? ' (目前)' : ''}</option>`);
+        });
+        if (preselectBranch && !branches.some(b => b.name === preselectBranch)) {
+          optionList.push(`<option value="${escapeHtml(preselectBranch)}">${escapeHtml(preselectBranch)}</option>`);
+        }
+        targetSelect.innerHTML = optionList.join('');
+
+        if (preselectBranch !== undefined) {
+          targetSelect.value = preselectBranch;
+        } else if (!currentModalEditingTask) {
+          const fallback = (currentBranch && currentBranch !== 'ALL')
+            ? currentBranch
+            : (branchData?.currentCheckoutBranch || branchData?.defaultBranch || '');
+          targetSelect.value = fallback && Array.from(targetSelect.options).some(o => o.value === fallback) ? fallback : '';
+        }
+      }
+
+      if (fromSelect) {
+        const defaultFrom = branchData?.defaultBranch || branchData?.currentCheckoutBranch || 'main';
+        const fromNames = branches.map(b => b.name);
+        if (defaultFrom && !fromNames.includes(defaultFrom)) fromNames.unshift(defaultFrom);
+        fromSelect.innerHTML = fromNames.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+        fromSelect.value = defaultFrom;
+        if (fromLabel) fromLabel.innerText = fromSelect.value || 'main';
+      }
+
+      updateInPlaceDirtyWarning();
+    }
+
+    function selectWorkspaceMode(mode) {
+      const normalized = (mode === 'worktree' || mode === 'branch_stream' || mode === 'in_place') ? mode : 'worktree';
+      const hiddenInput = document.getElementById('formWorkspaceMode');
+      if (hiddenInput) hiddenInput.value = normalized;
+
+      const buttons = document.querySelectorAll('#formWorkspaceModeGroup [data-workspace-mode]');
+      buttons.forEach(btn => {
+        const btnMode = btn.getAttribute('data-workspace-mode');
+        const active = btnMode === normalized;
+        btn.classList.toggle('border-indigo-500', active);
+        btn.classList.toggle('bg-indigo-50', active);
+        btn.classList.toggle('dark:bg-indigo-950/50', active);
+        btn.classList.toggle('text-indigo-700', active);
+        btn.classList.toggle('dark:text-indigo-200', active);
+        btn.classList.toggle('border-slate-300', !active);
+        btn.classList.toggle('dark:border-slate-700', !active);
+        btn.classList.toggle('bg-white', !active);
+        btn.classList.toggle('dark:bg-slate-900', !active);
+        btn.classList.toggle('text-slate-700', !active);
+        btn.classList.toggle('dark:text-slate-300', !active);
+      });
+
+      updateInPlaceDirtyWarning();
+    }
+
+    function toggleQuickBranchBox(show) {
+      const box = document.getElementById('formQuickBranchBox');
+      if (!box) return;
+      const shouldShow = typeof show === 'boolean' ? show : box.classList.contains('hidden');
+      box.classList.toggle('hidden', !shouldShow);
+      if (shouldShow) {
+        const fromSelect = document.getElementById('formQuickBranchFrom');
+        const fromLabel = document.getElementById('formQuickBranchFromLabel');
+        if (fromLabel && fromSelect) {
+          fromLabel.innerText = fromSelect.value || 'main';
+        }
+        document.getElementById('formQuickBranchName')?.focus();
+      }
+    }
+
+    async function quickCreateBranchInline() {
+      const projId = (document.getElementById('formProject')?.value || '').trim();
+      const branchName = (document.getElementById('formQuickBranchName')?.value || '').trim();
+      const fromBranch = (document.getElementById('formQuickBranchFrom')?.value || '').trim();
+
+      if (!projId) {
+        showToast('請先選擇所屬專案');
+        return;
+      }
+      if (!branchName) {
+        showToast('請輸入新分支名稱');
+        document.getElementById('formQuickBranchName')?.focus();
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/projects/${encodeURIComponent(projId)}/branches`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ branchName, fromBranch })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || '建立分支失敗');
+        }
+        if (data.branchInfo) {
+          setProjectBranchesMap({ ...projectBranchesMap, [projId]: data.branchInfo });
+        }
+        const createdBranch = data.branch || branchName;
+        await onFormProjectChangeLoadBranches(projId, createdBranch);
+        const inputEl = document.getElementById('formQuickBranchName');
+        if (inputEl) inputEl.value = '';
+        toggleQuickBranchBox(false);
+        showToast(`已從 ${data.fromBranch || fromBranch || 'main'} 建立分支 ${createdBranch}`);
+      } catch (err) {
+        showToast(`建立分支失敗：${err.message}`);
+      }
+    }
+
+    function updateInPlaceDirtyWarning() {
+      const hintEl = document.getElementById('formInPlaceDirtyHint');
+      if (!hintEl) return;
+      const projId = (document.getElementById('formProject')?.value || '').trim();
+      const mode = (document.getElementById('formWorkspaceMode')?.value || 'worktree').trim();
+      const targetBranch = (document.getElementById('formTargetBranch')?.value || '').trim();
+      const branchData = projId ? projectBranchesMap[projId] : null;
+
+      if (mode !== 'in_place' || !branchData) {
+        hintEl.classList.add('hidden');
+        hintEl.innerText = '';
+        return;
+      }
+
+      const warnings = [];
+      if (branchData.isMainWorkspaceDirty) {
+        warnings.push(`目前專案資料夾有 ${branchData.dirtyFilesCount || 1} 個未提交修改，直接改目前資料夾可能會與現有修改混在一起。`);
+      }
+      if (targetBranch && branchData.currentCheckoutBranch && targetBranch !== branchData.currentCheckoutBranch) {
+        warnings.push(`目前資料夾停留在 ${branchData.currentCheckoutBranch}，與目標分支 ${targetBranch} 不同。`);
+      }
+
+      if (warnings.length === 0) {
+        hintEl.classList.add('hidden');
+        hintEl.innerText = '';
+        return;
+      }
+
+      hintEl.innerText = `提醒：${warnings.join(' ')} 建議改用「獨立工作區（推薦）」。`;
+      hintEl.classList.remove('hidden');
+    }
+
 
 export {
   setIsCurrentModalReadOnly,
@@ -550,5 +734,18 @@ export {
   setSelect2Tags,
   renderSelect2Chips,
   insertFeedbackPreset,
-  insertGrillMeDecision
+  insertGrillMeDecision,
+  onFormProjectChangeLoadBranches,
+  selectWorkspaceMode,
+  toggleQuickBranchBox,
+  quickCreateBranchInline,
+  updateInPlaceDirtyWarning
 };
+
+if (typeof window !== "undefined") {
+  window.onFormProjectChangeLoadBranches = onFormProjectChangeLoadBranches;
+  window.selectWorkspaceMode = selectWorkspaceMode;
+  window.toggleQuickBranchBox = toggleQuickBranchBox;
+  window.quickCreateBranchInline = quickCreateBranchInline;
+  window.updateInPlaceDirtyWarning = updateInPlaceDirtyWarning;
+}

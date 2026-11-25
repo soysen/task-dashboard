@@ -16,6 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { execFileSync } = require('child_process');
 const USER_HOME = process.env.HOME || os.homedir();
 
 function loadAgentProviderAdapter() {
@@ -232,17 +233,32 @@ function resolveTaskRepoKey(task, projects) {
   return task.project ? `project:${task.project}` : '';
 }
 
+function resolveEffectiveWorkspaceMode(task, settings) {
+  if (task && (task.workspaceMode === 'worktree' || task.workspaceMode === 'branch_stream' || task.workspaceMode === 'in_place')) {
+    return task.workspaceMode;
+  }
+  const isolationMode = String((task && task.isolation) || (settings && settings.cliIsolation) || 'none').trim().toLowerCase();
+  if (isolationMode === 'worktree' || (task && (task.workspace === 'share' || Boolean(task.worktreePath)))) {
+    return 'worktree';
+  }
+  return 'in_place';
+}
+
 function hasRepoConflict(task, taskIndex, allTasks, projects, settings) {
+  if (task && task.queueState && task.queueState.blockedByTaskId) {
+    return true;
+  }
   const repoKey = resolveTaskRepoKey(task, projects);
   if (!repoKey) return false;
 
-  const isolationMode = String(task.isolation || (settings && settings.cliIsolation) || 'none').trim().toLowerCase();
-  const isIsolated = isolationMode === 'worktree' || task.workspace === 'share' || Boolean(task.worktreePath);
+  const taskMode = resolveEffectiveWorkspaceMode(task, settings);
+  const taskTargetBranch = String((task && (task.targetBranch || task.baseBranch)) || '').trim();
 
   for (let idx = 0; idx < allTasks.length; idx++) {
     const other = allTasks[idx];
     if (!other || other.id === task.id || other.status !== 'in_progress') continue;
     if (isPendingUserConfirmation(other) || isTaskCircuitBroken(other)) continue;
+    if (other.queueState && other.queueState.blockedByTaskId) continue;
 
     const otherRepoKey = resolveTaskRepoKey(other, projects);
     if (otherRepoKey !== repoKey) continue;
@@ -253,10 +269,23 @@ function hasRepoConflict(task, taskIndex, allTasks, projects, settings) {
     const isOccupant = otherActivelyClaimed || otherIsCliRunning || Boolean(other.worktreePath) || otherIsAheadUnclaimed;
     if (!isOccupant) continue;
 
-    if (!isIsolated) {
-      return true;
+    const otherMode = resolveEffectiveWorkspaceMode(other, settings);
+    if (taskMode === 'worktree') {
+      if (hasAllowedFilesOverlap(task, other)) {
+        return true;
+      }
+      continue;
     }
-    if (hasAllowedFilesOverlap(task, other)) {
+    if (taskMode === 'branch_stream') {
+      if (otherMode === 'branch_stream') {
+        const otherTargetBranch = String(other.targetBranch || other.baseBranch || '').trim();
+        if (!taskTargetBranch || !otherTargetBranch || taskTargetBranch === otherTargetBranch) {
+          return true;
+        }
+      }
+      continue;
+    }
+    if (otherMode === 'in_place') {
       return true;
     }
   }
@@ -481,15 +510,109 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
     ? `PUT http://localhost:3030/api/tasks/${task.id} 回寫 executionPlan (維持 in_progress 待確認)，勿實作或推進 review；回寫後隨即重啟背景哨兵待命等待使用者確認。`
     : `PUT http://localhost:3030/api/tasks/${task.id} 傳入結構化 JSON (objective, rootCause, resolution, keyChanges, testCommand, exitCode, testSummary, assumptions, deviations, unverified, executionLog) 推進 review，隨即重啟背景哨兵待命。`;
 
+  const worktreeLine = task.worktreePath
+    ? `\n• 隔離工作區: ${task.worktreePath} (分支: ${task.branchName || `td/${task.id}`} ← ${task.targetBranch || task.baseBranch || 'main'})`
+    : '';
+
   return `================================================================================\n` +
     `[${triggerType}] 任務開工通知${isPendingPlanCreation ? '（待擬定執行計劃）' : ''}：[${task.id}] ${task.title}\n` +
-    `• 專案: ${task.project || '預設'}${projPath ? ` (${projPath})` : ''}\n` +
+    `• 專案: ${task.project || '預設'}${projPath ? ` (${projPath})` : ''}${worktreeLine}\n` +
     `• 需求: ${cleanDesc}${feedbackText}${confirmationText}${prioritySkillText}${implSkillsText}${verifySkillsText}${gitnexusText}\n` +
     `${scopeLine}\n` +
     `${strategyText}\n` +
     `${ruleText}\n` +
     `• 交付方式: ${deliveryText}\n` +
     `================================================================================`;
+}
+
+function ensureWorktreeForSentinelTask(task) {
+  try {
+    if (!task || task.workspaceMode !== 'worktree') return null;
+    if (task.worktreePath && fs.existsSync(task.worktreePath)) {
+      return {
+        worktreePath: task.worktreePath,
+        branchName: task.branchName || `td/${task.id}`,
+        baseCommit: task.baseCommit || '',
+        baseBranch: task.baseBranch || task.targetBranch || 'main',
+        targetBranch: task.targetBranch || task.baseBranch || 'main'
+      };
+    }
+
+    const dataDir = getDataDir();
+    const projFile = path.join(dataDir, 'projects.json');
+    if (!fs.existsSync(projFile)) return null;
+    const projs = JSON.parse(fs.readFileSync(projFile, 'utf8'));
+    const p = Array.isArray(projs) ? projs.find(item => item && item.id === task.project) : null;
+    const projPath = p && p.path ? p.path : '';
+    const cleanRepo = projPath ? String(projPath).replace(/\/+$/, '') : '';
+    if (!cleanRepo || !fs.existsSync(cleanRepo) || !fs.existsSync(path.join(cleanRepo, '.git'))) {
+      return null;
+    }
+
+    let headBranch = 'main';
+    try {
+      headBranch = execFileSync('git', ['-C', cleanRepo, 'rev-parse', '--abbrev-ref', 'HEAD'], {
+        encoding: 'utf8',
+        timeout: 5000
+      }).trim() || 'main';
+    } catch (e) {}
+
+    const targetBranch = String(task.targetBranch || task.baseBranch || headBranch || 'main').trim();
+    const baseBranch = String(task.baseBranch || targetBranch).trim();
+    let baseCommit = '';
+    try {
+      baseCommit = execFileSync('git', ['-C', cleanRepo, 'rev-parse', '--verify', baseBranch], {
+        encoding: 'utf8',
+        timeout: 5000
+      }).trim();
+    } catch (e) {
+      try {
+        baseCommit = execFileSync('git', ['-C', cleanRepo, 'rev-parse', '--verify', 'HEAD'], {
+          encoding: 'utf8',
+          timeout: 5000
+        }).trim();
+      } catch (e2) {}
+    }
+
+    const worktreePath = `${cleanRepo}.worktrees/${task.id}`;
+    const branchName = `td/${task.id}`;
+
+    try {
+      execFileSync('git', ['-C', cleanRepo, 'worktree', 'prune'], { encoding: 'utf8', timeout: 5000, stdio: 'ignore' });
+    } catch (e) {}
+    if (fs.existsSync(worktreePath)) {
+      try {
+        execFileSync('git', ['-C', cleanRepo, 'worktree', 'remove', '--force', worktreePath], { encoding: 'utf8', timeout: 8000, stdio: 'ignore' });
+      } catch (e) {
+        try { fs.rmSync(worktreePath, { recursive: true, force: true }); } catch (e2) {}
+      }
+    }
+    try {
+      execFileSync('git', ['-C', cleanRepo, 'branch', '-D', branchName], { encoding: 'utf8', timeout: 5000, stdio: 'ignore' });
+    } catch (e) {}
+
+    const parentDir = path.dirname(worktreePath);
+    if (!fs.existsSync(parentDir)) {
+      fs.mkdirSync(parentDir, { recursive: true });
+    }
+
+    const startPoint = baseCommit || baseBranch || 'HEAD';
+    execFileSync('git', ['-C', cleanRepo, 'worktree', 'add', '-b', branchName, worktreePath, startPoint], {
+      encoding: 'utf8',
+      timeout: 15000,
+      stdio: 'ignore'
+    });
+
+    task.worktreePath = worktreePath;
+    task.branchName = branchName;
+    task.baseCommit = baseCommit;
+    task.baseBranch = baseBranch;
+    task.targetBranch = targetBranch;
+
+    return { worktreePath, branchName, baseCommit, baseBranch, targetBranch };
+  } catch (e) {
+    return null;
+  }
 }
 
 function claimTaskAndLogEvent(task) {
@@ -502,6 +625,14 @@ function claimTaskAndLogEvent(task) {
     if (t) {
       t.claimedBy = claimerId;
       t.claimedAt = new Date().toISOString();
+      const wtInfo = ensureWorktreeForSentinelTask(t);
+      if (wtInfo) {
+        task.worktreePath = t.worktreePath;
+        task.branchName = t.branchName;
+        task.baseCommit = t.baseCommit;
+        task.baseBranch = t.baseBranch;
+        task.targetBranch = t.targetBranch;
+      }
       fs.writeFileSync(tasksFile, JSON.stringify(tasks, null, 2), 'utf8');
 
       const eventsFile = path.join(dataDir, 'task-events.jsonl');
@@ -523,6 +654,7 @@ module.exports = {
   findActionableTask,
   hasAllowedFilesOverlap,
   hasRepoConflict,
+  ensureWorktreeForSentinelTask,
   isTaskCircuitBroken
 };
 

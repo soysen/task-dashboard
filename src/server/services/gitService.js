@@ -530,6 +530,262 @@ function getGitBranchInfo(repoPath) {
   }
 }
 
+const PROJECT_BRANCH_CACHE_TTL_MS = 5000;
+const projectBranchCache = new Map();
+
+function clearProjectBranchCache(repoPath) {
+  if (!repoPath) {
+    projectBranchCache.clear();
+    return;
+  }
+  projectBranchCache.delete(path.resolve(String(repoPath)));
+}
+
+function runGitArgs(repoPath, args, timeout = 5000) {
+  return execFileSync('git', ['-C', repoPath, ...args], {
+    encoding: 'utf8',
+    timeout
+  });
+}
+
+function attachBranchTaskCounts(branchInfo, tasks = []) {
+  const safeTasks = Array.isArray(tasks) ? tasks : [];
+  const activeTasks = safeTasks.filter(t => t && t.status !== 'archived');
+  const branches = (branchInfo.branches || []).map(b => {
+    const matched = activeTasks.filter(t => (t.targetBranch || t.baseBranch || '') === b.name);
+    const activeTaskCount = matched.filter(t => ['todo', 'in_progress', 'needs_human'].includes(t.status)).length;
+    const reviewTaskCount = matched.filter(t => t.status === 'review').length;
+    return {
+      ...b,
+      activeTaskCount,
+      reviewTaskCount
+    };
+  });
+  return {
+    ...branchInfo,
+    branches
+  };
+}
+
+/**
+ * 查詢專案 Git 分支清單、目前 Checkout 分支與工作區 Dirty 狀態（含 5 秒快取）
+ * @param {string} repoPath
+ * @param {Array} [tasks]
+ * @param {Object} [options]
+ * @returns {{ isGitRepo: boolean, currentCheckoutBranch: string, isMainWorkspaceDirty: boolean, dirtyFilesCount: number, defaultBranch: string, branches: Array }}
+ */
+function getProjectBranches(repoPath, tasks = [], options = {}) {
+  const emptyResult = {
+    isGitRepo: false,
+    currentCheckoutBranch: '',
+    isMainWorkspaceDirty: false,
+    dirtyFilesCount: 0,
+    defaultBranch: '',
+    branches: []
+  };
+  if (!repoPath || !fs.existsSync(repoPath)) return emptyResult;
+
+  const resolvedPath = path.resolve(String(repoPath));
+  const now = Date.now();
+  if (!options.refresh) {
+    const cached = projectBranchCache.get(resolvedPath);
+    if (cached && (now - cached.timestamp) < PROJECT_BRANCH_CACHE_TTL_MS) {
+      return attachBranchTaskCounts(cached.data, tasks);
+    }
+  } else {
+    projectBranchCache.delete(resolvedPath);
+  }
+
+  try {
+    const insideWorkTree = runGitArgs(resolvedPath, ['rev-parse', '--is-inside-work-tree']).trim();
+    if (insideWorkTree !== 'true') {
+      return emptyResult;
+    }
+  } catch (e) {
+    return emptyResult;
+  }
+
+  let currentCheckoutBranch = '';
+  try {
+    const headRef = runGitArgs(resolvedPath, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+    currentCheckoutBranch = headRef === 'HEAD' ? '' : headRef;
+  } catch (e) {
+    try {
+      currentCheckoutBranch = runGitArgs(resolvedPath, ['symbolic-ref', '--short', 'HEAD']).trim();
+    } catch (_) {
+      currentCheckoutBranch = '';
+    }
+  }
+
+  let dirtyFilesCount = 0;
+  try {
+    const porcelain = runGitArgs(resolvedPath, ['status', '--porcelain']);
+    dirtyFilesCount = porcelain.split(/\r?\n/).filter(line => line.trim().length > 0).length;
+  } catch (e) {
+    dirtyFilesCount = 0;
+  }
+  const isMainWorkspaceDirty = dirtyFilesCount > 0;
+
+  let rawBranches = [];
+  try {
+    const formatStr = '%(refname:short)%00%(objectname:short)%00%(committerdate:relative)%00%(subject)';
+    const out = runGitArgs(resolvedPath, ['for-each-ref', '--sort=-committerdate', `--format=${formatStr}`, 'refs/heads/']);
+    rawBranches = out
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map(line => {
+        const parts = line.includes('\0') ? line.split('\0') : line.split('%x1f');
+        const [name = '', headSha = '', updatedRelative = '', subject = ''] = parts;
+        return {
+          name: name.trim(),
+          headSha: headSha.trim(),
+          subject: subject.trim(),
+          updatedRelative: updatedRelative.trim(),
+          isCurrentCheckout: name.trim() === currentCheckoutBranch
+        };
+      })
+      .filter(b => b.name);
+  } catch (e) {
+    rawBranches = [];
+  }
+
+  if (currentCheckoutBranch && !rawBranches.some(b => b.name === currentCheckoutBranch)) {
+    rawBranches.unshift({
+      name: currentCheckoutBranch,
+      headSha: '',
+      subject: '（尚未有 Commit）',
+      updatedRelative: '',
+      isCurrentCheckout: true
+    });
+  }
+
+  let defaultBranch = '';
+  try {
+    const originHead = runGitArgs(resolvedPath, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).trim();
+    defaultBranch = originHead.replace(/^origin\//, '');
+  } catch (e) {
+    // Fallback to main / master / current checkout
+  }
+  if (!defaultBranch || !rawBranches.some(b => b.name === defaultBranch)) {
+    if (rawBranches.some(b => b.name === 'main')) {
+      defaultBranch = 'main';
+    } else if (rawBranches.some(b => b.name === 'master')) {
+      defaultBranch = 'master';
+    } else {
+      defaultBranch = currentCheckoutBranch || (rawBranches[0] ? rawBranches[0].name : '');
+    }
+  }
+
+  const snapshot = {
+    isGitRepo: true,
+    currentCheckoutBranch,
+    isMainWorkspaceDirty,
+    dirtyFilesCount,
+    defaultBranch,
+    branches: rawBranches
+  };
+  projectBranchCache.set(resolvedPath, { timestamp: now, data: snapshot });
+  return attachBranchTaskCounts(snapshot, tasks);
+}
+
+/**
+ * 在不影響工作區現有修改的情況下建立新分支（預設使用 git branch <branchName> <fromBranch>）
+ * @param {string} repoPath
+ * @param {string} branchName
+ * @param {string} [fromBranch]
+ * @param {Object} [options]
+ * @returns {{ branch: string, fromBranch: string, headSha: string, checkout: boolean }}
+ */
+function createProjectBranch(repoPath, branchName, fromBranch = '', options = {}) {
+  if (!repoPath || !fs.existsSync(repoPath)) {
+    const err = new Error('專案路徑不存在');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const resolvedPath = path.resolve(String(repoPath));
+  try {
+    const insideWorkTree = runGitArgs(resolvedPath, ['rev-parse', '--is-inside-work-tree']).trim();
+    if (insideWorkTree !== 'true') {
+      const err = new Error('此專案資料夾不是 Git 儲存庫');
+      err.statusCode = 400;
+      throw err;
+    }
+  } catch (e) {
+    if (e.statusCode) throw e;
+    const err = new Error('此專案資料夾不是 Git 儲存庫');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const cleanBranch = String(branchName || '').trim();
+  if (!cleanBranch || cleanBranch.startsWith('-')) {
+    const err = new Error('請提供有效的分支名稱');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  try {
+    execFileSync('git', ['check-ref-format', '--branch', cleanBranch], {
+      encoding: 'utf8',
+      timeout: 5000
+    });
+  } catch (e) {
+    const err = new Error(`無效的分支名稱：${cleanBranch}`);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // 檢查是否已存在同名分支
+  let branchExists = false;
+  try {
+    runGitArgs(resolvedPath, ['show-ref', '--verify', '--quiet', `refs/heads/${cleanBranch}`]);
+    branchExists = true;
+  } catch (_) {
+    branchExists = false;
+  }
+  if (branchExists) {
+    const err = new Error(`分支 "${cleanBranch}" 已存在`);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  let sourceBranch = String(fromBranch || '').trim();
+  if (sourceBranch.startsWith('-')) {
+    const err = new Error(`無效的來源分支名稱：${sourceBranch}`);
+    err.statusCode = 400;
+    throw err;
+  }
+  if (!sourceBranch) {
+    const currentInfo = getProjectBranches(resolvedPath, [], { refresh: true });
+    sourceBranch = currentInfo.defaultBranch || currentInfo.currentCheckoutBranch || 'HEAD';
+  }
+
+  try {
+    runGitArgs(resolvedPath, ['rev-parse', '--verify', `${sourceBranch}^{commit}`]);
+  } catch (e) {
+    const err = new Error(`找不到來源分支或提交：${sourceBranch}`);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const shouldCheckout = options && options.checkout === true;
+  if (shouldCheckout) {
+    runGitArgs(resolvedPath, ['checkout', '-b', cleanBranch, sourceBranch], 10000);
+  } else {
+    runGitArgs(resolvedPath, ['branch', '--', cleanBranch, sourceBranch], 10000);
+  }
+
+  clearProjectBranchCache(resolvedPath);
+  const headSha = runGitArgs(resolvedPath, ['rev-parse', '--short', `refs/heads/${cleanBranch}`]).trim();
+  return {
+    branch: cleanBranch,
+    fromBranch: sourceBranch,
+    headSha,
+    checkout: shouldCheckout
+  };
+}
+
 /**
  * 依專案路徑加互斥鎖序列化執行非同步合併操作
  * @param {string} repoPath
@@ -943,6 +1199,418 @@ async function mergeTaskWorktree(options = {}) {
   });
 }
 
+/**
+ * 檢查任務基線相對於目標分支的飄移與潛在合併衝突（無副作用）
+ * @param {string} repoPath 專案目錄
+ * @param {Object} task 任務物件
+ * @returns {Object}
+ */
+function checkTaskBaseDrift(repoPath, task = {}) {
+  const cleanRepo = repoPath ? String(repoPath).replace(/\/+$/, '') : '';
+  const targetBranchInput = String(task?.targetBranch || task?.baseBranch || '').trim();
+  const baseResult = {
+    isGitRepo: false,
+    targetBranch: targetBranchInput,
+    baseCommit: String(task?.baseCommit || '').trim(),
+    latestTargetCommit: '',
+    aheadCount: 0,
+    behindCount: 0,
+    hasDrift: false,
+    hasConflict: false,
+    conflictingFiles: [],
+    conflictCheckSupported: true
+  };
+
+  if (!cleanRepo || !fs.existsSync(cleanRepo) || !fs.existsSync(path.join(cleanRepo, '.git'))) {
+    return baseResult;
+  }
+
+  baseResult.isGitRepo = true;
+  const headInfo = getGitBranchInfo(cleanRepo);
+  const targetBranch = targetBranchInput || headInfo.branch || 'main';
+  baseResult.targetBranch = targetBranch;
+
+  let latestTargetCommit = '';
+  try {
+    latestTargetCommit = execFileSync('git', ['-C', cleanRepo, 'rev-parse', '--verify', targetBranch], {
+      encoding: 'utf8',
+      timeout: 5000
+    }).trim();
+  } catch (e) {
+    return { ...baseResult, error: `無法解析目標分支: ${targetBranch}` };
+  }
+  baseResult.latestTargetCommit = latestTargetCommit;
+
+  let headOrWorktreeBranch = '';
+  if (task?.worktreePath && fs.existsSync(task.worktreePath)) {
+    try {
+      headOrWorktreeBranch = execFileSync('git', ['-C', task.worktreePath, 'rev-parse', '--verify', 'HEAD'], {
+        encoding: 'utf8',
+        timeout: 5000
+      }).trim();
+    } catch (e) {}
+  }
+  if (!headOrWorktreeBranch && task?.branchName && String(task.branchName).trim() !== targetBranch) {
+    try {
+      headOrWorktreeBranch = execFileSync('git', ['-C', cleanRepo, 'rev-parse', '--verify', String(task.branchName).trim()], {
+        encoding: 'utf8',
+        timeout: 5000
+      }).trim();
+    } catch (e) {}
+  }
+
+  let baseCommit = String(task?.baseCommit || '').trim();
+  if (!baseCommit) {
+    if (headOrWorktreeBranch) {
+      try {
+        baseCommit = execFileSync('git', ['-C', cleanRepo, 'merge-base', headOrWorktreeBranch, targetBranch], {
+          encoding: 'utf8',
+          timeout: 5000
+        }).trim();
+      } catch (e) {}
+    }
+    if (!baseCommit) {
+      baseCommit = latestTargetCommit;
+    }
+  }
+  baseResult.baseCommit = baseCommit;
+
+  const compareLeftRef = headOrWorktreeBranch || baseCommit;
+  if (compareLeftRef && compareLeftRef !== latestTargetCommit) {
+    try {
+      const countsRaw = execFileSync('git', ['-C', cleanRepo, 'rev-list', '--left-right', '--count', `${compareLeftRef}...${targetBranch}`], {
+        encoding: 'utf8',
+        timeout: 5000
+      }).trim();
+      const parts = countsRaw.split(/\s+/);
+      if (parts.length >= 2) {
+        baseResult.aheadCount = Number.parseInt(parts[0], 10) || 0;
+        baseResult.behindCount = Number.parseInt(parts[1], 10) || 0;
+      }
+    } catch (e) {
+      // 若 baseCommit 失效，保留預設 0 計數
+    }
+  }
+
+  baseResult.hasDrift = baseResult.behindCount > 0;
+
+  if (baseResult.behindCount > 0 && compareLeftRef && compareLeftRef !== latestTargetCommit) {
+    const mergeLeftRef = headOrWorktreeBranch || baseCommit;
+    try {
+      execFileSync('git', ['-C', cleanRepo, 'merge-tree', '--write-tree', mergeLeftRef, targetBranch], {
+        encoding: 'utf8',
+        timeout: 10000
+      });
+      baseResult.hasConflict = false;
+      baseResult.conflictingFiles = [];
+    } catch (err) {
+      const stderr = String(err?.stderr || '');
+      const stdout = String(err?.stdout || '');
+      if (/unknown option|unrecognized|usage:\s*git merge-tree/i.test(stderr)) {
+        baseResult.conflictCheckSupported = false;
+        baseResult.hasConflict = false;
+        baseResult.conflictingFiles = [];
+      } else if (err?.status === 1 || stdout) {
+        const filesSet = new Set();
+        const lines = stdout.split(/\r?\n/);
+        for (const line of lines) {
+          if (line.includes('\t')) {
+            const filePart = line.split('\t').slice(1).join('\t').trim();
+            if (filePart) filesSet.add(filePart);
+          } else {
+            const conflictMatch = line.match(/^CONFLICT\s+\([^)]+\):.*?\bin\s+(.+)$/);
+            if (conflictMatch && conflictMatch[1]) {
+              filesSet.add(conflictMatch[1].trim());
+            }
+          }
+        }
+        baseResult.hasConflict = filesSet.size > 0 || err?.status === 1;
+        baseResult.conflictingFiles = Array.from(filesSet);
+      } else {
+        baseResult.conflictCheckSupported = false;
+      }
+    }
+  }
+
+  return baseResult;
+}
+
+/**
+ * 將功能分支安全合入目標主幹分支（Rebase / Merge / Squash）
+ * @param {string} repoPath Git 專案路徑
+ * @param {string} sourceBranch 來源功能分支名稱
+ * @param {string} targetBranch 目標主幹分支名稱
+ * @param {Object} [options]
+ * @returns {Promise<Object>}
+ */
+async function mergeFeatureBranch(repoPath, sourceBranch, targetBranch, options = {}) {
+  const {
+    strategy = 'merge',
+    deleteSourceBranch = false,
+    commitMessage = '',
+    customEnv = process.env
+  } = options || {};
+
+  if (!repoPath || !fs.existsSync(repoPath) || !fs.existsSync(path.join(repoPath, '.git'))) {
+    return { success: false, merged: false, status: 'not_git_repo', error: '目標專案非 Git 儲存庫' };
+  }
+
+  const cleanRepo = repoPath.replace(/\/+$/, '');
+  const src = String(sourceBranch || '').trim();
+  const tgt = String(targetBranch || '').trim();
+
+  if (!src || !tgt) {
+    return { success: false, merged: false, status: 'invalid_branch', error: '請指定來源分支與目標分支' };
+  }
+  if (src === tgt) {
+    return { success: false, merged: false, status: 'same_branch', error: '來源分支與目標分支相同，無需合併' };
+  }
+
+  return withRepoMergeLock(cleanRepo, async () => {
+    try {
+      execFileSync('git', ['-C', cleanRepo, 'rev-parse', '--verify', `refs/heads/${src}`], {
+        encoding: 'utf8',
+        env: customEnv,
+        timeout: 5000
+      });
+    } catch (e) {
+      return { success: false, merged: false, status: 'source_branch_missing', error: `找不到來源分支 ${src}` };
+    }
+
+    let targetSha = '';
+    try {
+      targetSha = execFileSync('git', ['-C', cleanRepo, 'rev-parse', '--verify', `refs/heads/${tgt}`], {
+        encoding: 'utf8',
+        env: customEnv,
+        timeout: 5000
+      }).trim();
+    } catch (e) {
+      return { success: false, merged: false, status: 'target_branch_missing', error: `找不到目標分支 ${tgt}` };
+    }
+
+    const headInfo = getGitBranchInfo(cleanRepo);
+    const originalBranch = headInfo.branch || '';
+    const dirtyStatus = execFileSync('git', ['-C', cleanRepo, 'status', '--porcelain'], {
+      encoding: 'utf8',
+      env: customEnv,
+      timeout: 5000
+    }).trim();
+
+    // 若主目錄有未提交變更（尤其當前不在目標分支時），立即安全中止避免覆蓋工作區
+    if (dirtyStatus.length > 0) {
+      const mismatchHint = originalBranch && originalBranch !== tgt
+        ? `目前位於 ${originalBranch} 且`
+        : '';
+      return {
+        success: false,
+        merged: false,
+        status: 'dirty_main_workspace',
+        sourceBranch: src,
+        targetBranch: tgt,
+        currentBranch: originalBranch,
+        error: `主目錄${mismatchHint}有未提交變更，已安全中止合併回 ${tgt}。請先提交或清理工作區後再試。`
+      };
+    }
+
+    // 若來源分支已完全包含於目標分支中，無需再合併
+    try {
+      execFileSync('git', ['-C', cleanRepo, 'merge-base', '--is-ancestor', src, tgt], {
+        encoding: 'utf8',
+        env: customEnv,
+        timeout: 5000
+      });
+      clearProjectBranchCache(cleanRepo);
+      return {
+        success: true,
+        merged: true,
+        alreadyUpToDate: true,
+        status: 'merged',
+        strategy,
+        sourceBranch: src,
+        targetBranch: tgt,
+        commitSha: targetSha
+      };
+    } catch (_) {}
+
+    const restoreOriginalBranch = () => {
+      if (originalBranch && originalBranch !== tgt) {
+        try {
+          execFileSync('git', ['-C', cleanRepo, 'checkout', originalBranch], {
+            encoding: 'utf8',
+            env: customEnv,
+            timeout: 10000
+          });
+        } catch (_) {}
+      }
+    };
+
+    try {
+      if (strategy === 'rebase') {
+        if (originalBranch !== src) {
+          execFileSync('git', ['-C', cleanRepo, 'checkout', src], {
+            encoding: 'utf8',
+            env: customEnv,
+            timeout: 10000
+          });
+        }
+        try {
+          execFileSync('git', ['-C', cleanRepo, 'rebase', tgt], {
+            encoding: 'utf8',
+            env: customEnv,
+            timeout: 30000
+          });
+        } catch (rebaseErr) {
+          try {
+            execFileSync('git', ['-C', cleanRepo, 'rebase', '--abort'], {
+              encoding: 'utf8',
+              env: customEnv,
+              timeout: 10000
+            });
+          } catch (_) {}
+          restoreOriginalBranch();
+          return {
+            success: false,
+            merged: false,
+            status: 'conflict',
+            strategy: 'rebase',
+            sourceBranch: src,
+            targetBranch: tgt,
+            error: `將 ${src} Rebase 至 ${tgt} 時發生衝突，已安全中止並還原。`
+          };
+        }
+
+        execFileSync('git', ['-C', cleanRepo, 'checkout', tgt], {
+          encoding: 'utf8',
+          env: customEnv,
+          timeout: 10000
+        });
+        execFileSync('git', ['-C', cleanRepo, 'merge', '--ff-only', src], {
+          encoding: 'utf8',
+          env: customEnv,
+          timeout: 15000
+        });
+      } else if (strategy === 'squash') {
+        if (originalBranch !== tgt) {
+          execFileSync('git', ['-C', cleanRepo, 'checkout', tgt], {
+            encoding: 'utf8',
+            env: customEnv,
+            timeout: 10000
+          });
+        }
+        try {
+          execFileSync('git', ['-C', cleanRepo, 'merge', '--squash', src], {
+            encoding: 'utf8',
+            env: customEnv,
+            timeout: 30000
+          });
+        } catch (squashErr) {
+          try {
+            execFileSync('git', ['-C', cleanRepo, 'reset', '--hard', targetSha], {
+              encoding: 'utf8',
+              env: customEnv,
+              timeout: 10000
+            });
+          } catch (_) {}
+          restoreOriginalBranch();
+          return {
+            success: false,
+            merged: false,
+            status: 'conflict',
+            strategy: 'squash',
+            sourceBranch: src,
+            targetBranch: tgt,
+            error: `Squash 合併 ${src} 至 ${tgt} 時發生衝突，已安全中止並還原。`
+          };
+        }
+        const staged = execFileSync('git', ['-C', cleanRepo, 'diff', '--cached', '--name-only'], {
+          encoding: 'utf8',
+          env: customEnv,
+          timeout: 5000
+        }).trim();
+        if (staged.length > 0) {
+          const msg = String(commitMessage || `chore: merge ${src} into ${tgt}`).trim();
+          execFileSync('git', ['-C', cleanRepo, 'commit', '-m', msg], {
+            encoding: 'utf8',
+            env: customEnv,
+            timeout: 30000
+          });
+        }
+      } else {
+        if (originalBranch !== tgt) {
+          execFileSync('git', ['-C', cleanRepo, 'checkout', tgt], {
+            encoding: 'utf8',
+            env: customEnv,
+            timeout: 10000
+          });
+        }
+        const msg = String(commitMessage || `Merge branch '${src}' into ${tgt}`).trim();
+        try {
+          execFileSync('git', ['-C', cleanRepo, 'merge', '--no-ff', src, '-m', msg], {
+            encoding: 'utf8',
+            env: customEnv,
+            timeout: 30000
+          });
+        } catch (mergeErr) {
+          try {
+            execFileSync('git', ['-C', cleanRepo, 'merge', '--abort'], {
+              encoding: 'utf8',
+              env: customEnv,
+              timeout: 10000
+            });
+          } catch (_) {}
+          restoreOriginalBranch();
+          return {
+            success: false,
+            merged: false,
+            status: 'conflict',
+            strategy: 'merge',
+            sourceBranch: src,
+            targetBranch: tgt,
+            error: `合併 ${src} 至 ${tgt} 時發生衝突，已安全中止合併。`
+          };
+        }
+      }
+
+      const commitSha = execFileSync('git', ['-C', cleanRepo, 'rev-parse', '--verify', 'HEAD'], {
+        encoding: 'utf8',
+        env: customEnv,
+        timeout: 5000
+      }).trim();
+
+      if (deleteSourceBranch) {
+        try {
+          execFileSync('git', ['-C', cleanRepo, 'branch', strategy === 'squash' ? '-D' : '-d', src], {
+            encoding: 'utf8',
+            env: customEnv,
+            timeout: 5000
+          });
+        } catch (_) {}
+      }
+
+      clearProjectBranchCache(cleanRepo);
+      return {
+        success: true,
+        merged: true,
+        status: 'merged',
+        strategy,
+        sourceBranch: src,
+        targetBranch: tgt,
+        commitSha
+      };
+    } catch (err) {
+      restoreOriginalBranch();
+      return {
+        success: false,
+        merged: false,
+        status: 'merge_failed',
+        sourceBranch: src,
+        targetBranch: tgt,
+        error: err && err.message ? err.message : '合併分支失敗'
+      };
+    }
+  });
+}
+
 module.exports = {
   collectGitDiff,
   discardGitChanges,
@@ -952,8 +1620,13 @@ module.exports = {
   buildCommitAgentPrompt,
   parseAgentCommitOutput,
   getGitBranchInfo,
+  getProjectBranches,
+  createProjectBranch,
+  clearProjectBranchCache,
   withRepoMergeLock,
   createTaskWorktree,
   removeTaskWorktree,
-  mergeTaskWorktree
+  mergeTaskWorktree,
+  checkTaskBaseDrift,
+  mergeFeatureBranch
 };

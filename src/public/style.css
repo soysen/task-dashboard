@@ -9,53 +9,82 @@
      *   4. 已完成 (Done)        : Sage Emerald  (#059669 / Dark #34D399)
      * ============================================================================ */
     :root {
-      --td-canvas: #e4e9f0;
-      --td-well: #d6dfe9;
-      --td-card: #ffffff;
+      --background: #f4f6f9;
+      --foreground: #0f172a;
+      --card: #ffffff;
+      --sidebar: #f8fafc;
+      --border: #e2e8f0;
+      --primary: #0284c7;
+      --primary-foreground: #ffffff;
+      --muted-foreground: #64748b;
+      --success: #059669;
+      --warning: #d97706;
+      --error: #dc2626;
+      --link: #0284c7;
+
+      --td-canvas: var(--background);
+      --td-well: var(--sidebar);
+      --td-card: var(--card);
       --td-panel: #f1f5f9;
-      --td-primary: #0284c7;
+      --td-primary: var(--primary);
       --td-status-todo: #64748b;
-      --td-status-progress: #0284c7;
-      --td-status-review: #d97706;
-      --td-status-done: #059669;
-      --td-shadow-card: 0 2px 6px -1px rgba(15, 23, 42, 0.10), 0 1px 3px 0 rgba(15, 23, 42, 0.07);
-      --td-shadow-card-hover: 0 6px 14px -2px rgba(15, 23, 42, 0.14), 0 2px 5px -1px rgba(15, 23, 42, 0.08);
-      --td-shadow-well: inset 0 1px 3px 0 rgba(15, 23, 42, 0.08);
+      --td-status-progress: var(--primary);
+      --td-status-review: var(--warning);
+      --td-status-done: var(--success);
+      --td-shadow-card: 0 1px 2px 0 rgba(15, 23, 42, 0.05);
+      --td-shadow-card-hover: 0 4px 10px -2px rgba(15, 23, 42, 0.10);
+      --td-shadow-well: none;
       font-size: 16px;
     }
     .dark {
-      --td-canvas: #111317;
-      --td-well: #181b21;
-      --td-card: #232830;
-      --td-panel: #2c323d;
-      --td-primary: #38bdf8;
+      --background: #111317;
+      --foreground: #f1f5f9;
+      --card: #1c2028;
+      --sidebar: #161920;
+      --border: #2a303c;
+      --primary: #0ea5e9;
+      --primary-foreground: #ffffff;
+      --muted-foreground: #94a3b8;
+      --success: #34d399;
+      --warning: #fbbf24;
+      --error: #f87171;
+      --link: #38bdf8;
+
+      --td-canvas: var(--background);
+      --td-well: var(--sidebar);
+      --td-card: var(--card);
+      --td-panel: #232832;
+      --td-primary: var(--primary);
       --td-status-todo: #94a3b8;
-      --td-status-progress: #38bdf8;
-      --td-status-review: #f59e0b;
-      --td-status-done: #34d399;
-      --td-shadow-card: 0 4px 12px -2px rgba(0, 0, 0, 0.58), 0 2px 4px -1px rgba(0, 0, 0, 0.42);
-      --td-shadow-card-hover: 0 8px 18px -2px rgba(0, 0, 0, 0.68), 0 3px 6px -1px rgba(0, 0, 0, 0.48);
-      --td-shadow-well: inset 0 1px 3px 0 rgba(0, 0, 0, 0.55);
+      --td-status-progress: var(--primary);
+      --td-status-review: var(--warning);
+      --td-status-done: var(--success);
+      --td-shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.35);
+      --td-shadow-card-hover: 0 4px 12px -2px rgba(0, 0, 0, 0.5);
+      --td-shadow-well: none;
     }
 
-    /* 無框線色塊＋陰影階層元件 (Borderless Tonal Surface & Shadow Elevation) */
+    /* Mockup 3.0 結構化色塊與微框線階層 */
     .td-canvas-bg {
-      background-color: var(--td-canvas);
+      background-color: var(--background);
+      color: var(--foreground);
     }
     .td-surface-well {
-      background-color: var(--td-well);
-      box-shadow: var(--td-shadow-well);
+      background-color: var(--sidebar);
+      border: 1px solid var(--border);
     }
     .td-surface-card {
-      background-color: var(--td-card);
+      background-color: var(--card);
+      border: 1px solid var(--border);
       box-shadow: var(--td-shadow-card);
     }
     .td-surface-card:hover {
       box-shadow: var(--td-shadow-card-hover);
+      border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
     }
     .td-surface-panel {
-      background-color: var(--td-panel);
-      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.12);
+      background-color: var(--background);
+      border: 1px solid var(--border);
     }
 
     * {
@@ -188,10 +217,10 @@
       line-height: 1.45;
     }
     .diff-num {
-      width: 36px;
-      min-width: 36px;
+      width: 28px;
+      min-width: 28px;
       text-align: right;
-      padding-right: 6px;
+      padding-right: 4px;
       color: #8c98a8;
       user-select: none;
       font-size: 10px;
@@ -200,8 +229,8 @@
       color: #5f6b7a;
     }
     .diff-sign {
-      width: 18px;
-      min-width: 18px;
+      width: 16px;
+      min-width: 16px;
       text-align: center;
       user-select: none;
       font-weight: 700;

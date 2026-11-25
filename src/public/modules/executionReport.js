@@ -142,7 +142,7 @@ ${p3 ? p3.split('\n').map(l => l.trim().startsWith('-') ? l : `- ${l}`).join('\n
           }
         }
 
-        // 解析主要段落區塊 (取消區塊陰影與細項多餘分隔線，僅保留大項目之間的清晰分隔線 divide-y，並強化 dark mode 分隔線對比度)
+        // 解析主要段落區塊：轉譯為簡單白話標題並提煉頂部驗證摘要卡
         const sectionsHtml = [];
         const lines = mainReport.split('\n');
         let curCardTitle = '';
@@ -150,20 +150,39 @@ ${p3 ? p3.split('\n').map(l => l.trim().startsWith('-') ? l : `- ${l}`).join('\n
         let curBadge = '';
         let curAccentColor = 'bg-slate-500 dark:bg-slate-400';
         let curMarkerBg = 'bg-slate-200/80 dark:bg-slate-800';
+        let verificationPassed = raw.includes('Exit Code') && /Exit Code[^0-9]*0\b/i.test(raw) || raw.includes('驗證通過') || (task && (task.status === 'review' || task.status === 'done' || task.status === 'archived'));
+        let testCmdSnippet = '';
+        const cmdMatch = raw.match(/執行指令[^`\n]*`([^`]+)`/) || raw.match(/cmd:\s*([^\n(]+)/i);
+        if (cmdMatch) testCmdSnippet = cmdMatch[1].trim();
+
+        const humanizeSectionTitle = (rawTitle) => {
+          if (rawTitle.includes('驗證') || rawTitle.includes('Phase 3')) return '測試與驗證結果';
+          if (rawTitle.includes('解決方案') || rawTitle.includes('核心異動') || rawTitle.includes('Phase 2')) return '主要修改內容';
+          if (rawTitle.includes('歷次審查') || rawTitle.includes('Feedback')) return '本次依意見調整項目';
+          if (rawTitle.includes('Handoff') || rawTitle.includes('Assumptions') || rawTitle.includes('隱含決策')) return '執行邊界與假設補充';
+          if (rawTitle.includes('根因') || rawTitle.includes('目標') || rawTitle.includes('Phase 1')) return '任務目標與背景';
+          return rawTitle.replace(/\s*\([^)]*\)\s*$/, '').replace(/^\d+\.\s*/, '').trim();
+        };
 
         const formatInlineReportText = (str) => escapeHtml(str)
           .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-slate-900 dark:text-slate-100">$1</strong>')
-          .replace(/`([^`]+)`/g, '<code class="px-1.5 py-0.5 rounded bg-white/90 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-[11px]">$1</code>');
+          .replace(/`([^`]+)`/g, '<code class="px-1.5 py-0.5 rounded bg-white/90 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-[11px] border border-slate-200/70 dark:border-slate-700">$1</code>');
 
         const flushCard = () => {
           if (!curCardTitle && curCardLines.length === 0) return;
-          const bodyHtml = curCardLines.map(l => {
+          const nonEmptyLines = curCardLines.filter(l => l.trim().length > 0);
+          if (nonEmptyLines.length === 0) {
+            curCardTitle = '';
+            curCardLines = [];
+            return;
+          }
+          const bodyHtml = nonEmptyLines.map(l => {
             if (l.startsWith('- **') || l.startsWith('- ')) {
               const formatted = formatInlineReportText(l.slice(2));
               return `<li class="ml-4 list-disc text-slate-800 dark:text-slate-200 leading-[1.7] py-0.5">${formatted}</li>`;
             } else if (l.startsWith('  - ')) {
               const formatted = formatInlineReportText(l.slice(4));
-              return `<li class="ml-8 list-circle text-slate-700 dark:text-slate-300 text-[11px] leading-[1.7] py-0.5">${formatted}</li>`;
+              return `<li class="ml-7 list-circle text-slate-700 dark:text-slate-300 text-[11px] leading-[1.7] py-0.5">${formatted}</li>`;
             } else if (l.trim()) {
               return `<p class="text-slate-700 dark:text-slate-300 leading-[1.7] py-0.5">${formatInlineReportText(l)}</p>`;
             }
@@ -171,17 +190,17 @@ ${p3 ? p3.split('\n').map(l => l.trim().startsWith('-') ? l : `- ${l}`).join('\n
           }).filter(Boolean).join('');
 
           sectionsHtml.push(`
-            <div class="report-section-block py-3 first:pt-1 last:pb-1 space-y-1.5 shadow-none">
+            <div class="report-section-block py-2.5 first:pt-1 last:pb-1 space-y-1 shadow-none">
               <div class="flex items-center justify-between gap-2">
-                <span class="font-semibold text-xs text-slate-800 dark:text-slate-100 flex items-center gap-2 min-w-0">
+                <span class="font-bold text-xs text-slate-900 dark:text-slate-100 flex items-center gap-2 min-w-0">
                   <span class="w-4 h-4 rounded-md ${curMarkerBg} flex items-center justify-center flex-shrink-0">
                     <span class="w-1.5 h-1.5 rounded-full ${curAccentColor}"></span>
                   </span>
-                  <span class="leading-snug">${escapeHtml(curCardTitle || '執行說明')}</span>
+                  <span class="leading-snug">${escapeHtml(humanizeSectionTitle(curCardTitle || '重點摘要'))}</span>
                 </span>
                 ${curBadge}
               </div>
-              <ul class="space-y-1 text-xs pl-6">
+              <ul class="space-y-0.5 text-xs pl-6">
                 ${bodyHtml}
               </ul>
             </div>
@@ -200,19 +219,15 @@ ${p3 ? p3.split('\n').map(l => l.trim().startsWith('-') ? l : `- ${l}`).join('\n
             const rawTitle = line.replace(/^[#]+\s*/, '').trim();
             curCardTitle = rawTitle;
             if (rawTitle.includes('驗證') || rawTitle.includes('Phase 3')) {
-              curBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold font-mono bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 whitespace-nowrap flex-shrink-0">驗證通過</span>';
+              curBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 whitespace-nowrap flex-shrink-0">驗證通過</span>';
               curAccentColor = 'bg-emerald-600 dark:bg-emerald-400';
               curMarkerBg = 'bg-emerald-100/80 dark:bg-emerald-950/50';
             } else if (rawTitle.includes('解決方案') || rawTitle.includes('核心異動') || rawTitle.includes('審查') || rawTitle.includes('Phase 2')) {
-              curBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold font-mono bg-sky-100 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 whitespace-nowrap flex-shrink-0">實作完成</span>';
+              curBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-100 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 whitespace-nowrap flex-shrink-0">修改重點</span>';
               curAccentColor = 'bg-sky-600 dark:bg-sky-400';
               curMarkerBg = 'bg-sky-100/80 dark:bg-sky-950/50';
-            } else if (rawTitle.includes('色彩') || rawTitle.includes('計劃')) {
-              curBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold font-mono bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 whitespace-nowrap flex-shrink-0">色彩規範</span>';
-              curAccentColor = 'bg-amber-500 dark:bg-amber-400';
-              curMarkerBg = 'bg-amber-100/80 dark:bg-amber-950/50';
             } else if (rawTitle.includes('根因') || rawTitle.includes('目標') || rawTitle.includes('Phase 1')) {
-              curBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold font-mono bg-slate-200/90 dark:bg-slate-800 text-slate-800 dark:text-slate-200 whitespace-nowrap flex-shrink-0">目標與分析</span>';
+              curBadge = '';
               curAccentColor = 'bg-slate-600 dark:bg-slate-400';
               curMarkerBg = 'bg-slate-200/80 dark:bg-slate-800';
             }
@@ -222,24 +237,24 @@ ${p3 ? p3.split('\n').map(l => l.trim().startsWith('-') ? l : `- ${l}`).join('\n
         }
         flushCard();
 
-        let riskBadgeHtml = '';
-        if (task && task.riskDoor === 'one-way') {
-          const reasons = (task.riskReasons || []).map(r => `• ${escapeHtml(r)}`).join('<br>');
-          riskBadgeHtml = `
-            <div class="mb-3 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 flex items-start gap-2.5">
-              <span class="text-base flex-shrink-0">🚨</span>
-              <div class="text-xs">
-                <div class="font-bold text-rose-800 dark:text-rose-300">單向門審查 (One-Way Door / 高風險不可逆變更)</div>
-                <div class="text-rose-700 dark:text-rose-400 mt-0.5 leading-relaxed">${reasons || '本任務修改涉及底層核心或較大變更，需人工重點核對。'}</div>
-              </div>
-            </div>`;
-        } else if (task && task.riskDoor === 'two-way') {
-          riskBadgeHtml = `
-            <div class="mb-3 p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 flex items-center gap-2">
-              <span class="text-sm flex-shrink-0">🚪</span>
-              <div class="text-xs text-emerald-800 dark:text-emerald-300 font-medium">雙向門審查 (Two-Way Door / 可逆低風險變更)</div>
-            </div>`;
-        }
+        const filesCount = (task && Array.isArray(task.modifiedFiles)) ? task.modifiedFiles.length : 0;
+        const tldrStripHtml = `
+          <div class="mb-2.5 p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="inline-flex items-center gap-1 font-bold ${verificationPassed ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}">
+                <i data-lucide="${verificationPassed ? 'check-circle-2' : 'info'}" class="w-4 h-4 flex-shrink-0"></i>
+                <span>${verificationPassed ? '測試與檢查已通過' : '執行紀錄摘要'}</span>
+              </span>
+              ${testCmdSnippet ? `<code class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-[11px] text-slate-600 dark:text-slate-300 truncate max-w-[180px]">${escapeHtml(testCmdSnippet)}</code>` : ''}
+            </div>
+            <div class="flex items-center gap-1.5 flex-shrink-0 text-[11px]">
+              ${filesCount > 0 ? `<span class="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono">改動 ${filesCount} 檔</span>` : ''}
+              ${task && task.riskDoor === 'one-way'
+                ? `<span class="px-2 py-0.5 rounded-md bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 font-semibold" title="${escapeHtml((task.riskReasons || []).join('；'))}">⚠️ 建議仔細看 Diff</span>`
+                : `<span class="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-medium">一般可逆修改</span>`}
+            </div>
+          </div>
+        `;
 
         let terminalCollapseHtml = '';
         if (rawTerminalDump) {
@@ -250,16 +265,16 @@ ${p3 ? p3.split('\n').map(l => l.trim().startsWith('-') ? l : `- ${l}`).join('\n
             .trim();
           if (cleanDump) {
             terminalCollapseHtml = `
-            <div class="pt-3 border-t border-slate-300 dark:border-slate-500">
-              <details class="group rounded-lg overflow-hidden bg-slate-950" open>
-                <summary class="px-3 py-2 bg-slate-900 text-slate-300 text-xs font-mono font-semibold flex items-center justify-between gap-2 cursor-pointer select-none hover:bg-slate-800 transition">
+            <div class="pt-2.5 mt-2 border-t border-slate-200 dark:border-slate-700/80">
+              <details class="group rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-950">
+                <summary class="px-3 py-2 bg-slate-900 text-slate-300 text-xs font-medium flex items-center justify-between gap-2 cursor-pointer select-none hover:bg-slate-800 transition">
                   <span class="flex items-center gap-1.5 min-w-0">
                     <i data-lucide="terminal" class="w-3.5 h-3.5 text-emerald-400 flex-shrink-0"></i>
-                    <span class="truncate">原生終端 / Harness 輸出記錄 (Raw Terminal Output)</span>
+                    <span class="truncate">展開終端機原始測試輸出</span>
                   </span>
                   <span class="text-[10px] text-slate-400 group-open:rotate-180 transition-transform flex-shrink-0">▼</span>
                 </summary>
-                <pre class="p-3 text-[11px] font-mono text-emerald-400/90 whitespace-pre-wrap overflow-x-auto leading-relaxed max-h-72 custom-scrollbar">${escapeHtml(cleanDump)}</pre>
+                <pre class="p-3 text-[11px] font-mono text-emerald-400/90 whitespace-pre-wrap overflow-x-auto leading-relaxed max-h-64 custom-scrollbar">${escapeHtml(cleanDump)}</pre>
               </details>
             </div>
           `;
@@ -267,7 +282,7 @@ ${p3 ? p3.split('\n').map(l => l.trim().startsWith('-') ? l : `- ${l}`).join('\n
         }
 
         reportEl.innerHTML = `
-          ${riskBadgeHtml}
+          ${tldrStripHtml}
           <div class="pl-2 divide-y divide-slate-300 dark:divide-slate-500">
             ${sectionsHtml.join('')}
           </div>

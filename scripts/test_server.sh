@@ -101,7 +101,7 @@ git -C "$DUMMY_DIR" init > /dev/null 2>&1
 git -C "$DUMMY_DIR" commit --allow-empty -m "init" > /dev/null 2>&1
 curl -s -f -X POST "http://localhost:$TEST_PORT/api/projects" -H "Content-Type: application/json" -d "{\"id\":\"test-discard-repo\",\"name\":\"test-discard-repo\",\"path\":\"$DUMMY_DIR\"}" > /dev/null 2>&1
 
-ISOLATED_TASK=$(curl -s -f -X POST "http://localhost:$TEST_PORT/api/tasks" -H "Content-Type: application/json" -d '{"title":"測試放棄與刪除隔離任務","project":"test-discard-repo","status":"in_progress"}')
+ISOLATED_TASK=$(curl -s -f -X POST "http://localhost:$TEST_PORT/api/tasks" -H "Content-Type: application/json" -d '{"title":"測試放棄與刪除隔離任務","project":"test-discard-repo","status":"in_progress","workspaceMode":"in_place"}')
 ISOLATED_TASK_ID=$(echo "$ISOLATED_TASK" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)
 
 if [ -n "$ISOLATED_TASK_ID" ]; then
@@ -136,7 +136,7 @@ if [ -n "$ISOLATED_TASK_ID" ]; then
   echo "dummy" > "$DUMMY_DIR/file.txt"
   git -C "$DUMMY_DIR" add -N "$DUMMY_DIR/file.txt"
   echo "untracked" > "$DUMMY_DIR/untracked.txt"
-  DISCARD_TASK=$(curl -s -f -X POST "http://localhost:$TEST_PORT/api/tasks" -H "Content-Type: application/json" -d "{\"title\":\"測試 discard\",\"project\":\"test-discard-repo\",\"status\":\"in_progress\"}")
+  DISCARD_TASK=$(curl -s -f -X POST "http://localhost:$TEST_PORT/api/tasks" -H "Content-Type: application/json" -d "{\"title\":\"測試 discard\",\"project\":\"test-discard-repo\",\"status\":\"in_progress\",\"workspaceMode\":\"in_place\"}")
   DISCARD_TASK_ID=$(echo "$DISCARD_TASK" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)
   DELETE_DISCARD_RES=$(curl -s -f -X DELETE "http://localhost:$TEST_PORT/api/tasks/$DISCARD_TASK_ID" -H "Content-Type: application/json" -d '{"discardChanges":true}')
   DIFF_AFTER=$(git -C "$DUMMY_DIR" status --porcelain)
@@ -873,6 +873,7 @@ TEST_PORT=$TEST_PORT node -e '
       title: "TASK-179 門禁測試",
       project: "task-dashboard",
       status: "in_progress",
+      workspaceMode: "in_place",
       requiresConfirmation: true,
       executionPlan: ""
     })
@@ -975,6 +976,7 @@ TEST_PORT=$TEST_PORT node -e '
       title: "舊版日誌任務",
       project: "task-dashboard",
       status: "in_progress",
+      workspaceMode: "in_place",
       executionLog: "### Phase 1: Pre-Flight & Review Feedback Ingestion\n- 說明: 未提供前置檢閱細節；請以實際執行記錄為準。\n\n### Phase 2: Rule-Compliant Implementation\n- 說明: 未提供實作步驟細節；請以實際執行記錄為準。\n\n### Phase 3: Compliance Manifest & Review Promotion\n- 驗證說明: 未提供驗證命令與結果\n\n--- 執行詳細記錄 / 原生驗證輸出 ---\n### 1. 目標根因分析\n- 根因：排查 Phase 1~3 斷層\n### 2. 實作說明\n- 實作：feedbackManager 升級\n### 3. 驗證證據\n- npm test 通過"
     })
   });
@@ -1001,6 +1003,437 @@ TEST_PORT=$TEST_PORT node -e '
   console.log("    ✅ TASK-181 Phase 1~3 智慧提取與日誌自動自癒驗證通過");
 })();
 '
+
+echo "  [8.5/9] 測試 TASK-232 專案分支查詢/無損建分支與任務分支綁定 ..."
+TEST_DATA_DIR="$TEST_DATA_DIR" node -e '
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const { execFileSync } = require("node:child_process");
+
+(async () => {
+  const base = "http://127.0.0.1:3030";
+  const tmpRoot = process.env.TEST_DATA_DIR;
+  const repoDir = path.join(tmpRoot, "repo-task-232");
+  fs.mkdirSync(repoDir, { recursive: true });
+
+  execFileSync("git", ["-C", repoDir, "init", "-b", "main"]);
+  execFileSync("git", ["-C", repoDir, "config", "user.email", "test@example.com"]);
+  execFileSync("git", ["-C", repoDir, "config", "user.name", "Test Runner"]);
+  fs.writeFileSync(path.join(repoDir, "README.md"), "# TASK-232 Test Repo\n");
+  execFileSync("git", ["-C", repoDir, "add", "README.md"]);
+  execFileSync("git", ["-C", repoDir, "commit", "-m", "init main"]);
+
+  // 模擬工作區存在未提交檔案 (Dirty)
+  const dirtyFile = path.join(repoDir, "dirty.txt");
+  fs.writeFileSync(dirtyFile, "uncommitted change\n");
+
+  const projRes = await fetch(`${base}/api/projects`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: "repo-task-232", name: "TASK-232 Test Repo", path: repoDir })
+  });
+  assert(projRes.status === 200 || projRes.status === 201, `建立測試專案應成功，實際: ${projRes.status}`);
+  const projJson = await projRes.json();
+  const projId = projJson.id || (projJson.project && projJson.project.id) || "repo-task-232";
+
+  // 1. 查詢分支清單與 Dirty 狀態
+  const branchesRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/branches?refresh=1`);
+  assert.equal(branchesRes.status, 200);
+  const branchesData = await branchesRes.json();
+  assert.equal(branchesData.isGitRepo, true);
+  assert.equal(branchesData.currentCheckoutBranch, "main");
+  assert.equal(branchesData.isMainWorkspaceDirty, true);
+  assert(branchesData.dirtyFilesCount >= 1);
+  assert(branchesData.branches.some(b => b.name === "main"));
+
+  // 2. 驗證不合法分支名稱防護
+  const badFlagRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/branches`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ branchName: "-bad-flag", fromBranch: "main" })
+  });
+  assert.equal(badFlagRes.status, 400);
+
+  const badRefRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/branches`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ branchName: "feat..invalid", fromBranch: "main" })
+  });
+  assert.equal(badRefRes.status, 400);
+
+  // 3. Dirty 狀態下無損建立新分支
+  const createBranchRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/branches`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ branchName: "feat/task-232-nav", fromBranch: "main" })
+  });
+  assert.equal(createBranchRes.status, 201);
+  const createdBranchData = await createBranchRes.json();
+  assert.equal(createdBranchData.branch, "feat/task-232-nav");
+  assert.equal(createdBranchData.fromBranch, "main");
+  assert.equal(fs.readFileSync(dirtyFile, "utf8"), "uncommitted change\n");
+  const headAfter = execFileSync("git", ["-C", repoDir, "rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" }).trim();
+  assert.equal(headAfter, "main", "無損建立分支後不可切換目前工作區 HEAD");
+
+  // 4. 建立與更新任務的 targetBranch 與 workspaceMode
+  const createTaskRes = await fetch(`${base}/api/tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: "TASK-232 分支綁定測試",
+      project: projId,
+      status: "todo",
+      priority: "P1",
+      targetBranch: "feat/task-232-nav",
+      workspaceMode: "branch_stream"
+    })
+  });
+  assert.equal(createTaskRes.status, 201);
+  const createdTask = await createTaskRes.json();
+  assert.equal(createdTask.targetBranch, "feat/task-232-nav");
+  assert.equal(createdTask.baseBranch, "feat/task-232-nav");
+  assert.equal(createdTask.workspaceMode, "branch_stream");
+
+  const updateTaskRes = await fetch(`${base}/api/tasks/${encodeURIComponent(createdTask.id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      targetBranch: "main",
+      workspaceMode: "in_place"
+    })
+  });
+  assert.equal(updateTaskRes.status, 200);
+  const updatedTask = await updateTaskRes.json();
+  assert.equal(updatedTask.targetBranch, "main");
+  assert.equal(updatedTask.baseBranch, "main");
+  assert.equal(updatedTask.workspaceMode, "in_place");
+
+  const branchesAfterTaskRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/branches?refresh=1`);
+  assert.equal(branchesAfterTaskRes.status, 200);
+  const branchesAfterTask = await branchesAfterTaskRes.json();
+  const mainBranchItem = branchesAfterTask.branches.find(b => b.name === "main");
+  assert(mainBranchItem && mainBranchItem.activeTaskCount >= 1, "main 分支應計入關聯之 active 任務數");
+
+  // 清理測試任務與專案
+  await fetch(`${base}/api/tasks/${encodeURIComponent(createdTask.id)}`, { method: "DELETE" });
+  await fetch(`${base}/api/projects/delete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: projId })
+  });
+
+  console.log("    ✅ TASK-232 分支查詢/無損建分支與任務分支綁定驗證通過");
+})();
+'
+
+echo "  [8.6/9] 測試 TASK-233 自動 Worktree 隔離、排隊狀態與 /drift-check ..."
+TEST_PORT=$TEST_PORT node -e '
+const assert = require("assert");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const { execFileSync } = require("child_process");
+
+(async () => {
+  const base = "http://127.0.0.1:" + (process.env.TEST_PORT || "3039");
+  const tempRepo = fs.mkdtempSync(path.join(os.tmpdir(), "td-task233-"));
+  const projId = "test-task233-proj-" + Date.now();
+  const createdTaskIds = [];
+
+  try {
+    execFileSync("git", ["-C", tempRepo, "init", "-b", "main"], { stdio: "ignore" });
+    execFileSync("git", ["-C", tempRepo, "config", "user.email", "test@example.com"], { stdio: "ignore" });
+    execFileSync("git", ["-C", tempRepo, "config", "user.name", "Test Runner"], { stdio: "ignore" });
+    fs.writeFileSync(path.join(tempRepo, "feature.txt"), "line 1\nline 2\n", "utf8");
+    fs.writeFileSync(path.join(tempRepo, "other.txt"), "initial\n", "utf8");
+    execFileSync("git", ["-C", tempRepo, "add", "."], { stdio: "ignore" });
+    execFileSync("git", ["-C", tempRepo, "commit", "-m", "init"], { stdio: "ignore" });
+
+    const regRes = await fetch(`${base}/api/projects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: projId, name: "TASK-233 Test Repo", path: tempRepo })
+    });
+    assert(regRes.status === 200 || regRes.status === 201);
+
+    // 1. workspaceMode: "worktree" 切換至 in_progress 自動建立 .worktrees/<TASK-ID> 並回寫資訊
+    const wtCreateRes = await fetch(`${base}/api/tasks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Worktree Auto Isolation",
+        project: projId,
+        status: "todo",
+        workspaceMode: "worktree",
+        targetBranch: "main"
+      })
+    });
+    assert.equal(wtCreateRes.status, 201);
+    const wtTaskTodo = await wtCreateRes.json();
+    createdTaskIds.push(wtTaskTodo.id);
+
+    const wtStartRes = await fetch(`${base}/api/tasks/${encodeURIComponent(wtTaskTodo.id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "in_progress" })
+    });
+    assert.equal(wtStartRes.status, 200);
+    const wtTask = await wtStartRes.json();
+    assert(wtTask.worktreePath && fs.existsSync(wtTask.worktreePath), "應自動建立 worktreePath");
+    assert(wtTask.worktreePath.includes(".worktrees/" + wtTask.id), "worktreePath 應位於 .worktrees/<TASK-ID>");
+    assert.equal(wtTask.branchName, "td/" + wtTask.id);
+    assert(wtTask.baseCommit && wtTask.baseCommit.length >= 7, "應回寫 baseCommit");
+
+    // 3. GET /api/tasks/:taskId/drift-check 驗證無衝突與衝突飄移
+    // 先在 worktree 提交一個修改 feature.txt 的 commit
+    fs.writeFileSync(path.join(wtTask.worktreePath, "feature.txt"), "worktree line 1\nline 2\n", "utf8");
+    execFileSync("git", ["-C", wtTask.worktreePath, "add", "feature.txt"], { stdio: "ignore" });
+    execFileSync("git", ["-C", wtTask.worktreePath, "commit", "-m", "wt change"], { stdio: "ignore" });
+
+    // 主分支推進一個不衝突的 commit (other.txt)
+    fs.writeFileSync(path.join(tempRepo, "other.txt"), "main updated\n", "utf8");
+    execFileSync("git", ["-C", tempRepo, "add", "other.txt"], { stdio: "ignore" });
+    execFileSync("git", ["-C", tempRepo, "commit", "-m", "main non-conflict"], { stdio: "ignore" });
+
+    const driftCleanRes = await fetch(`${base}/api/tasks/${encodeURIComponent(wtTask.id)}/drift-check`);
+    assert.equal(driftCleanRes.status, 200);
+    const driftClean = await driftCleanRes.json();
+    assert.equal(driftClean.aheadCount, 1);
+    assert.equal(driftClean.behindCount, 1);
+    assert.equal(driftClean.hasDrift, true);
+    assert.equal(driftClean.hasConflict, false);
+    assert.deepEqual(driftClean.conflictingFiles, []);
+
+    // 主分支再推進一個會與 worktree feature.txt 衝突的 commit
+    fs.writeFileSync(path.join(tempRepo, "feature.txt"), "main conflicting line 1\nline 2\n", "utf8");
+    execFileSync("git", ["-C", tempRepo, "add", "feature.txt"], { stdio: "ignore" });
+    execFileSync("git", ["-C", tempRepo, "commit", "-m", "main conflict"], { stdio: "ignore" });
+
+    const driftConflictRes = await fetch(`${base}/api/tasks/${encodeURIComponent(wtTask.id)}/drift-check`);
+    assert.equal(driftConflictRes.status, 200);
+    const driftConflict = await driftConflictRes.json();
+    assert.equal(driftConflict.aheadCount, 1);
+    assert.equal(driftConflict.behindCount, 2);
+    assert.equal(driftConflict.hasDrift, true);
+    assert.equal(driftConflict.hasConflict, true);
+    assert(driftConflict.conflictingFiles.includes("feature.txt"), "conflictingFiles 應包含 feature.txt");
+
+    const drift404Res = await fetch(`${base}/api/tasks/NON-EXISTENT-999/drift-check`);
+    assert.equal(drift404Res.status, 404);
+
+    // 2. 兩張同 targetBranch 之 branch_stream 任務同時 in_progress，第二張自動進入 queueState
+    const bs1Res = await fetch(`${base}/api/tasks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Branch Stream 1",
+        project: projId,
+        status: "in_progress",
+        workspaceMode: "branch_stream",
+        targetBranch: "main"
+      })
+    });
+    assert.equal(bs1Res.status, 201);
+    const bs1 = await bs1Res.json();
+    createdTaskIds.push(bs1.id);
+    assert.equal(bs1.queueState, null);
+
+    const bs2Res = await fetch(`${base}/api/tasks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Branch Stream 2",
+        project: projId,
+        status: "in_progress",
+        workspaceMode: "branch_stream",
+        targetBranch: "main"
+      })
+    });
+    assert.equal(bs2Res.status, 201);
+    const bs2 = await bs2Res.json();
+    createdTaskIds.push(bs2.id);
+    assert(bs2.queueState && bs2.queueState.blockedByTaskId === bs1.id, "第二張 branch_stream 應寫入 queueState.blockedByTaskId");
+    assert(String(bs2.queueState.reason || "").includes(`等待 ${bs1.id} 完成中`), "排隊原因應使用白話文案");
+
+    // 當第一張任務完成離開 in_progress，第二張應自動解除排隊
+    const bs1DoneRes = await fetch(`${base}/api/tasks/${encodeURIComponent(bs1.id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "review", forceReview: true })
+    });
+    assert.equal(bs1DoneRes.status, 200);
+    const bs2AfterRes = await fetch(`${base}/api/tasks/${encodeURIComponent(bs2.id)}`);
+    assert.equal(bs2AfterRes.status, 200);
+    const bs2After = await bs2AfterRes.json();
+    assert.equal(bs2After.queueState, null, "第一張完成後第二張 queueState 應自動解除");
+
+    console.log("    ✅ TASK-233 Worktree 自動隔離、branch_stream 排隊與 /drift-check 驗證通過");
+  } finally {
+    for (const tid of createdTaskIds) {
+      try { await fetch(`${base}/api/tasks/${encodeURIComponent(tid)}`, { method: "DELETE" }); } catch (e) {}
+    }
+    try {
+      await fetch(`${base}/api/projects/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: projId })
+      });
+    } catch (e) {}
+    try { fs.rmSync(`${tempRepo}.worktrees`, { recursive: true, force: true }); } catch (e) {}
+    try { fs.rmSync(tempRepo, { recursive: true, force: true }); } catch (e) {}
+  }
+})();
+'
+
+echo "  [8.9/9] 測試 TASK-234 合一通過並提交 (/land)、精準單卡結案不連坐與分支合併 (/branches/merge) ..."
+node -e '
+const assert = require("assert");
+const fs = require("fs");
+const path = require("path");
+const { execFileSync } = require("child_process");
+
+(async () => {
+  const base = "http://localhost:" + process.argv[1];
+  const tempRepo = "/tmp/test-task234-repo-" + process.pid;
+  const projId = "test-task234-proj-" + process.pid;
+  const createdTaskIds = [];
+
+  try {
+    fs.mkdirSync(tempRepo, { recursive: true });
+    execFileSync("git", ["-C", tempRepo, "init", "-b", "main"]);
+    execFileSync("git", ["-C", tempRepo, "config", "user.email", "tester@example.com"]);
+    execFileSync("git", ["-C", tempRepo, "config", "user.name", "Tester"]);
+    fs.writeFileSync(path.join(tempRepo, "README.md"), "# task234 test\n");
+    execFileSync("git", ["-C", tempRepo, "add", "README.md"]);
+    execFileSync("git", ["-C", tempRepo, "commit", "-m", "chore: init main"]);
+
+    // 建立功能分支 feat/land-demo 並切過去做變更
+    execFileSync("git", ["-C", tempRepo, "checkout", "-b", "feat/land-demo"]);
+
+    const projRes = await fetch(`${base}/api/projects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: projId, name: "TASK-234 Repo", path: tempRepo, defaultBranch: "main" })
+    });
+    assert(projRes.status === 200 || projRes.status === 201, "POST /api/projects 應成功");
+
+    // 1. 建立已存在的 TASK-A (done)，確保後續 TASK-B /land 不會連坐封存 TASK-A
+    const taskARes = await fetch(`${base}/api/tasks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "TASK-A 已完成不應被連坐", project: projId, status: "done" })
+    });
+    assert.equal(taskARes.status, 201);
+    const taskA = await taskARes.json();
+    createdTaskIds.push(taskA.id);
+
+    // 2. 建立 TASK-B (review, branch_stream on feat/land-demo) 與受其阻塞排隊的 TASK-C
+    const taskBRes = await fetch(`${base}/api/tasks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "TASK-B 合一通過並提交",
+        project: projId,
+        status: "review",
+        workspaceMode: "branch_stream",
+        targetBranch: "feat/land-demo"
+      })
+    });
+    assert.equal(taskBRes.status, 201);
+    const taskB = await taskBRes.json();
+    createdTaskIds.push(taskB.id);
+
+    const taskCRes = await fetch(`${base}/api/tasks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "TASK-C 排隊等待 TASK-B",
+        project: projId,
+        status: "todo",
+        workspaceMode: "branch_stream",
+        targetBranch: "feat/land-demo"
+      })
+    });
+    assert.equal(taskCRes.status, 201);
+    const taskC = await taskCRes.json();
+    createdTaskIds.push(taskC.id);
+
+    const setQueueRes = await fetch(`${base}/api/tasks/${encodeURIComponent(taskC.id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        queueState: { blockedByTaskId: taskB.id, reason: `等待 ${taskB.id} 完成中`, queuedAt: new Date().toISOString() }
+      })
+    });
+    assert.equal(setQueueRes.status, 200);
+
+    // 在 feat/land-demo 寫入程式碼變更
+    fs.writeFileSync(path.join(tempRepo, "feature_234.txt"), "landed via /land\n");
+
+    // 3. 呼叫 POST /api/tasks/:taskId/land (archiveImmediately: true)
+    const landRes = await fetch(`${base}/api/tasks/${encodeURIComponent(taskB.id)}/land`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subject: "feat(task-234): test single-card land",
+        body: "verify no collateral archival and queue unblock",
+        archiveImmediately: true
+      })
+    });
+    assert.equal(landRes.status, 200, "POST /land 應回傳 200");
+    const landData = await landRes.json();
+    assert.equal(landData.success, true);
+    assert.equal(landData.status, "archived");
+    assert(landData.gitLanding && landData.gitLanding.isCommitted === true, "應寫入 gitLanding.isCommitted");
+    assert(landData.gitLanding.commitSha && landData.gitLanding.commitSha.length >= 7, "應寫入 commitSha");
+    assert.equal(landData.gitLanding.landedBranch, "feat/land-demo");
+    assert(Array.isArray(landData.unblockedTaskIds) && landData.unblockedTaskIds.includes(taskC.id), "應回傳已解除排隊的 TASK-C");
+
+    // 驗證 TASK-A 仍維持 done（精準單卡結案不連坐）
+    const taskAAfter = await (await fetch(`${base}/api/tasks/${encodeURIComponent(taskA.id)}`)).json();
+    assert.equal(taskAAfter.status, "done", "TASK-A 不得被連坐封存，應維持 done");
+
+    // 驗證 TASK-C queueState 已自動解除
+    const taskCAfter = await (await fetch(`${base}/api/tasks/${encodeURIComponent(taskC.id)}`)).json();
+    assert.equal(taskCAfter.queueState, null, "TASK-B land 後 TASK-C queueState 應自動解除");
+
+    // 4. 驗證 POST /api/projects/:projectId/branches/merge 將 feat/land-demo 合回 main
+    const mergeBranchRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/branches/merge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceBranch: "feat/land-demo",
+        targetBranch: "main",
+        strategy: "merge"
+      })
+    });
+    assert.equal(mergeBranchRes.status, 200, "POST /branches/merge 應回傳 200");
+    const mergeBranchData = await mergeBranchRes.json();
+    assert.equal(mergeBranchData.success, true);
+    assert.equal(mergeBranchData.merged, true);
+    assert(mergeBranchData.commitSha && mergeBranchData.commitSha.length >= 7, "branches/merge 應回傳 commitSha");
+
+    // 驗證 main 分支已包含 feature_234.txt
+    const mainTree = execFileSync("git", ["-C", tempRepo, "ls-tree", "-r", "--name-only", "main"], { encoding: "utf8" });
+    assert(mainTree.includes("feature_234.txt"), "合併後 main 分支應包含 feature_234.txt");
+
+    console.log("    ✅ TASK-234 /land 單卡精準結案、排隊解鎖與 /branches/merge 驗證通過");
+  } finally {
+    for (const tid of createdTaskIds) {
+      try { await fetch(`${base}/api/tasks/${encodeURIComponent(tid)}`, { method: "DELETE" }); } catch (e) {}
+    }
+    try {
+      await fetch(`${base}/api/projects/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: projId })
+      });
+    } catch (e) {}
+    try { fs.rmSync(tempRepo, { recursive: true, force: true }); } catch (e) {}
+  }
+})();
+' "$TEST_PORT"
 
 echo "  [9/9] 測試 前端核心互動邏輯與狀態防線 ..."
 node "$PROJECT_DIR/scripts/test_ui_behavior.js"

@@ -1,11 +1,17 @@
 import { KANBAN_STATUSES } from "./constants.js";
 import {
-  projects, tasks, archivedTasks, archivedTasksCount, settings, projectGitStatus, currentProject, currentActiveTaskDiff,
+  projects, tasks, archivedTasks, archivedTasksCount, settings, projectGitStatus, currentProject, currentBranch, projectBranchesMap, groupByBranch, currentActiveTaskDiff,
   currentTaskDependencies, currentModalEditingTask, selectedFirstLaunchPath,
   setProjects, setTasks, setArchivedTasks, setArchivedTasksCount, setSettings, setProjectGitStatus, setCurrentProject,
+  setCurrentBranch, setProjectBranchesMap, setGroupByBranch,
   setCurrentActiveTaskDiff, setCurrentTaskDependencies, setCurrentModalEditingTask,
   setSelectedFirstLaunchPath
 } from "./state.js";
+import {
+  loadProjectBranches, selectProjectAndBranch, renderProjectBranchTree,
+  renderContextualHeaderActions, toggleBranchGroupView, openCreateBranchPopover,
+  closeCreateBranchPopover, submitNewBranch
+} from "./branchNavigator.js";
 import {
   escapeHtml, autoResizeTextarea, resetTextareaHeight, formatDuration,
   showToast, withButtonLoading, copyPrompt, copySessionId, openExternalUrl
@@ -244,8 +250,19 @@ import {
 
         renderSidebarProjects();
         renderProjectBanner();
+        renderContextualHeaderActions();
         renderKanban();
         renderMetrics();
+        if (Array.isArray(projects)) {
+          projects.forEach(p => {
+            if (p && p.id && !projectBranchesMap[p.id]) {
+              loadProjectBranches(p.id, false).then(() => {
+                renderSidebarProjects();
+                renderContextualHeaderActions();
+              });
+            }
+          });
+        }
 
         // 若當前有開啟中且處於 in_progress 的任務 Modal，即時平滑同步最新日誌與變更檔案
         const modalEl = document.getElementById('taskModal');
@@ -654,11 +671,18 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
 
     function filterByProject(projId) {
       setCurrentProject(projId);
+      setCurrentBranch('ALL');
       renderSidebarProjects();
       renderProjectBanner();
       renderKanban();
       renderMetrics();
       closeSidebar();
+      if (projId && projId !== 'ALL') {
+        loadProjectBranches(projId, false).then(() => {
+          renderSidebarProjects();
+          renderContextualHeaderActions();
+        });
+      }
     }
 
     async function deleteProject(projId, index, e) {
@@ -681,6 +705,7 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
           showToast(`已取消追蹤專案：${projName}`);
           if (currentProject === projId) {
             setCurrentProject('ALL');
+            setCurrentBranch('ALL');
           }
           await loadData();
         } else {
@@ -704,19 +729,16 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
       document.getElementById('sidebarProjectCount').innerText = `${projects.length} 個本機專案`;
 
       let html = `
-        <div onclick="filterByProject('ALL')" class="p-2.5 rounded-xl flex items-center justify-between cursor-pointer transition ${currentProject === 'ALL' ? 'bg-indigo-600 text-white font-bold shadow-md shadow-indigo-500/20' : 'hover:bg-slate-200/60 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'}">
-          <div class="flex items-center gap-2">
-            <i data-lucide="layout-grid" class="w-4 h-4"></i>
-            <span class="text-xs"> 全部專案 (${tasks.filter(t => normalizeStatus(t.status) !== 'archived').length})</span>
-          </div>
-          ${currentProject === 'ALL' ? '<i data-lucide="check" class="w-3.5 h-3.5"></i>' : ''}
-        </div>
+        <button type="button" onclick="filterByProject('ALL')" class="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition cursor-pointer ${currentProject === 'ALL' ? 'bg-[var(--primary)] text-[var(--primary-foreground)] font-bold' : 'bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)] font-semibold hover:border-[var(--primary)]'}">
+          <span>全部專案</span>
+          <span class="font-mono px-2 py-0.5 rounded-full text-[11px] ${currentProject === 'ALL' ? 'bg-black/15 text-white' : 'bg-[var(--background)] border border-[var(--border)] text-[var(--foreground)]'}">${tasks.filter(t => normalizeStatus(t.status) !== 'archived').length}</span>
+        </button>
       `;
 
       projects.forEach((p, idx) => {
         if (search && !p.name.toLowerCase().includes(search) && !p.id.toLowerCase().includes(search)) return;
         
-        const isSelected = currentProject === p.id;
+        const isProjOnly = currentProject === p.id && (!currentBranch || currentBranch === 'ALL');
         const taskCount = tasks.filter(t => t.project === p.id && normalizeStatus(t.status) !== 'archived').length;
         const colorClass = p.color === 'purple' ? 'bg-purple-500' :
                            p.color === 'blue' ? 'bg-blue-500' :
@@ -724,20 +746,20 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
                            p.color === 'amber' ? 'bg-amber-500' : 'bg-indigo-500';
 
         html += `
-          <div onclick="filterByProject('${p.id}')" class="group/proj p-2 rounded-xl flex items-center justify-between cursor-pointer transition ${isSelected ? 'bg-indigo-600 text-white font-bold shadow-md shadow-indigo-500/20' : 'hover:bg-slate-200/60 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'}">
-            <div class="flex items-center gap-2 truncate mr-2">
-              <span class="w-2 h-2 rounded-full ${colorClass} flex-shrink-0"></span>
-              <div class="truncate">
-                <p class="text-xs font-medium truncate">${escapeHtml(p.name)}</p>
-                <p class="text-[10px] ${isSelected ? 'text-indigo-100' : 'text-slate-400'} truncate font-mono">${escapeHtml(p.id)}</p>
+          <div class="p-2 rounded-xl bg-[var(--card)] border border-[var(--border)] space-y-1">
+            <div onclick="filterByProject('${p.id}')" class="group/proj px-2 py-1.5 rounded-lg flex items-center justify-between cursor-pointer transition ${isProjOnly ? 'bg-[var(--primary)] text-[var(--primary-foreground)] font-bold' : 'hover:bg-[var(--background)] text-[var(--foreground)] font-bold'}">
+              <div class="flex items-center gap-2 truncate mr-2">
+                <span class="w-2 h-2 rounded-full ${colorClass} flex-shrink-0"></span>
+                <span class="text-xs truncate">${escapeHtml(p.name)}</span>
+              </div>
+              <div class="flex items-center gap-1 flex-shrink-0">
+                <span class="font-mono text-xs px-1.5 py-0.5 rounded ${isProjOnly ? 'bg-black/15 text-white' : 'bg-[var(--background)] text-[var(--foreground)]'}">${taskCount}</span>
+                <button onclick="deleteProject('${p.id}', ${idx}, event)" title="取消追蹤此專案" class="opacity-0 group-hover/proj:opacity-100 p-0.5 text-[var(--muted-foreground)] hover:text-rose-500 rounded transition flex items-center justify-center">
+                  <i data-lucide="trash-2" class="w-3 h-3 pointer-events-none"></i>
+                </button>
               </div>
             </div>
-            <div class="flex items-center gap-1.5 flex-shrink-0">
-              <span class="text-[10px] font-mono px-1.5 py-0.2 rounded-full ${isSelected ? 'bg-indigo-700 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'}">${taskCount}</span>
-              <button onclick="deleteProject('${p.id}', ${idx}, event)" title="取消追蹤此專案" class="opacity-0 group-hover/proj:opacity-100 p-1 text-slate-400 hover:text-rose-500 hover:bg-slate-200/80 dark:hover:bg-slate-700 rounded transition flex items-center justify-center">
-                <i data-lucide="trash-2" class="w-3.5 h-3.5 pointer-events-none"></i>
-              </button>
-            </div>
+            ${renderProjectBranchTree(p)}
           </div>
         `;
       });
@@ -785,6 +807,7 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
         }
         if (harnessBtn) harnessBtn.classList.add('hidden');
         if (headerTitle) headerTitle.innerText = '全部專案';
+        renderContextualHeaderActions();
         return;
       }
 
@@ -798,6 +821,7 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
         }
         if (harnessBtn) harnessBtn.classList.add('hidden');
         if (headerTitle) headerTitle.innerText = currentProject;
+        renderContextualHeaderActions();
         return;
       }
 
@@ -821,6 +845,7 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
           harnessBtn.classList.remove('flex');
         }
       }
+      renderContextualHeaderActions();
       if (window.lucide) lucide.createIcons();
     }
 
@@ -1153,7 +1178,15 @@ export {
   closeHelpModal,
   restartAndReloadPage,
   fetchInspectionStatus,
-  triggerManualInspect
+  triggerManualInspect,
+  loadProjectBranches,
+  selectProjectAndBranch,
+  renderProjectBranchTree,
+  renderContextualHeaderActions,
+  toggleBranchGroupView,
+  openCreateBranchPopover,
+  closeCreateBranchPopover,
+  submitNewBranch
 };
 
 if (typeof window !== "undefined") {
@@ -1205,4 +1238,12 @@ if (typeof window !== "undefined") {
   window.restartAndReloadPage = restartAndReloadPage;
   window.fetchInspectionStatus = fetchInspectionStatus;
   window.triggerManualInspect = triggerManualInspect;
+  window.loadProjectBranches = loadProjectBranches;
+  window.selectProjectAndBranch = selectProjectAndBranch;
+  window.renderProjectBranchTree = renderProjectBranchTree;
+  window.renderContextualHeaderActions = renderContextualHeaderActions;
+  window.toggleBranchGroupView = toggleBranchGroupView;
+  window.openCreateBranchPopover = openCreateBranchPopover;
+  window.closeCreateBranchPopover = closeCreateBranchPopover;
+  window.submitNewBranch = submitNewBranch;
 }

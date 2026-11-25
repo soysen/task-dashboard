@@ -8,3 +8,4 @@
 - [2026-11-06] 拆分 ESM 前端模組時，所有 HTML `onclick`/`oninput` 函式必須同時在 `window.*` 掛載，否則 WebView 點擊事件將拋出 ReferenceError。
 - [2026-11-17] 同 Repo 無 Worktree 平行派工必造成 `HEAD` 與未提交檔案互蓋；開工前須鎖定 `baseBranch`/`baseCommit` 並序列化執行 `Rebase → 重驗 → Merge`。
 - [2026-11-17] 單卡退回或驗證失敗達 2 輪立即熔斷鎖定 `needs_human`，停止哨兵與 CLI 自動喚醒，改由人類排查根因。
+- [2026-11-25] 若任務於主目錄實作或無實體 worktree 目錄，不可保留無效 `workspaceMode: "worktree"`；`/land` 端點須檢查實體 `worktreePath` 存在性，否則自動回退主目錄提交。

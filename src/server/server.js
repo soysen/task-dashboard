@@ -2,7 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
-const { exec, execFile, execSync, spawn } = require('child_process');
+const { exec, execFile, execFileSync, execSync, spawn } = require('child_process');
 
 const os = require('os');
 const {
@@ -47,10 +47,148 @@ const {
   buildCommitAgentPrompt,
   parseAgentCommitOutput,
   getGitBranchInfo,
+  getProjectBranches,
+  createProjectBranch,
+  clearProjectBranchCache,
+  withRepoMergeLock,
   createTaskWorktree,
   removeTaskWorktree,
-  mergeTaskWorktree
+  mergeTaskWorktree,
+  checkTaskBaseDrift,
+  mergeFeatureBranch
 } = require('./services/gitService');
+
+/**
+ * 統一於任務開工時準備隔離工作區（Worktree）或檢查共享工作區排隊互斥狀態
+ * @param {string} projPath 專案根目錄
+ * @param {Object} task 目標任務物件（就地更新欄位）
+ * @param {Array<Object>} allTasks 所有任務列表
+ * @returns {{ queued: boolean, blockedByTaskId: string|null, worktreeCreated: boolean }}
+ */
+function prepareTaskWorkspaceOnStart(projPath, task, allTasks = []) {
+  if (!task || typeof task !== 'object') {
+    return { queued: false, blockedByTaskId: null, worktreeCreated: false };
+  }
+  const mode = (task.workspaceMode === 'worktree' || task.workspaceMode === 'branch_stream' || task.workspaceMode === 'in_place')
+    ? task.workspaceMode
+    : 'worktree';
+  task.workspaceMode = mode;
+
+  const cleanRepo = projPath ? String(projPath).replace(/\/+$/, '') : '';
+  const isGitRepo = Boolean(cleanRepo && fs.existsSync(cleanRepo) && fs.existsSync(path.join(cleanRepo, '.git')));
+
+  // 若尚待使用者審閱確認（requiresConfirmation === true），暫不建立 Worktree 或佔用排隊鎖，待確認執行時再隔離
+  if (task.requiresConfirmation === true) {
+    task.queueState = null;
+    if (isGitRepo && (!task.baseBranch || !task.baseCommit)) {
+      const info = getGitBranchInfo(cleanRepo);
+      if (info.branch) {
+        if (!task.baseBranch) task.baseBranch = info.branch;
+        if (!task.targetBranch) task.targetBranch = task.baseBranch;
+        if (!task.baseCommit) task.baseCommit = info.commit || '';
+      }
+    }
+    return { queued: false, blockedByTaskId: null, worktreeCreated: false };
+  }
+
+  if (mode === 'worktree') {
+    task.queueState = null;
+    if (!isGitRepo) {
+      return { queued: false, blockedByTaskId: null, worktreeCreated: false };
+    }
+    if (task.worktreePath && fs.existsSync(task.worktreePath)) {
+      if (!task.branchName) task.branchName = `td/${task.id}`;
+      if (!task.baseBranch || !task.targetBranch || !task.baseCommit) {
+        const info = getGitBranchInfo(cleanRepo);
+        if (!task.targetBranch) task.targetBranch = task.baseBranch || info.branch || 'main';
+        if (!task.baseBranch) task.baseBranch = task.targetBranch;
+        if (!task.baseCommit) {
+          try {
+            task.baseCommit = execFileSync('git', ['-C', cleanRepo, 'rev-parse', '--verify', task.baseBranch], {
+              encoding: 'utf8',
+              timeout: 5000
+            }).trim();
+          } catch (e) {
+            task.baseCommit = info.commit || '';
+          }
+        }
+      }
+      return { queued: false, blockedByTaskId: null, worktreeCreated: false };
+    }
+    try {
+      const requestedBase = String(task.targetBranch || task.baseBranch || '').trim() || undefined;
+      const wt = createTaskWorktree(cleanRepo, task.id, { baseBranch: requestedBase });
+      task.worktreePath = wt.worktreePath;
+      task.branchName = wt.branchName;
+      task.targetBranch = task.targetBranch || wt.baseBranch;
+      task.baseBranch = wt.baseBranch;
+      task.baseCommit = wt.baseCommit;
+      task.queueState = null;
+      return { queued: false, blockedByTaskId: null, worktreeCreated: true };
+    } catch (err) {
+      console.warn(`⚠️ [prepareTaskWorkspaceOnStart] 建立 Worktree 失敗 (${task.id}): ${err.message}`);
+      return { queued: false, blockedByTaskId: null, worktreeCreated: false };
+    }
+  }
+
+  // branch_stream 或 in_place 模式：檢查同專案活躍佔用者
+  const branchInfo = isGitRepo ? getGitBranchInfo(cleanRepo) : { branch: '', commit: '' };
+  const resolvedTargetBranch = String(task.targetBranch || task.baseBranch || branchInfo.branch || '').trim();
+  const tasksList = Array.isArray(allTasks) ? allTasks : [];
+  const blocker = tasksList.find(other => {
+    if (!other || other.id === task.id || other.status !== 'in_progress') return false;
+    if ((other.project || '') !== (task.project || '')) return false;
+    const isOtherPendingConfirm = Boolean(other.requiresConfirmation && other.executionPlan && String(other.executionPlan).trim().length > 0);
+    const isOtherCircuitBroken = other.status === 'needs_human' || other.needsHuman === true || (Number(other.fixRoundCount || 0) >= 2 && other.resetCircuitBreaker !== true);
+    const isOtherQueued = Boolean(other.queueState && other.queueState.blockedByTaskId);
+    if (isOtherPendingConfirm || isOtherCircuitBroken || isOtherQueued) return false;
+
+    const otherMode = (other.workspaceMode === 'worktree' || other.workspaceMode === 'branch_stream' || other.workspaceMode === 'in_place')
+      ? other.workspaceMode
+      : 'worktree';
+    if (mode === 'in_place') {
+      return otherMode === 'in_place';
+    }
+    if (otherMode !== 'branch_stream') return false;
+    const otherTarget = String(other.targetBranch || other.baseBranch || branchInfo.branch || '').trim();
+    return Boolean(resolvedTargetBranch && otherTarget === resolvedTargetBranch);
+  });
+
+  if (blocker) {
+    task.queueState = {
+      blockedByTaskId: blocker.id,
+      reason: `等待 ${blocker.id} 完成中`,
+      queuedAt: new Date().toISOString()
+    };
+    return { queued: true, blockedByTaskId: blocker.id, worktreeCreated: false };
+  }
+
+  task.queueState = null;
+  if (isGitRepo) {
+    if (!task.baseBranch && (resolvedTargetBranch || branchInfo.branch)) {
+      task.baseBranch = resolvedTargetBranch || branchInfo.branch;
+    }
+    if (!task.targetBranch && task.baseBranch) {
+      task.targetBranch = task.baseBranch;
+    }
+    if (!task.baseCommit) {
+      const refToVerify = task.baseBranch || branchInfo.branch;
+      if (refToVerify) {
+        try {
+          task.baseCommit = execFileSync('git', ['-C', cleanRepo, 'rev-parse', '--verify', refToVerify], {
+            encoding: 'utf8',
+            timeout: 5000
+          }).trim();
+        } catch (e) {
+          task.baseCommit = branchInfo.commit || '';
+        }
+      } else {
+        task.baseCommit = branchInfo.commit || '';
+      }
+    }
+  }
+  return { queued: false, blockedByTaskId: null, worktreeCreated: false };
+}
 const {
   recordCliRun,
   getCliRunsToday,
@@ -706,28 +844,25 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
     args = ['-c', buildCliCommand(rawCliCmd, promptText)];
   }
 
-  // 檢查是否啟用 Git Worktree 隔離模式並鎖定 baseBranch / baseCommit
+  // 檢查隔離工作區與排隊狀態（若已有有效 worktreePath 直接沿用不重複建立）
   let execPath = projPath;
   let worktreeCreated = false;
-  if (settings.cliIsolation === 'worktree') {
-    try {
-      const wt = createTaskWorktree(projPath, taskId, { baseBranch: task.baseBranch });
-      execPath = wt.worktreePath;
-      task.worktreePath = wt.worktreePath;
-      task.branchName = wt.branchName;
-      task.baseBranch = wt.baseBranch;
-      task.baseCommit = wt.baseCommit;
-      worktreeCreated = true;
-      console.log(' [CLI Agent Worktree] 已為任務 ' + taskId + ' 建立隔離工作區: ' + execPath + ' (分支: ' + wt.branchName + ', 基線: ' + wt.baseBranch + '@' + (wt.baseCommit || '').slice(0, 7) + ')');
-    } catch (wtErr) {
-      console.warn('⚠️ [CLI Agent Worktree] 建立隔離工作區失敗，回退至主目錄: ' + wtErr.message);
-    }
-  } else if (!task.baseBranch) {
-    const branchInfo = getGitBranchInfo(projPath);
-    if (branchInfo.branch) {
-      task.baseBranch = branchInfo.branch;
-      task.baseCommit = branchInfo.commit;
-    }
+  const workspacePrep = prepareTaskWorkspaceOnStart(projPath, task, tasks);
+  if (workspacePrep.queued) {
+    writeTasks(tasks);
+    console.log(`⏳ [CLI Agent Queue] 任務 ${taskId} 等待 ${workspacePrep.blockedByTaskId} 完成中，暫緩啟動 CLI`);
+    if (callback) callback(new Error(`任務排隊等待 ${workspacePrep.blockedByTaskId} 完成中`));
+    return;
+  }
+  if (task.workspaceMode === 'worktree' && task.worktreePath && fs.existsSync(task.worktreePath)) {
+    execPath = task.worktreePath;
+    worktreeCreated = true;
+    console.log(' [CLI Agent Worktree] 已為任務 ' + taskId + ' 啟用隔離工作區: ' + execPath + ' (分支: ' + task.branchName + ', 基線: ' + task.baseBranch + '@' + (task.baseCommit || '').slice(0, 7) + ')');
+  } else if (settings.cliIsolation === 'worktree' && task.workspaceMode === 'worktree') {
+    console.warn('⚠️ [CLI Agent Worktree] 建立隔離工作區失敗，回退至主目錄');
+  }
+  if (workspacePrep.worktreeCreated) {
+    writeTasks(tasks);
   }
 
   // 設定負責人為 CLI
@@ -1523,6 +1658,124 @@ function runNativeFolderPicker(promptText, callback) {
     return;
   }
 
+  // 查詢專案 Git 分支清單與工作區狀態 (支援 ?refresh=1)
+  const branchesGetMatch = req.method === 'GET' && pathname.match(/^\/api\/projects\/([^/]+)\/branches$/);
+  if (branchesGetMatch) {
+    const projId = decodeURIComponent(branchesGetMatch[1]).trim();
+    const projects = readProjects();
+    const proj = projects.find(p => p.id === projId);
+    if (!proj) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Project not found' }));
+      return;
+    }
+    const repoPath = proj.path || path.join(PROJECTS_ROOT, proj.id);
+    const tasks = readTasks().filter(t => t.project === proj.id && t.status !== 'archived');
+    const forceRefresh = query.refresh === '1' || query.refresh === 'true';
+    const branchInfo = getProjectBranches(repoPath, tasks, { refresh: forceRefresh });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ projectId: proj.id, ...branchInfo }));
+    return;
+  }
+
+  // 在專案下建立新 Git 分支（預設無損建立，不切換工作區）
+  const branchesPostMatch = req.method === 'POST' && pathname.match(/^\/api\/projects\/([^/]+)\/branches$/);
+  if (branchesPostMatch) {
+    const projId = decodeURIComponent(branchesPostMatch[1]).trim();
+    let body = '';
+    req.on('data', chunk => (body += chunk));
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body || '{}');
+        const projects = readProjects();
+        const proj = projects.find(p => p.id === projId);
+        if (!proj) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Project not found' }));
+          return;
+        }
+        const branchName = String(data.branchName || data.name || '').trim();
+        if (!branchName) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing branchName' }));
+          return;
+        }
+        const repoPath = proj.path || path.join(PROJECTS_ROOT, proj.id);
+        const created = createProjectBranch(repoPath, branchName, data.fromBranch || '', {
+          checkout: data.checkout === true
+        });
+        const tasks = readTasks().filter(t => t.project === proj.id && t.status !== 'archived');
+        const branchInfo = getProjectBranches(repoPath, tasks, { refresh: true });
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, projectId: proj.id, ...created, branchInfo }));
+      } catch (err) {
+        const statusCode = err && err.statusCode ? err.statusCode : 400;
+        res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: (err && err.message) || 'Failed to create branch' }));
+      }
+    });
+    return;
+  }
+
+  // 合併功能分支回目標主幹分支
+  const branchesMergeMatch = req.method === 'POST' && pathname.match(/^\/api\/projects\/([^/]+)\/branches\/merge$/);
+  if (branchesMergeMatch) {
+    const projId = decodeURIComponent(branchesMergeMatch[1]).trim();
+    let body = '';
+    req.on('data', chunk => (body += chunk));
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body || '{}');
+        const projects = readProjects();
+        const proj = projects.find(p => p.id === projId);
+        if (!proj) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Project not found' }));
+          return;
+        }
+        const repoPath = proj.path || path.join(PROJECTS_ROOT, proj.id);
+        const sourceBranch = String(data.sourceBranch || '').trim();
+        let targetBranch = String(data.targetBranch || '').trim();
+        if (!targetBranch) {
+          const info = getProjectBranches(repoPath, [], { refresh: false });
+          targetBranch = info.defaultBranch || 'main';
+        }
+        if (!sourceBranch || !targetBranch) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Missing sourceBranch or targetBranch' }));
+          return;
+        }
+        const mergeRes = await mergeFeatureBranch(repoPath, sourceBranch, targetBranch, {
+          strategy: data.strategy || 'merge',
+          deleteSourceBranch: data.deleteSourceBranch === true,
+          commitMessage: data.commitMessage || '',
+          customEnv: buildCustomEnv()
+        });
+        if (!mergeRes.success) {
+          const httpCode = (mergeRes.status === 'conflict' || mergeRes.status === 'dirty_main_workspace') ? 409 : 400;
+          res.writeHead(httpCode, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(mergeRes));
+          return;
+        }
+        gitProjectsStatusCache = { timestamp: 0, data: null };
+        const tasks = readTasks().filter(t => t.project === proj.id && t.status !== 'archived');
+        const branchInfo = getProjectBranches(repoPath, tasks, { refresh: true });
+        broadcastSse('project-branch-merged', {
+          projectId: proj.id,
+          sourceBranch,
+          targetBranch,
+          commitSha: mergeRes.commitSha
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ...mergeRes, projectId: proj.id, branchInfo }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: (err && err.message) || 'Failed to merge branch' }));
+      }
+    });
+    return;
+  }
+
   // 更新專案資訊 (例如 proxyUrl, name, description)
   if ((pathname === '/api/projects' || pathname.startsWith('/api/projects/')) && !pathname.endsWith('/conversations') && req.method === 'PUT') {
     let projId = (query.id || '').trim();
@@ -1819,6 +2072,30 @@ function runNativeFolderPicker(promptText, callback) {
     return;
   }
 
+  // 檢查任務基線飄移與潛在合併衝突 (/drift-check)
+  if (pathname.match(/^\/api\/tasks\/([^/]+)\/drift-check$/) && req.method === 'GET') {
+    const taskId = decodeURIComponent(pathname.split('/')[3] || '').trim();
+    const tasks = readTasks();
+    const archived = readArchivedTasks();
+    const task = tasks.find(t => t.id === taskId) || archived.find(t => t.id === taskId);
+    if (!task) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Task not found: ' + taskId }));
+      return;
+    }
+    const projects = readProjects();
+    const proj = projects.find(p => p.id === task.project);
+    const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, task.project || '');
+    const drift = checkTaskBaseDrift(projPath, task);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      taskId,
+      ...drift,
+      checkedAt: new Date().toISOString()
+    }));
+    return;
+  }
+
   // 查詢單一任務完整 Diff (支援封存任務已抽離之 diffPath)
   if (pathname.match(/^\/api\/tasks\/([^/]+)\/diff$/) && req.method === 'GET') {
     const taskId = decodeURIComponent(pathname.split('/')[3] || '').trim();
@@ -1906,6 +2183,15 @@ function runNativeFolderPicker(promptText, callback) {
         });
         const tasks = readTasks();
         const newId = getNextTaskId(tasks);
+        const targetBranch = typeof data.targetBranch === 'string'
+          ? data.targetBranch.trim()
+          : (typeof data.baseBranch === 'string' ? data.baseBranch.trim() : '');
+        const baseBranch = (typeof data.baseBranch === 'string' && data.baseBranch.trim())
+          ? data.baseBranch.trim()
+          : targetBranch;
+        const workspaceMode = (data.workspaceMode === 'worktree' || data.workspaceMode === 'branch_stream' || data.workspaceMode === 'in_place')
+          ? data.workspaceMode
+          : 'worktree';
         const newTask = {
           id: newId,
           title: data.title,
@@ -1928,7 +2214,9 @@ function runNativeFolderPicker(promptText, callback) {
           riskDoor: data.riskDoor || '',
           riskReasons: Array.isArray(data.riskReasons) ? data.riskReasons : undefined,
           scope: data.scope !== undefined ? normalizeTaskScope(data.scope) : undefined,
-          baseBranch: data.baseBranch || '',
+          targetBranch,
+          baseBranch,
+          workspaceMode,
           baseCommit: data.baseCommit || '',
           fixRoundCount: Number(data.fixRoundCount || 0),
           needsHuman: data.needsHuman === true,
@@ -1938,26 +2226,25 @@ function runNativeFolderPicker(promptText, callback) {
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
-        if (newTask.status === 'in_progress' && !newTask.baseBranch) {
+        let workspacePrep = { queued: false };
+        if (newTask.status === 'in_progress') {
           const projectsForBase = readProjects();
           const projForBase = projectsForBase.find(p => p.id === newTask.project);
           const projPathForBase = projForBase ? projForBase.path : path.join(PROJECTS_ROOT, newTask.project || '');
-          const branchInfo = getGitBranchInfo(projPathForBase);
-          if (branchInfo.branch) {
-            newTask.baseBranch = branchInfo.branch;
-            newTask.baseCommit = branchInfo.commit;
-          }
+          workspacePrep = prepareTaskWorkspaceOnStart(projPathForBase, newTask, tasks);
         }
         tasks.push(newTask);
         writeTasks(tasks);
 
-        // 若新增任務直接為 in_progress，同步 worklog 並觸發 CLI Agent 執行
+        // 若新增任務直接為 in_progress，同步 worklog 並觸發 CLI Agent 執行（若進入排隊則暫緩）
         if (newTask.status === 'in_progress') {
           const projects = readProjects();
           const proj = projects.find(p => p.id === newTask.project);
           const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, newTask.project || '');
           syncProjectWorklogForActiveTask(projPath, newTask);
-          executeTaskWithCliAgent(newTask.id);
+          if (!workspacePrep.queued) {
+            executeTaskWithCliAgent(newTask.id);
+          }
         }
 
         broadcastSse('task-update', { taskId: newTask.id, status: newTask.status });
@@ -2135,10 +2422,26 @@ function runNativeFolderPicker(promptText, callback) {
         const normalizedDeviations = data.deviations !== undefined ? normalizeDisclosureList(data.deviations) : tasks[index].deviations;
         const normalizedUnverified = data.unverified !== undefined ? normalizeDisclosureList(data.unverified) : tasks[index].unverified;
 
+        const nextTargetBranch = data.targetBranch !== undefined
+          ? String(data.targetBranch || '').trim()
+          : (data.baseBranch !== undefined
+            ? String(data.baseBranch || '').trim()
+            : (tasks[index].targetBranch !== undefined ? tasks[index].targetBranch : (tasks[index].baseBranch || '')));
+        const nextBaseBranch = (data.baseBranch !== undefined && String(data.baseBranch || '').trim())
+          ? String(data.baseBranch || '').trim()
+          : (data.targetBranch !== undefined ? nextTargetBranch : (tasks[index].baseBranch || nextTargetBranch));
+        const rawMode = data.workspaceMode !== undefined ? data.workspaceMode : tasks[index].workspaceMode;
+        const nextWorkspaceMode = (rawMode === 'worktree' || rawMode === 'branch_stream' || rawMode === 'in_place')
+          ? rawMode
+          : 'worktree';
+
         tasks[index] = {
           ...tasks[index],
           ...data,
           id: taskId,
+          targetBranch: nextTargetBranch,
+          baseBranch: nextBaseBranch,
+          workspaceMode: nextWorkspaceMode,
           scope: normalizedScope,
           assumptions: normalizedAssumptions,
           deviations: normalizedDeviations,
@@ -2265,20 +2568,42 @@ function runNativeFolderPicker(promptText, callback) {
             }
             tasks[index].feedback = '';
           }
-          // TD-S2: 若尚未記錄來源 baseBranch / baseCommit，於開工時鎖定
-          if (!tasks[index].baseBranch) {
-            const projectsForBase = readProjects();
-            const projForBase = projectsForBase.find(p => p.id === tasks[index].project);
-            const projPathForBase = projForBase ? projForBase.path : path.join(PROJECTS_ROOT, tasks[index].project || '');
-            const branchInfo = getGitBranchInfo(projPathForBase);
-            if (branchInfo.branch) {
-              tasks[index].baseBranch = branchInfo.branch;
-              tasks[index].baseCommit = branchInfo.commit;
-            }
+          // TD-S2 / TASK-233: 統一開工隔離與排隊互斥檢查
+          let workspacePrep = { queued: false };
+          if (tasks[index].status === 'in_progress') {
+            const projectsForStart = readProjects();
+            const projForStart = projectsForStart.find(p => p.id === tasks[index].project);
+            const projPathForStart = projForStart ? projForStart.path : path.join(PROJECTS_ROOT, tasks[index].project || '');
+            workspacePrep = prepareTaskWorkspaceOnStart(projPathForStart, tasks[index], tasks);
           }
           writeTasks(tasks);
-          if (tasks[index].status === 'in_progress') {
+          if (tasks[index].status === 'in_progress' && !workspacePrep.queued) {
             executeTaskWithCliAgent(taskId);
+          }
+        }
+
+        // 若任務離開 in_progress，清理自身 queueState 並自動解除被此任務阻塞的排隊任務
+        if (prevStatus === 'in_progress' && tasks[index].status !== 'in_progress') {
+          tasks[index].queueState = null;
+          const waitingTasks = tasks.filter(t => t && t.id !== taskId && t.status === 'in_progress' && t.queueState && t.queueState.blockedByTaskId === taskId);
+          if (waitingTasks.length > 0) {
+            const projectsForUnblock = readProjects();
+            const unblockedIds = [];
+            for (const waitingTask of waitingTasks) {
+              const wProj = projectsForUnblock.find(p => p.id === waitingTask.project);
+              const wProjPath = wProj ? wProj.path : path.join(PROJECTS_ROOT, waitingTask.project || '');
+              const wPrep = prepareTaskWorkspaceOnStart(wProjPath, waitingTask, tasks);
+              if (!wPrep.queued) {
+                unblockedIds.push(waitingTask.id);
+              }
+            }
+            writeTasks(tasks);
+            for (const unblockedId of unblockedIds) {
+              broadcastSse('task-update', { taskId: unblockedId, status: 'in_progress' });
+              executeTaskWithCliAgent(unblockedId);
+            }
+          } else {
+            writeTasks(tasks);
           }
         }
 
@@ -2477,13 +2802,38 @@ function runNativeFolderPicker(promptText, callback) {
         return;
       }
 
-      // commit 成功後將該專案所有已完成 (done) 的任務全部封存 (archived)
+      // commit 成功後僅封存本次提交之任務（及顯式 coLandTaskIds），不連坐封存同專案其他 done 任務
       const archivedIds = [];
       const nowIso = new Date().toISOString();
+      let commitSha = '';
+      let landedBranch = task.targetBranch || task.baseBranch || '';
+      if (projPath && fs.existsSync(path.join(projPath, '.git'))) {
+        try {
+          commitSha = execFileSync('git', ['-C', projPath, 'rev-parse', '--verify', 'HEAD'], {
+            encoding: 'utf8',
+            timeout: 5000
+          }).trim();
+          const bInfo = getGitBranchInfo(projPath);
+          if (bInfo && bInfo.branch) landedBranch = bInfo.branch;
+        } catch (_) {}
+      }
+      const coLandIds = Array.isArray(customData.coLandTaskIds)
+        ? customData.coLandTaskIds.map(id => String(id).trim()).filter(Boolean)
+        : [];
+      const targetLandIds = new Set([task.id, ...coLandIds]);
+
       tasks.forEach(t => {
-        if ((t.project === task.project || (!t.project && !task.project)) && (t.status === 'done' || t.id === task.id)) {
+        if (targetLandIds.has(t.id) && (t.project === task.project || (!t.project && !task.project))) {
           t.status = 'archived';
           t.updatedAt = nowIso;
+          t.gitLanding = {
+            isCommitted: true,
+            commitSha,
+            landedBranch,
+            landedAt: nowIso,
+            pushedRemote: false,
+            prUrl: ''
+          };
           archivedIds.push(t.id);
         }
       });
@@ -2491,7 +2841,229 @@ function runNativeFolderPicker(promptText, callback) {
       gitProjectsStatusCache = { timestamp: 0, data: null };
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: true, isCommitted: true, message: commitOutput, output: commitOutput, archivedTaskIds: archivedIds }));
+      res.end(JSON.stringify({ success: true, isCommitted: true, message: commitOutput, output: commitOutput, commitSha, landedBranch, archivedTaskIds: archivedIds }));
+    });
+    return;
+  }
+
+  // 合一通過並提交 (/api/tasks/:taskId/land)：依 workspaceMode 分流提交或合併、寫入 gitLanding、精準單卡結案並解除排隊阻塞
+  const landMatch = pathname.match(/^\/api\/tasks\/([^/]+)\/land$/) && req.method === 'POST';
+  if (landMatch) {
+    const taskId = decodeURIComponent(pathname.split('/')[3] || '').trim();
+    let reqBody = '';
+    req.on('data', chunk => { reqBody += chunk; });
+    req.on('end', async () => {
+      let bodyData = {};
+      try {
+        if (reqBody.trim()) bodyData = JSON.parse(reqBody);
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'Invalid JSON body' }));
+        return;
+      }
+
+      const tasks = readTasks();
+      const task = tasks.find(t => t.id === taskId);
+      if (!task) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'Task not found' }));
+        return;
+      }
+
+      const projects = readProjects();
+      const proj = projects.find(p => p.id === task.project);
+      const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, task.project || '');
+      const isGitRepo = Boolean(projPath && fs.existsSync(projPath) && fs.existsSync(path.join(projPath, '.git')));
+      const workspaceMode = task.workspaceMode || (task.worktreePath ? 'worktree' : 'in_place');
+      const archiveImmediately = Boolean(bodyData.archiveImmediately);
+      const targetStatus = archiveImmediately ? 'archived' : 'done';
+      const sub = String(bodyData.subject || bodyData.customSubject || '').trim();
+      const bod = bodyData.body !== undefined
+        ? String(bodyData.body).trim()
+        : (bodyData.customBody !== undefined ? String(bodyData.customBody).trim() : undefined);
+
+      let commitSha = '';
+      let landedBranch = task.targetBranch || task.baseBranch || '';
+      let pushedRemote = false;
+      let prUrl = '';
+      let outputMsg = '已通過並提交';
+
+      try {
+        if (isGitRepo) {
+          const effectiveWorktreePath = task.worktreePath || `${projPath.replace(/\/+$/, '')}.worktrees/${taskId}`;
+          const hasPhysicalWorktree = Boolean(effectiveWorktreePath && fs.existsSync(effectiveWorktreePath));
+          if (workspaceMode === 'worktree' && hasPhysicalWorktree) {
+            const taskForMerge = { ...task };
+            if (sub || bod !== undefined) {
+              taskForMerge.commitMessage = {
+                subject: sub || (task.commitMessage && task.commitMessage.subject) || '',
+                body: bod !== undefined ? bod : ((task.commitMessage && task.commitMessage.body) || '')
+              };
+            }
+            const mergeResult = await mergeTaskWorktree({
+              repoPath: projPath,
+              taskId,
+              task: taskForMerge,
+              baseBranch: task.targetBranch || task.baseBranch,
+              verifyCommand: bodyData.verifyCommand || (proj && proj.verifyCommand) || '',
+              confirmOneWayMerge: Boolean(bodyData.confirmOneWayMerge),
+              mode: bodyData.mode || '',
+              customEnv: buildCustomEnv()
+            });
+
+            if (mergeResult.action === 'pr_pushed') {
+              commitSha = mergeResult.mergeCommit || '';
+              landedBranch = mergeResult.baseBranch || landedBranch;
+              pushedRemote = true;
+              prUrl = mergeResult.prUrl || '';
+              outputMsg = `已推送分支 ${mergeResult.branchName} 並建立 PR`;
+            } else if (mergeResult.merged) {
+              commitSha = mergeResult.mergeCommit || '';
+              landedBranch = mergeResult.baseBranch || landedBranch;
+              if (!commitSha && landedBranch) {
+                try {
+                  commitSha = execFileSync('git', ['-C', projPath, 'rev-parse', '--verify', landedBranch], {
+                    encoding: 'utf8',
+                    timeout: 5000
+                  }).trim();
+                } catch (_) {}
+              }
+              outputMsg = `Worktree 已安全合併至 ${landedBranch || '主分支'}`;
+            } else {
+              const statusCode =
+                mergeResult.status === 'verification_failed' ? 422 :
+                (mergeResult.status === 'rebase_conflict' || mergeResult.status === 'dirty_main_workspace' || mergeResult.status === 'one_way_requires_confirmation') ? 409 :
+                400;
+              if (mergeResult.status === 'rebase_conflict') {
+                appendTaskEvent({ taskId, type: 'merge_conflict', baseBranch: mergeResult.baseBranch, branchName: mergeResult.branchName });
+              } else if (mergeResult.status === 'verification_failed') {
+                appendTaskEvent({ taskId, type: 'merge_verification_failed', baseBranch: mergeResult.baseBranch, exitCode: mergeResult.exitCode });
+              }
+              res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ...mergeResult, success: false, taskId }));
+              return;
+            }
+          } else {
+            const commitRes = await withRepoMergeLock(projPath, async () => {
+              return executeProjectCommit(projPath, task, {
+                subject: sub,
+                body: bod
+              });
+            });
+            if (commitRes.hasError || !commitRes.isCommitted) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({
+                success: false,
+                isCommitted: false,
+                taskId,
+                error: commitRes.output || 'Git Commit 執行失敗',
+                message: commitRes.output || 'Git Commit 執行失敗'
+              }));
+              return;
+            }
+            outputMsg = commitRes.output || outputMsg;
+            try {
+              commitSha = execFileSync('git', ['-C', projPath, 'rev-parse', '--verify', 'HEAD'], {
+                encoding: 'utf8',
+                timeout: 5000
+              }).trim();
+            } catch (_) {}
+            const bInfo = getGitBranchInfo(projPath);
+            if (bInfo && bInfo.branch) landedBranch = bInfo.branch;
+          }
+        } else {
+          outputMsg = '專案非 Git 儲存庫，已直接標記結案';
+        }
+      } catch (landErr) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          success: false,
+          isCommitted: false,
+          taskId,
+          error: landErr && landErr.message ? landErr.message : '提交失敗'
+        }));
+        return;
+      }
+
+      // 重新讀取最新 tasks.json 並僅更新本次任務（及顯式 coLandTaskIds），絕不連坐其他 done 任務
+      const freshTasks = readTasks();
+      const nowIso = new Date().toISOString();
+      const coLandIds = Array.isArray(bodyData.coLandTaskIds)
+        ? bodyData.coLandTaskIds.map(id => String(id).trim()).filter(Boolean)
+        : [];
+      const targetLandIds = new Set([taskId, ...coLandIds]);
+      const landedTaskIds = [];
+      const unblockedTaskIds = [];
+      let primaryGitLanding = null;
+
+      freshTasks.forEach(t => {
+        const sameProject = (t.project === task.project || (!t.project && !task.project));
+        if (targetLandIds.has(t.id) && (t.id === taskId || sameProject)) {
+          const landingObj = {
+            isCommitted: true,
+            commitSha,
+            landedBranch,
+            landedAt: nowIso,
+            pushedRemote,
+            prUrl
+          };
+          t.status = targetStatus;
+          t.updatedAt = nowIso;
+          t.gitLanding = landingObj;
+          if (sub || bod !== undefined) {
+            t.commitMessage = {
+              subject: sub || (t.commitMessage && t.commitMessage.subject) || '',
+              body: bod !== undefined ? bod : ((t.commitMessage && t.commitMessage.body) || '')
+            };
+          }
+          if (workspaceMode === 'worktree' && t.id === taskId) {
+            t.mergeStatus = pushedRemote ? 'pr_ready' : 'merged';
+            t.mergedAt = nowIso;
+            t.mergeCommit = commitSha;
+            t.worktreePath = null;
+            if (prUrl) t.prUrl = prUrl;
+          }
+          if (t.id === taskId) primaryGitLanding = landingObj;
+          landedTaskIds.push(t.id);
+        } else if (sameProject && t.queueState && t.queueState.blockedByTaskId === taskId) {
+          t.queueState = null;
+          t.updatedAt = nowIso;
+          unblockedTaskIds.push(t.id);
+        }
+      });
+
+      writeTasks(freshTasks);
+      gitProjectsStatusCache = { timestamp: 0, data: null };
+      if (isGitRepo) clearProjectBranchCache(projPath);
+
+      appendTaskEvent({
+        taskId,
+        type: 'task_landed',
+        status: targetStatus,
+        commitSha,
+        landedBranch,
+        landedTaskIds,
+        unblockedTaskIds
+      });
+      broadcastSse('task-update', { taskId, status: targetStatus, gitLanding: primaryGitLanding });
+      unblockedTaskIds.forEach(uid => {
+        const ut = freshTasks.find(x => x.id === uid);
+        broadcastSse('task-update', { taskId: uid, status: ut ? ut.status : 'todo', queueState: null });
+      });
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        isCommitted: true,
+        taskId,
+        status: targetStatus,
+        archived: targetStatus === 'archived',
+        gitLanding: primaryGitLanding,
+        landedTaskIds,
+        unblockedTaskIds,
+        message: outputMsg,
+        output: outputMsg
+      }));
     });
     return;
   }

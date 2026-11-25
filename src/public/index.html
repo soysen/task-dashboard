@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title> Task Dashboard</title>
+  <title>Task Dashboard 3.0</title>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script> tailwind.config = {
@@ -74,8 +74,8 @@
   <div id="macTitlebar" class="h-8 w-full flex-shrink-0 hidden md:flex items-center justify-between px-4 pl-20 bg-slate-200 dark:bg-slate-900 border-b border-slate-300 dark:border-slate-700 select-none cursor-grab active:cursor-grabbing z-50">
     <div class="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-400">
       <i data-lucide="layers" class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 pointer-events-none"></i>
-      <span class="pointer-events-none"> Task Dashboard</span>
-      <span class="text-[9px] bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 px-1.5 py-0.2 rounded font-mono pointer-events-none"> v2.1 Dual-Engine</span>
+      <span class="pointer-events-none">Task Dashboard</span>
+      <span class="text-[9px] bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 border border-indigo-500/30 px-1.5 py-0.2 rounded font-mono font-bold pointer-events-none">3.0</span>
     </div>
     <div class="flex items-center gap-2">
       <button type="button" onclick="restartAndReloadPage(event)" title="重啟後端服務並重新整理頁面" class="pointer-events-auto text-[10px] bg-slate-300/80 dark:bg-slate-800 hover:bg-indigo-600 hover:text-white text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded transition flex items-center gap-1 shadow-sm">
@@ -87,60 +87,67 @@
     </div>
   </div>
 
-  <!-- Workspace Container -->
-  <div class="flex-1 flex flex-col min-h-0 w-full overflow-hidden relative">
+  <!-- Workspace Container (Persistent Project × Branch Sidebar on Desktop + Main Workspace) -->
+  <div class="flex-1 flex min-h-0 w-full overflow-hidden relative">
 
-    <!-- Sidebar Backdrop -->
-    <div id="sidebarBackdrop" onclick="closeSidebar()" class="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-40 hidden transition-opacity"></div>
+    <!-- Sidebar Backdrop (Mobile) -->
+    <div id="sidebarBackdrop" onclick="closeSidebar()" class="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-40 hidden lg:hidden transition-opacity"></div>
 
-    <!-- Left Sidebar (Floating Drawer Panel) -->
-    <aside id="sidebar" class="fixed top-0 md:top-8 bottom-0 left-0 z-50 w-72 bg-slate-50 dark:bg-slate-900 border-r border-slate-300 dark:border-slate-700 flex flex-col transition-transform duration-300 transform -translate-x-full shadow-2xl select-none">
+    <!-- Left Sidebar: Project × Branch Tree -->
+    <aside id="sidebar" class="fixed top-0 md:top-8 lg:top-0 bottom-0 left-0 z-50 lg:z-20 w-72 lg:w-64 xl:w-72 lg:static lg:translate-x-0 bg-[var(--sidebar)] border-r border-[var(--border)] flex flex-col flex-shrink-0 transition-transform duration-300 transform -translate-x-full shadow-2xl lg:shadow-none select-none">
       
       <!-- Sidebar Header -->
-      <div class="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-        <div id="sidebarBrand" class="flex items-center gap-2.5 overflow-hidden">
-          <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-600 to-emerald-500 flex items-center justify-center shadow-md shadow-indigo-500/20 flex-shrink-0">
-            <i data-lucide="layers" class="w-4 h-4 text-white"></i>
-          </div>
-          <div class="truncate">
-            <h2 class="text-sm font-bold text-slate-900 dark:text-white tracking-tight truncate"> Projects Hub</h2>
-            <p class="text-[11px] text-slate-500 dark:text-slate-400 truncate"> 本機專案管理庫</p>
-          </div>
+      <div class="px-3.5 py-3 border-b border-[var(--border)] flex items-center justify-between gap-2">
+        <div id="sidebarBrand" class="flex items-center gap-2 overflow-hidden">
+          <span class="text-xs font-bold text-[var(--muted-foreground)] tracking-tight truncate">專案與分支</span>
         </div>
-        <button onclick="closeSidebar()" title="關閉專案選單" class="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition">
-          <i data-lucide="x" class="w-4 h-4"></i>
-        </button>
+        <div class="flex items-center gap-1.5 flex-shrink-0">
+          <button onclick="chooseFolderNative(event)" title="加入本機專案資料夾" class="text-[11px] font-semibold px-2 py-1 rounded-lg bg-[var(--card)] border border-[var(--border)] text-[var(--foreground)] hover:border-[var(--primary)] transition cursor-pointer">
+            ＋ 加入專案
+          </button>
+          <button onclick="closeSidebar()" title="關閉專案選單" class="lg:hidden text-[var(--muted-foreground)] hover:text-[var(--foreground)] p-1 rounded-lg hover:bg-[var(--card)] transition">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
       </div>
 
       <!-- Sidebar Search & Action -->
-      <div id="sidebarSearchBox" class="p-3 border-b border-slate-200 dark:border-slate-700 space-y-2">
+      <div id="sidebarSearchBox" class="px-3 py-2 border-b border-[var(--border)] space-y-2">
         <div class="relative">
-          <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500"></i>
-          <input type="text" id="projectSearchInput" placeholder="搜尋專案..." class="w-full bg-white dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-lg pl-8 pr-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 transition">
+          <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"></i>
+          <input type="text" id="projectSearchInput" placeholder="搜尋專案..." class="w-full bg-[var(--card)] border border-[var(--border)] rounded-lg pl-8 pr-2.5 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)] transition">
         </div>
       </div>
 
-      <!-- Project List -->
-      <div class="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1" id="projectSidebarList">
+      <!-- Project × Branch List -->
+      <div class="flex-1 overflow-y-auto custom-scrollbar p-2.5 space-y-2.5" id="projectSidebarList">
+      </div>
+
+      <!-- Plain-Language Tips Card (Compact) -->
+      <div class="mx-2.5 mb-1.5 px-2.5 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)] text-[11px] text-[var(--muted-foreground)] leading-snug">
+        <span class="font-semibold text-[var(--foreground)]">提示：</span>● 為目前所在分支；選「獨立工作區」可多卡同時跑互不影響
       </div>
 
       <!-- Sidebar Footer -->
-      <div id="sidebarFooter" class="p-3 border-t border-slate-200 dark:border-slate-700 bg-slate-100/80 dark:bg-slate-900/80 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+      <div id="sidebarFooter" class="px-3 py-2 border-t border-[var(--border)] bg-[var(--sidebar)] flex items-center justify-between text-[11px] text-[var(--muted-foreground)]">
         <span class="flex items-center gap-1.5">
           <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
           <span id="sidebarProjectCount"> 載入中...</span>
         </span>
-        <button onclick="chooseFolderNative(event)" title="新增或引入專案資料夾" class="text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800">
-          <i data-lucide="folder-plus" class="w-4 h-4"></i>
+        <button onclick="openNewProjectModal()" title="手動輸入新增專案" class="text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800">
+          <i data-lucide="folder-plus" class="w-3.5 h-3.5"></i>
         </button>
       </div>
     </aside>
 
+    <!-- Right Main Workspace -->
+    <div id="mainWorkspaceArea" class="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden relative">
+
     <!-- Top Header -->
-    <header id="mainTopHeader" class="relative z-40 flex-shrink-0 border-b border-slate-300 dark:border-slate-700 bg-white/95 dark:bg-slate-900/90 backdrop-blur py-1.5 px-3 md:py-2.5 md:px-6">
+    <header id="mainTopHeader" class="relative z-40 flex-shrink-0 border-b border-[var(--border)] bg-[var(--card)] py-2.5 px-4 md:px-6 min-h-[54px]">
       <div class="flex flex-row items-center justify-between gap-1.5 sm:gap-3">
         <div class="flex items-center gap-1.5 sm:gap-3 min-w-0">
-          <button id="headerSidebarToggle" onclick="toggleSidebar()" title="開啟專案列表抽屜" class="text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white p-1.5 sm:p-2 rounded-xl bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 transition flex-shrink-0">
+          <button id="headerSidebarToggle" onclick="toggleSidebar()" title="開啟專案列表抽屜" class="lg:hidden text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white p-1.5 sm:p-2 rounded-xl bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 transition flex-shrink-0">
             <i data-lucide="panel-left" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-600 dark:text-indigo-400"></i>
           </button>
           <div class="min-w-0 flex items-center gap-2">
@@ -152,8 +159,8 @@
                 <span class="hidden sm:inline">引入 Harness</span>
               </button>
             </h1>
-            <!-- 流程指引說明 (不同步驟具備專屬底色與框線，步驟間以線條連結取代箭頭) -->
-            <div id="headerWorkflowHint" class="hidden xl:flex items-center gap-1.5 text-[10px] sm:text-[11px] flex-shrink-0 font-medium">
+            <!-- 流程指引說明 (不同步驟具備專屬底色與框線，步驟間以線條連結取代箭頭；僅超寬螢幕顯示避免壓到搜尋框) -->
+            <div id="headerWorkflowHint" class="hidden 2xl:flex items-center gap-1.5 text-[10px] sm:text-[11px] flex-shrink-0 font-medium">
               <div class="flex items-center gap-1 text-slate-500 dark:text-slate-400 font-semibold flex-shrink-0 mr-0.5">
                 <i data-lucide="compass" class="w-3.5 h-3.5 text-indigo-500"></i>
                 <span>流程</span>
@@ -307,6 +314,9 @@
             </div>
           </div>
 
+          <!-- 動態脈絡操作區 (L0~L2 CTA & 檢視切換，L3 自動收起) -->
+          <div id="contextualHeaderActions" class="flex items-center gap-1.5"></div>
+
           <!-- 封存任務庫按鈕 -->
           <button id="headerArchiveBtn" onclick="openArchiveModal()" title="查看已封存任務庫" class="h-7 sm:h-8 flex items-center gap-1 bg-slate-100 dark:bg-slate-800/90 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 px-2 sm:px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 shadow-sm transition flex-shrink-0">
             <i data-lucide="archive" class="w-3 h-3 sm:w-3.5 sm:h-3.5 text-indigo-600 dark:text-indigo-400"></i>
@@ -375,11 +385,14 @@
       </div>
     </div>
 
-    <!-- Main Kanban Board (四階段無框線色塊凹槽設計，移除未使用之阻礙欄位，提升每欄視覺寬度) -->
-    <main class="flex-1 overflow-x-auto overflow-y-hidden kanban-board-scrollbar px-4 md:px-6 pb-3 pt-1 mb-2 flex items-stretch gap-4 min-h-0 w-full">
+    <!-- Branch Swimlanes View (L1 按分支看) -->
+    <section id="branchSwimlanesContainer" class="hidden flex-1 overflow-y-auto px-4 md:px-6 pb-3 pt-1 mb-2 space-y-3.5 custom-scrollbar"></section>
+
+    <!-- Main Kanban Board (四階段無框線色塊凹槽設計，桌面端四欄自適應等分不截斷) -->
+    <main id="kanbanMainBoard" class="flex-1 overflow-x-auto overflow-y-hidden kanban-board-scrollbar px-4 md:px-5 pb-3 pt-1 mb-2 flex items-stretch gap-3 min-h-0 w-full">
       
       <!-- 1. Todo Column (含單一主色新增任務按鈕) -->
-      <div id="col-wrapper-todo" class="flex-1 min-w-[270px] w-auto flex flex-col td-surface-well rounded-2xl overflow-hidden flex-shrink-0">
+      <div id="col-wrapper-todo" class="flex-1 min-w-[230px] lg:min-w-0 w-auto flex flex-col td-surface-well rounded-2xl overflow-hidden">
         <div class="pt-3 pb-2 px-3.5 flex items-center justify-between">
           <div class="flex items-center gap-2">
             <span class="w-2.5 h-2.5 rounded-full bg-slate-500 dark:bg-slate-400"></span>
@@ -396,11 +409,11 @@
       </div>
 
       <!-- 2. In Progress Column (局部狀態：Primary Sky) -->
-      <div id="col-wrapper-in_progress" class="flex-1 min-w-[270px] w-auto flex flex-col td-surface-well rounded-2xl overflow-hidden flex-shrink-0">
+      <div id="col-wrapper-in_progress" class="flex-1 min-w-[230px] lg:min-w-0 w-auto flex flex-col td-surface-well rounded-2xl overflow-hidden">
         <div class="pt-3 pb-2 px-3.5 flex items-center justify-between">
           <div class="flex items-center gap-2">
             <span class="w-2.5 h-2.5 rounded-full bg-sky-500"></span>
-            <h3 class="text-xs font-bold text-slate-900 dark:text-slate-100"> 進行中 (AI 開工)</h3>
+            <h3 class="text-xs font-bold text-slate-900 dark:text-slate-100"> 進行中</h3>
           </div>
           <span id="badge-in_progress" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-700 dark:text-sky-300 font-bold shadow-xs"> 0</span>
         </div>
@@ -408,11 +421,11 @@
       </div>
 
       <!-- 3. Review / Verify Column (局部狀態：Warm Amber，零螢光紫) -->
-      <div id="col-wrapper-review" class="flex-1 min-w-[270px] w-auto flex flex-col td-surface-well rounded-2xl overflow-hidden flex-shrink-0">
+      <div id="col-wrapper-review" class="flex-1 min-w-[230px] lg:min-w-0 w-auto flex flex-col td-surface-well rounded-2xl overflow-hidden">
         <div class="pt-3 pb-2 px-3.5 flex items-center justify-between">
           <div class="flex items-center gap-2">
             <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-            <h3 class="text-xs font-bold text-slate-900 dark:text-white"> 待驗收 (審閱 Diff)</h3>
+            <h3 class="text-xs font-bold text-slate-900 dark:text-white"> 待審核</h3>
           </div>
           <span id="badge-review" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-800 dark:text-amber-300 font-bold shadow-xs"> 0</span>
         </div>
@@ -420,11 +433,11 @@
       </div>
 
       <!-- 4. Done Column (局部狀態：Sage Emerald) -->
-      <div id="col-wrapper-done" class="flex-1 min-w-[270px] w-auto flex flex-col td-surface-well rounded-2xl overflow-hidden flex-shrink-0">
+      <div id="col-wrapper-done" class="flex-1 min-w-[230px] lg:min-w-0 w-auto flex flex-col td-surface-well rounded-2xl overflow-hidden">
         <div class="pt-3 pb-2 px-3.5 flex items-center justify-between">
           <div class="flex items-center gap-2">
             <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-            <h3 class="text-xs font-bold text-slate-900 dark:text-slate-100"> 已完成</h3>
+            <h3 class="text-xs font-bold text-slate-900 dark:text-slate-100"> 已提交</h3>
           </div>
           <div class="flex items-center gap-1.5">
             <span id="badge-done" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-bold shadow-xs"> 0</span>
@@ -437,6 +450,7 @@
       </div>
 
     </main>
+    </div>
   </div>
 
   <!-- Commit Message Confirmation & Edit Modal (方式 B) -->
@@ -549,10 +563,10 @@
         <input type="hidden" id="formTaskId">
         <input type="hidden" id="formConversationId">
 
-        <div id="modalFormGrid" class="grid grid-cols-1 lg:grid-cols-2 gap-5 flex-1 min-h-0 p-5 overflow-hidden">
+        <div id="modalFormGrid" class="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0 p-4 sm:p-5 overflow-hidden">
           
-          <!-- LEFT COLUMN: 依據資訊架構學 (IA) 分離「審核與執行成果」與「需求規格與屬性」雙視圖 (可滾動) -->
-          <div id="modalLeftColumn" class="flex-1 overflow-y-auto pl-1 pr-2 space-y-3.5 custom-scrollbar">
+          <!-- LEFT COLUMN (5/12): 依據資訊架構學 (IA) 分離「審核與執行成果」與「需求規格與屬性」雙視圖 (可滾動) -->
+          <div id="modalLeftColumn" class="flex-1 overflow-y-auto pl-1 pr-2 space-y-3.5 custom-scrollbar lg:col-span-5">
             
             <!-- 進行中任務唯讀提示 -->
             <div id="modalInProgressNotice" class="hidden items-center gap-2 p-2.5 mb-3.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-700 dark:text-amber-300 text-xs font-medium">
@@ -610,6 +624,52 @@
                   </select>
                   <!-- 選擇的依賴清單徽章 -->
                   <div id="formDependenciesChips" class="flex flex-wrap gap-1.5 mt-1.5"></div>
+                </div>
+              </div>
+
+              <!-- 目標分支與執行方式 -->
+              <div class="grid grid-cols-1 gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80">
+                <div>
+                  <div class="flex items-center justify-between gap-2 mb-1">
+                    <label for="formTargetBranch" class="block text-xs font-semibold text-slate-700 dark:text-slate-200">目標分支</label>
+                    <button type="button" id="btnToggleQuickBranchBox" onclick="toggleQuickBranchBox()" class="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer">＋ 新建分支</button>
+                  </div>
+                  <select id="formTargetBranch" onchange="updateInPlaceDirtyWarning()" class="w-full h-9 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 text-xs font-mono text-slate-900 dark:text-slate-200 focus:outline-none transition">
+                    <option value="">（不指定 / 跟隨專案預設分支）</option>
+                  </select>
+                  <div id="formQuickBranchBox" class="hidden mt-2 p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800/80 space-y-2">
+                    <p class="text-[11px] text-slate-600 dark:text-slate-300">
+                      直接從 <span id="formQuickBranchFromLabel" class="font-mono font-semibold text-indigo-600 dark:text-indigo-300">main</span> 開新分支，不會影響目前修改中的檔案
+                    </p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <select id="formQuickBranchFrom" onchange="document.getElementById('formQuickBranchFromLabel').innerText = this.value || 'main'" class="h-8 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2 text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none"></select>
+                      <input type="text" id="formQuickBranchName" placeholder="輸入新分支名稱 (如 feat/abc)" class="h-8 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div class="flex items-center justify-end gap-1.5">
+                      <button type="button" onclick="toggleQuickBranchBox(false)" class="px-2.5 py-1 rounded-md text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer">取消</button>
+                      <button type="button" onclick="quickCreateBranchInline()" class="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer">建立並選用</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1.5">執行方式</label>
+                  <input type="hidden" id="formWorkspaceMode" value="worktree">
+                  <div id="formWorkspaceModeGroup" class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <button type="button" data-workspace-mode="worktree" onclick="selectWorkspaceMode('worktree')" class="text-left p-2 rounded-lg border border-indigo-500 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-200 transition cursor-pointer">
+                      <div class="text-xs font-semibold">獨立工作區（推薦）</div>
+                      <div class="text-[10px] opacity-80 mt-0.5">另開乾淨目錄，不互相干擾</div>
+                    </button>
+                    <button type="button" data-workspace-mode="branch_stream" onclick="selectWorkspaceMode('branch_stream')" class="text-left p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 transition cursor-pointer">
+                      <div class="text-xs font-semibold">接續同分支</div>
+                      <div class="text-[10px] opacity-80 mt-0.5">在同一目標分支接續實作</div>
+                    </button>
+                    <button type="button" data-workspace-mode="in_place" onclick="selectWorkspaceMode('in_place')" class="text-left p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 transition cursor-pointer">
+                      <div class="text-xs font-semibold">直接改目前資料夾</div>
+                      <div class="text-[10px] opacity-80 mt-0.5">直接修改目前工作區檔案</div>
+                    </button>
+                  </div>
+                  <div id="formInPlaceDirtyHint" class="hidden mt-2 text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700 rounded-lg px-2.5 py-1.5"></div>
                 </div>
               </div>
 
@@ -773,33 +833,6 @@
                 <textarea id="formExecutionPlan" oninput="updateModalButtonState()" rows="6" placeholder="此任務之預計執行計劃、步驟與驗證指標..." class="hidden w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs leading-relaxed text-slate-900 dark:text-slate-100 focus:outline-none custom-scrollbar font-mono transition"></textarea>
               </div>
 
-              <!-- 審查意見與修改回饋 (Review Feedback — 統一樣式圓角淺灰底 td-surface-panel，局部琥珀狀態色條) -->
-              <div id="reviewFeedbackBox" class="td-surface-panel border-l-[3px] border-l-amber-500 rounded-xl p-3.5 space-y-2">
-                <div class="flex items-center justify-between gap-2">
-                  <label class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2 min-w-0">
-                    <i id="reviewFeedbackLabelIcon" data-lucide="message-square-code" class="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0"></i>
-                    <span id="reviewFeedbackLabelText" class="truncate">審查意見與修改回饋 (Review Feedback)</span>
-                  </label>
-                  <div class="flex items-center gap-2 flex-shrink-0">
-                    <button type="button" id="btnExtractRetro" onclick="extractRetroPrompt(event)" class="hidden items-center gap-1 text-[11px] font-medium bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-0.5 rounded-md shadow-xs transition cursor-pointer whitespace-nowrap flex-shrink-0" title="將歷次退回審查意見提煉為專案自癒規範 (/retro)">
-                      <i data-lucide="sprout" class="w-3 h-3"></i>
-                      <span>🌱 提煉規範 (/retro)</span>
-                    </button>
-                    <span id="reviewFeedbackNotice" class="text-[10px] text-slate-500 dark:text-slate-300 whitespace-nowrap">退回重做時自動附帶</span>
-                  </div>
-                </div>
-                <!-- 快捷標籤列 -->
-                <div id="reviewFeedbackPresetBar" class="flex flex-wrap items-center gap-1.5 pt-0.5">
-                  <span class="text-[10px] font-medium text-slate-600 dark:text-slate-300 mr-0.5 whitespace-nowrap">常用理由:</span>
-                  <button type="button" onclick="insertFeedbackPreset('補單元測試與驗證證據')" class="text-[11px] px-2 py-0.5 rounded-md bg-white hover:bg-amber-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 shadow-xs transition-colors whitespace-nowrap flex-shrink-0">補單元測試</button>
-                  <button type="button" onclick="insertFeedbackPreset('修正樣式/RWD與版面間距')" class="text-[11px] px-2 py-0.5 rounded-md bg-white hover:bg-amber-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 shadow-xs transition-colors whitespace-nowrap flex-shrink-0">修正樣式/RWD</button>
-                  <button type="button" onclick="insertFeedbackPreset('請暫存修改 (git stash) 並恢復原狀')" class="text-[11px] px-2 py-0.5 rounded-md bg-white hover:bg-amber-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 shadow-xs transition-colors whitespace-nowrap flex-shrink-0">清除暫存/stash</button>
-                  <button type="button" onclick="insertFeedbackPreset('請調整實作切片邊界，分步驗證')" class="text-[11px] px-2 py-0.5 rounded-md bg-white hover:bg-amber-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 shadow-xs transition-colors whitespace-nowrap flex-shrink-0">調整實作切片</button>
-                  <button type="button" onclick="insertFeedbackPreset('請補充 Phase 3 驗收截圖或詳細日誌')" class="text-[11px] px-2 py-0.5 rounded-md bg-white hover:bg-amber-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 shadow-xs transition-colors whitespace-nowrap flex-shrink-0">補充驗收證據</button>
-                </div>
-                <textarea id="formFeedback" rows="2" placeholder="如需修改或退回重做，請點選上方標籤或在此輸入修改意見..." class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none custom-scrollbar transition"></textarea>
-              </div>
-
               <!-- 工作切片與 Agent 藍圖追蹤 (Active Slice & Build Plan — 統一樣式圓角淺灰底 td-surface-panel) -->
               <div id="formSliceInfoBox" class="hidden td-surface-panel rounded-xl p-3.5 space-y-3">
                 <div class="flex items-center justify-between gap-2 pb-1">
@@ -869,91 +902,107 @@
                 </div>
               </div>
 
-              <!-- 執行紀錄與測試 Log / 任務執行報告 (與上方審查意見及任務規格統一樣式為圓角淺灰底 td-surface-panel，僅保留大項目之間的清晰分隔線) -->
+              <!-- 執行紀錄與測試 Log / 任務執行報告 (置於意見欄之前，符合「先看報告、再做決策」直覺動線) -->
               <div id="formLogBox" class="hidden td-surface-panel rounded-xl p-3.5 space-y-2.5">
                 <div class="flex items-center justify-between gap-2">
                   <label class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2 min-w-0">
                     <i data-lucide="file-check-2" class="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0"></i>
-                    <span class="truncate">任務執行與驗證報告 (Task Execution Report)</span>
+                    <span class="truncate">AI 執行重點報告</span>
                   </label>
                   <div class="flex items-center gap-1 bg-slate-200/80 dark:bg-slate-800 p-0.5 rounded-lg text-[10px] font-medium flex-shrink-0">
                     <button type="button" id="btnLogTabVisual" onclick="switchLogViewTab('visual')" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 text-sky-700 dark:text-sky-300 font-bold transition whitespace-nowrap flex-shrink-0">
-                      結構化報告
+                      重點摘要
                     </button>
                     <button type="button" id="btnLogTabRaw" onclick="switchLogViewTab('raw')" class="px-2 py-0.5 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition whitespace-nowrap flex-shrink-0">
-                      原始 Log
+                      完整文字
                     </button>
                   </div>
                 </div>
 
-                <!-- 結構化分隔線式報告視圖 (無區塊陰影，以清晰分隔線與左縮排區隔主次層級) -->
+                <!-- 結構化分隔線式報告視圖 -->
                 <div id="formReportVisual" class="text-xs"></div>
 
-                <!-- 原生文字視圖 (保留原始 ID 以滿足既有文字與測試契約) -->
+                <!-- 原生文字視圖 -->
                 <pre id="formLogVisual" class="hidden bg-white/80 dark:bg-slate-950 rounded-lg p-3 text-xs font-mono text-slate-800 dark:text-slate-200 whitespace-pre-wrap leading-relaxed max-h-96 overflow-y-auto custom-scrollbar"></pre>
                 <input type="hidden" id="formExecutionLog">
+              </div>
+
+              <!-- 審查意見與修改回饋 (待審核時預設收起，點擊「請 AI 再修改」時展開，不佔據閱讀空間) -->
+              <div id="reviewFeedbackBox" class="hidden td-surface-panel border-l-[3px] border-l-amber-500 rounded-xl p-3.5 space-y-2">
+                <div class="flex items-center justify-between gap-2">
+                  <label class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2 min-w-0">
+                    <i id="reviewFeedbackLabelIcon" data-lucide="message-square-code" class="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0"></i>
+                    <span id="reviewFeedbackLabelText" class="truncate">需要 AI 修改的地方</span>
+                  </label>
+                  <div class="flex items-center gap-2 flex-shrink-0">
+                    <button type="button" id="btnExtractRetro" onclick="extractRetroPrompt(event)" class="hidden items-center gap-1 text-[11px] font-medium bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-0.5 rounded-md shadow-xs transition cursor-pointer whitespace-nowrap flex-shrink-0" title="將歷次退回審查意見提煉為專案自癒規範 (/retro)">
+                      <i data-lucide="sprout" class="w-3 h-3"></i>
+                      <span>🌱 提煉規範 (/retro)</span>
+                    </button>
+                    <span id="reviewFeedbackNotice" class="text-[10px] text-slate-500 dark:text-slate-300 whitespace-nowrap">送出後自動喚醒 AI 修改</span>
+                    <button type="button" onclick="toggleReviewFeedbackDrawer && toggleReviewFeedbackDrawer(false)" class="text-xs text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 px-1 cursor-pointer" title="收起意見框">✕</button>
+                  </div>
+                </div>
+                <!-- 快捷標籤列 -->
+                <div id="reviewFeedbackPresetBar" class="flex flex-wrap items-center gap-1.5 pt-0.5">
+                  <span class="text-[10px] font-medium text-slate-600 dark:text-slate-300 mr-0.5 whitespace-nowrap">快速帶入:</span>
+                  <button type="button" onclick="insertFeedbackPreset('補單元測試與驗證證據')" class="text-[11px] px-2 py-0.5 rounded-md bg-white hover:bg-amber-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 shadow-xs transition-colors whitespace-nowrap flex-shrink-0">補單元測試</button>
+                  <button type="button" onclick="insertFeedbackPreset('修正樣式/RWD與版面間距')" class="text-[11px] px-2 py-0.5 rounded-md bg-white hover:bg-amber-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 shadow-xs transition-colors whitespace-nowrap flex-shrink-0">修正樣式/RWD</button>
+                  <button type="button" onclick="insertFeedbackPreset('請暫存修改 (git stash) 並恢復原狀')" class="text-[11px] px-2 py-0.5 rounded-md bg-white hover:bg-amber-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 shadow-xs transition-colors whitespace-nowrap flex-shrink-0">清除暫存/stash</button>
+                  <button type="button" onclick="insertFeedbackPreset('請調整實作切片邊界，分步驗證')" class="text-[11px] px-2 py-0.5 rounded-md bg-white hover:bg-amber-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 shadow-xs transition-colors whitespace-nowrap flex-shrink-0">調整實作切片</button>
+                  <button type="button" onclick="insertFeedbackPreset('請補充 Phase 3 驗收截圖或詳細日誌')" class="text-[11px] px-2 py-0.5 rounded-md bg-white hover:bg-amber-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 shadow-xs transition-colors whitespace-nowrap flex-shrink-0">補充驗收證據</button>
+                </div>
+                <textarea id="formFeedback" rows="2" placeholder="請輸入希望 AI 調整的細節，輸入完點擊下方「請 AI 再修改」即可送出..." class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none custom-scrollbar transition"></textarea>
               </div>
             </div>
 
           </div>
 
-          <!-- RIGHT COLUMN: 異動檔案清單與即時互動 Git Diff 檢視器 (可滾動) -->
-          <div id="modalRightColumn" class="flex-1 overflow-y-auto pl-2 flex flex-col space-y-3 custom-scrollbar">
-            
-            <!-- 變更總覽儀表條 (Diff Summary Header — 色塊＋陰影無框線) -->
-            <div id="diffSummaryBar" class="hidden flex-shrink-0 td-surface-panel rounded-xl p-2.5 flex items-center justify-between gap-2">
-              <div class="flex items-center gap-2 flex-wrap">
-                <span class="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-                  <i data-lucide="layers" class="w-3.5 h-3.5 text-sky-500"></i>
+          <!-- RIGHT COLUMN (7/12): 100% 垂直空間留給檔案切換與 Git Diff 檢視器 -->
+          <div id="modalRightColumn" class="flex-1 overflow-hidden pl-1 flex flex-col space-y-2.5 lg:col-span-7 min-h-0">
+
+            <!-- 變更總覽與檢視控制列 -->
+            <div id="diffSummaryBar" class="hidden flex-shrink-0 td-surface-panel rounded-xl px-3 py-2 flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2 flex-wrap min-w-0">
+                <span class="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <i data-lucide="git-compare" class="w-3.5 h-3.5 text-sky-500"></i>
                   <span id="diffStatFilesCount">0 個檔案</span>
                 </span>
-                <span id="diffStatAdditionsBadge" class="px-2 py-0.5 rounded-md text-[11px] font-bold font-mono bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+                <span id="diffStatAdditionsBadge" class="px-1.5 py-0.5 rounded text-[11px] font-bold font-mono bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
                   +0
                 </span>
-                <span id="diffStatDeletionsBadge" class="px-2 py-0.5 rounded-md text-[11px] font-bold font-mono bg-rose-500/15 text-rose-700 dark:text-rose-300">
+                <span id="diffStatDeletionsBadge" class="px-1.5 py-0.5 rounded text-[11px] font-bold font-mono bg-rose-500/15 text-rose-700 dark:text-rose-300">
                   -0
                 </span>
+                <span id="diffActiveFileBadge" class="text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate max-w-[180px]">全部變更</span>
               </div>
               <div class="flex items-center gap-1.5 flex-shrink-0">
-                <button type="button" onclick="toggleCollapseAllDiffs()" id="btnToggleCollapseAll" class="px-2 py-1 rounded-md text-[11px] font-medium bg-white dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 transition flex items-center gap-1" title="折疊或展開所有檔案 Diff">
+                <button type="button" onclick="showAllDiffs()" id="btnShowAllDiffs" class="px-2 py-1 rounded-md text-[11px] font-semibold bg-white dark:bg-slate-900 hover:bg-sky-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sky-700 dark:text-sky-300 transition cursor-pointer">
+                  全部檔案
+                </button>
+                <button type="button" onclick="toggleCollapseAllDiffs()" id="btnToggleCollapseAll" class="px-2 py-1 rounded-md text-[11px] font-medium bg-white dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 transition flex items-center gap-1 cursor-pointer" title="折疊或展開所有檔案 Diff">
                   <i data-lucide="chevrons-up-down" class="w-3 h-3"></i>
                   <span id="btnToggleCollapseAllText">全部折疊</span>
                 </button>
-                <button type="button" onclick="toggleDiffFocusMode()" id="btnToggleFocusMode" class="px-2 py-1 rounded-md text-[11px] font-medium bg-white dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 transition flex items-center gap-1" title="切換寬版專注檢閱模式">
+                <button type="button" onclick="toggleDiffFocusMode()" id="btnToggleFocusMode" class="px-2 py-1 rounded-md text-[11px] font-medium bg-white dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 transition flex items-center gap-1 cursor-pointer" title="切換寬版專注檢閱模式">
                   <i id="btnToggleFocusModeIcon" data-lucide="maximize-2" class="w-3 h-3 text-indigo-500"></i>
                   <span id="btnToggleFocusModeText">專注檢閱</span>
                 </button>
-                <button type="button" onclick="copyCurrentDiff()" class="p-1.5 rounded-md text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition" title="複製完整 Diff">
+                <button type="button" onclick="copyCurrentDiff()" class="p-1.5 rounded-md text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer" title="複製完整 Diff">
                   <i data-lucide="copy" class="w-3.5 h-3.5"></i>
                 </button>
               </div>
             </div>
 
-            <!-- 異動檔案清單 -->
-            <div class="flex-shrink-0 space-y-1.5">
-              <div class="flex items-center justify-between">
-                <label class="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                  <i data-lucide="file-code-2" class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400"></i> 異動檔案清單 (點選檔案查看 Diff)
-                </label>
-                <button type="button" onclick="showAllDiffs()" id="btnShowAllDiffs" class="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline"> 顯示全部
-                </button>
-              </div>
-
-              <!-- 檔案列表 -->
-              <div id="formModifiedFilesList" class="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-2 text-xs space-y-1 font-mono max-h-36 overflow-y-auto custom-scrollbar">
-                <div class="text-center py-2 text-slate-400 text-xs italic"> 尚未有異動檔案紀錄</div>
+            <!-- 精簡異動檔案切換列 (壓縮高度至 max-h-24，把空間留給下方程式碼 Diff) -->
+            <div class="flex-shrink-0">
+              <div id="formModifiedFilesList" class="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-1.5 text-xs space-y-1 font-mono max-h-24 overflow-y-auto custom-scrollbar">
+                <div class="text-center py-1.5 text-slate-400 text-xs italic"> 尚未有異動檔案紀錄</div>
               </div>
             </div>
 
-            <!-- Visual Git Diff 容器 -->
-            <div class="flex-1 flex flex-col min-h-[220px] space-y-1.5">
-              <div class="flex items-center justify-between">
-                <label class="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
-                  <i data-lucide="git-compare" class="w-3.5 h-3.5"></i> Git Diff 變更對比 (Visual Code Diff)
-                </label>
-                <span id="diffActiveFileBadge" class="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate max-w-[200px]"> 全部變更</span>
-              </div>
-
+            <!-- 滿版高度 Visual Git Diff 容器 -->
+            <div class="flex-1 flex flex-col min-h-0">
               <div id="formDiffVisual" class="flex-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs font-mono overflow-auto custom-scrollbar leading-relaxed">
                 <div class="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
                   <i data-lucide="git-pull-request" class="w-8 h-8 text-slate-500 mb-2 opacity-50"></i>
@@ -965,8 +1014,11 @@
           </div>
         </div>
 
-        <!-- Modal Footer Actions -->
-        <div class="p-3 px-5 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3 bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
+        <!-- 合一「查看並提交」底部決策塢 (僅於待審核且位於審核頁籤時顯示，平時單行不擋 Diff) -->
+        <div id="reviewLandStudioPanel" class="hidden flex-shrink-0"></div>
+
+        <!-- Modal Standard Footer Actions (新增 / 編輯規格 / 非待審核狀態使用) -->
+        <div id="modalStandardFooter" class="p-3 px-5 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3 bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
           <div class="flex items-center gap-2">
             <button type="button" id="btnAbandonTask" onclick="promptTaskDeleteOrAbandon(document.getElementById('formTaskId').value, 'abandon')" class="hidden bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 dark:hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30 text-xs font-medium px-3 py-1.5 rounded-lg transition flex items-center gap-1" title="放棄此任務（可選是否還原工作區變更）">
               <i data-lucide="ban" class="w-3.5 h-3.5"></i> 放棄任務
@@ -980,11 +1032,16 @@
             <button type="button" id="btnCancelTaskModal" onclick="closeModal()" class="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium px-3.5 py-1.5 rounded-lg transition"> 取消
             </button>
             <button type="button" id="btnRejectTask" onclick="rejectTaskWithFeedback()" class="hidden bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow transition flex items-center gap-1">
-              <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> 退回重做
+              <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> 請 AI 再修改
             </button>
             <button type="button" id="btnConfirmAndExecute" onclick="confirmAndExecuteTask()" class="hidden bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-md shadow-amber-500/25 transition flex items-center gap-1.5" title="確認執行計劃並立即啟動任務執行">
               <i id="btnConfirmAndExecuteIcon" data-lucide="play-circle" class="w-4 h-4"></i>
               <span id="btnConfirmAndExecuteText">確認並執行</span>
+            </button>
+            <button type="button" id="btnLandTask" onclick="landTaskChanges(event)" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-emerald-500/25 transition flex items-center gap-1.5">
+              <i data-lucide="check-circle-2" class="w-4 h-4"></i>
+              <span>通過並提交</span>
+              <span id="btnLandTaskTargetBranch" class="ml-1 px-1.5 py-0.5 rounded bg-emerald-700/80 text-[10px] font-mono text-emerald-100">寫入 ⎇ main</span>
             </button>
             <button type="button" id="btnApproveTask" onclick="approveTaskAsDone()" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow-md shadow-emerald-500/25 transition flex items-center gap-1.5">
               <i data-lucide="check-circle" class="w-4 h-4"></i> 驗收通過
@@ -1014,7 +1071,7 @@
           <i data-lucide="sparkles" class="w-6 h-6"></i>
         </div>
         <div class="space-y-1 flex-1">
-          <h3 class="text-base font-bold text-slate-900 dark:text-white"> 歡迎使用 Task Dashboard
+          <h3 class="text-base font-bold text-slate-900 dark:text-white"> 歡迎使用 Task Dashboard 3.0
           </h3>
           <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed"> 請選擇或確認任務資料庫與設定檔 (<span class="font-mono text-[11px] text-indigo-500 dark:text-indigo-400"> tasks.json</span>, <span class="font-mono text-[11px] text-indigo-500 dark:text-indigo-400"> projects.json</span>, <span class="font-mono text-[11px] text-indigo-500 dark:text-indigo-400"> settings.json</span>) 的儲存路徑。
           </p>

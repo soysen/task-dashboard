@@ -132,21 +132,33 @@ import { currentActiveTaskDiff, currentProject, currentModalEditingTask } from "
       return sections;
     }
 
-    function updateDiffSummaryBar(diffText) {
+    function updateDiffSummaryBar(diffText, singleFilePath) {
       const bar = document.getElementById('diffSummaryBar');
       if (!bar) return;
-      if (!diffText || diffText.trim().length === 0) {
+      const fullDiffSource = (currentActiveTaskDiff && currentActiveTaskDiff.trim().length > 0) ? currentActiveTaskDiff : diffText;
+      const modFilesTotal = (currentModalEditingTask && Array.isArray(currentModalEditingTask.modifiedFiles))
+        ? currentModalEditingTask.modifiedFiles.length
+        : 0;
+      if ((!fullDiffSource || fullDiffSource.trim().length === 0) && modFilesTotal === 0) {
         bar.classList.add('hidden');
         return;
       }
       bar.classList.remove('hidden');
-      const stats = parseDiffStats(diffText);
+      const totalStats = parseDiffStats(fullDiffSource || diffText || '');
+      const viewStats = singleFilePath ? parseDiffStats(diffText || '') : totalStats;
+      const trueFilesCount = Math.max(modFilesTotal, totalStats.filesCount);
       const filesEl = document.getElementById('diffStatFilesCount');
       const addEl = document.getElementById('diffStatAdditionsBadge');
       const delEl = document.getElementById('diffStatDeletionsBadge');
-      if (filesEl) filesEl.innerText = `${stats.filesCount} 個檔案變更`;
-      if (addEl) addEl.innerText = `+${stats.additions}`;
-      if (delEl) delEl.innerText = `-${stats.deletions}`;
+      if (filesEl) {
+        filesEl.innerText = singleFilePath
+          ? `共 ${trueFilesCount} 檔（正檢視單檔）`
+          : `共 ${trueFilesCount} 個檔案變更`;
+      }
+      const displayAdd = (singleFilePath && viewStats.additions > 0) ? viewStats.additions : (totalStats.additions || viewStats.additions);
+      const displayDel = (singleFilePath && viewStats.deletions > 0) ? viewStats.deletions : (totalStats.deletions || viewStats.deletions);
+      if (addEl) addEl.innerText = `+${displayAdd}`;
+      if (delEl) delEl.innerText = `-${displayDel}`;
     }
 
     let isDiffAllCollapsed = false;
@@ -182,7 +194,9 @@ import { currentActiveTaskDiff, currentProject, currentModalEditingTask } from "
 
       if (isDiffFocusMode) {
         if (leftCol) leftCol.classList.add('hidden');
-        if (grid) grid.classList.remove('lg:grid-cols-2');
+        if (grid) grid.classList.remove('lg:grid-cols-2', 'lg:grid-cols-12');
+        const rightCol = document.getElementById('modalRightColumn');
+        if (rightCol) rightCol.classList.remove('lg:col-span-7');
         if (container) {
           container.classList.remove('max-w-6xl');
           container.classList.add('max-w-[98vw]', 'h-[96vh]');
@@ -191,7 +205,9 @@ import { currentActiveTaskDiff, currentProject, currentModalEditingTask } from "
         if (btnIcon) btnIcon.setAttribute('data-lucide', 'minimize-2');
       } else {
         if (leftCol) leftCol.classList.remove('hidden');
-        if (grid) grid.classList.add('lg:grid-cols-2');
+        if (grid) grid.classList.add('lg:grid-cols-12');
+        const rightCol = document.getElementById('modalRightColumn');
+        if (rightCol) rightCol.classList.add('lg:col-span-7');
         if (btnText) btnText.innerText = '專注檢閱';
         if (btnIcon) btnIcon.setAttribute('data-lucide', 'maximize-2');
       }
@@ -390,7 +406,7 @@ import { currentActiveTaskDiff, currentProject, currentModalEditingTask } from "
         return;
       }
 
-      updateDiffSummaryBar(diffText);
+      updateDiffSummaryBar(diffText, singleFilePath);
       const sections = splitDiffByFiles(diffText);
 
       if (sections.length > 1) {

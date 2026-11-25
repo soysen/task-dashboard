@@ -5,6 +5,9 @@ export let archivedTasksCount = 0;
 export let settings = { enableCliAgent: false, cliCommand: "agy", autoTriggerOnInProgress: true, dataDirectoryPath: "", fontSize: "small" };
 export let projectGitStatus = {};
 export let currentProject = "ALL";
+export let currentBranch = "ALL";
+export let projectBranchesMap = {};
+export let groupByBranch = false;
 export let currentActiveTaskDiff = "";
 export let currentTaskDependencies = [];
 export let currentModalEditingTask = null;
@@ -19,6 +22,9 @@ export function setArchivedTasksCount(val) { archivedTasksCount = Number(val) ||
 export function setSettings(val) { settings = val; if (typeof window !== "undefined") window.settings = val; }
 export function setProjectGitStatus(val) { projectGitStatus = val; if (typeof window !== "undefined") window.projectGitStatus = val; }
 export function setCurrentProject(val) { currentProject = val; if (typeof window !== "undefined") window.currentProject = val; }
+export function setCurrentBranch(val) { currentBranch = val || "ALL"; if (typeof window !== "undefined") window.currentBranch = currentBranch; }
+export function setProjectBranchesMap(val) { projectBranchesMap = val || {}; if (typeof window !== "undefined") window.projectBranchesMap = projectBranchesMap; }
+export function setGroupByBranch(val) { groupByBranch = Boolean(val); if (typeof window !== "undefined") window.groupByBranch = groupByBranch; }
 export function setCurrentActiveTaskDiff(val) { currentActiveTaskDiff = val; if (typeof window !== "undefined") window.currentActiveTaskDiff = val; }
 export function setCurrentTaskDependencies(val) { currentTaskDependencies = val; if (typeof window !== "undefined") window.currentTaskDependencies = val; }
 export function setCurrentModalEditingTask(val) { currentModalEditingTask = val; if (typeof window !== "undefined") window.currentModalEditingTask = val; }
@@ -33,6 +39,9 @@ if (typeof window !== "undefined") {
   window.settings = settings;
   window.projectGitStatus = projectGitStatus;
   window.currentProject = currentProject;
+  window.currentBranch = currentBranch;
+  window.projectBranchesMap = projectBranchesMap;
+  window.groupByBranch = groupByBranch;
   window.currentActiveTaskDiff = currentActiveTaskDiff;
   window.currentTaskDependencies = currentTaskDependencies;
   window.currentModalEditingTask = currentModalEditingTask;
@@ -46,6 +55,9 @@ if (typeof window !== "undefined") {
   window.setSettings = setSettings;
   window.setProjectGitStatus = setProjectGitStatus;
   window.setCurrentProject = setCurrentProject;
+  window.setCurrentBranch = setCurrentBranch;
+  window.setProjectBranchesMap = setProjectBranchesMap;
+  window.setGroupByBranch = setGroupByBranch;
   window.setCurrentActiveTaskDiff = setCurrentActiveTaskDiff;
   window.setCurrentTaskDependencies = setCurrentTaskDependencies;
   window.setCurrentModalEditingTask = setCurrentModalEditingTask;

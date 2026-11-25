@@ -1,5 +1,5 @@
 import { KANBAN_STATUSES } from "./constants.js";
-import { tasks, projects, currentProject, settings, projectGitStatus } from "./state.js";
+import { tasks, projects, currentProject, currentBranch, groupByBranch, projectBranchesMap, settings, projectGitStatus } from "./state.js";
 import { escapeHtml, formatDuration, showToast, copyPrompt, copySessionId, normalizeLogText } from "./utils.js";
 import {
   openModal, openModalForEdit, updateModalButtonState, quickApproveDone,
@@ -25,6 +25,9 @@ import {
       let filtered = tasks.filter(t => normalizeStatus(t.status) !== 'archived');
       if (currentProject !== 'ALL') {
         filtered = filtered.filter(t => t.project === currentProject);
+        if (typeof currentBranch !== 'undefined' && currentBranch && currentBranch !== 'ALL') {
+          filtered = filtered.filter(t => (t.targetBranch || t.baseBranch || '') === currentBranch);
+        }
       }
 
       document.getElementById('stat-total').innerText = filtered.length;
@@ -88,6 +91,9 @@ import {
       let filtered = tasks.filter(t => normalizeStatus(t.status) !== 'archived');
       if (currentProject !== 'ALL') {
         filtered = filtered.filter(t => t.project === currentProject);
+        if (typeof currentBranch !== 'undefined' && currentBranch && currentBranch !== 'ALL') {
+          filtered = filtered.filter(t => (t.targetBranch || t.baseBranch || '') === currentBranch);
+        }
       }
       if (priority !== 'ALL') {
         filtered = filtered.filter(t => t.priority === priority);
@@ -120,6 +126,73 @@ import {
         done: '驗收通過之任務可於此一鍵提交 Git Commit 與封存'
       };
 
+      const mainBoardEl = document.getElementById('kanbanMainBoard');
+      const swimlanesEl = document.getElementById('branchSwimlanesContainer');
+      const useBranchSwimlanes = (
+        typeof groupByBranch !== 'undefined' && groupByBranch &&
+        currentProject !== 'ALL' && (!currentBranch || currentBranch === 'ALL')
+      );
+
+      if (mainBoardEl && typeof mainBoardEl.classList?.toggle === 'function' && swimlanesEl && typeof swimlanesEl.classList?.toggle === 'function') {
+        mainBoardEl.classList.toggle('hidden', useBranchSwimlanes);
+        swimlanesEl.classList.toggle('hidden', !useBranchSwimlanes);
+      }
+
+      if (useBranchSwimlanes && swimlanesEl) {
+        const branchData = (typeof projectBranchesMap !== 'undefined' ? projectBranchesMap[currentProject] : null) || {};
+        const defaultBranch = String(branchData.defaultBranch || 'main').trim();
+        const branchNames = Array.isArray(branchData.branches) ? branchData.branches.map(b => b.name) : [];
+        const laneSet = new Set(branchNames);
+        filtered.forEach(t => {
+          const bName = (t.targetBranch || t.baseBranch || '').trim() || '未指定分支';
+          laneSet.add(bName);
+        });
+        const colsMeta = [
+          { key: 'todo', label: '待處理' },
+          { key: 'in_progress', label: '進行中' },
+          { key: 'review', label: '待審核' },
+          { key: 'done', label: '已提交' }
+        ];
+        statuses.forEach(st => {
+          const badgeEl = document.getElementById(`badge-${st}`);
+          if (badgeEl) badgeEl.innerText = filtered.filter(t => normalizeStatus(t.status) === st).length;
+        });
+        swimlanesEl.innerHTML = Array.from(laneSet).map(bName => {
+          const laneTasks = filtered.filter(t => ((t.targetBranch || t.baseBranch || '').trim() || '未指定分支') === bName);
+          const canMerge = bName !== '未指定分支' && bName !== defaultBranch && laneTasks.some(t => normalizeStatus(t.status) === 'done');
+          const safeProj = escapeHtml(currentProject).replace(/'/g, "\\'");
+          const safeBranch = escapeHtml(bName).replace(/'/g, "\\'");
+          const safeDefault = escapeHtml(defaultBranch).replace(/'/g, "\\'");
+          return `
+            <div class="p-3 rounded-2xl td-surface-well space-y-2.5">
+              <div class="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-700/80">
+                <div class="flex items-center gap-2 text-xs">
+                  <span class="font-bold font-mono text-slate-900 dark:text-white">⎇ ${escapeHtml(bName)}</span>
+                  <span class="text-slate-500 dark:text-slate-400">${laneTasks.length} 張任務</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  ${canMerge ? `<button type="button" onclick="openMergeBranchModal('${safeProj}', '${safeBranch}', '${safeDefault}')" class="text-[11px] px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold cursor-pointer transition">合併回 ${escapeHtml(defaultBranch)}</button>` : ''}
+                  ${bName !== '未指定分支' ? `<button type="button" onclick="openModal({ status: 'todo', project: '${safeProj}', targetBranch: '${safeBranch}' })" class="text-[11px] px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:border-indigo-500 font-semibold cursor-pointer transition">＋ 新增</button>` : ''}
+                </div>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-4 gap-2.5">
+                ${colsMeta.map(c => {
+                  const sub = laneTasks.filter(t => normalizeStatus(t.status) === c.key);
+                  return `
+                    <div class="space-y-2">
+                      <div class="text-[11px] font-semibold text-slate-500 dark:text-slate-400">${c.label} (${sub.length})</div>
+                      ${sub.length ? sub.map(t => `<div onclick="openModalForEdit('${t.id}')" class="p-2.5 rounded-xl td-surface-card cursor-pointer space-y-1 text-xs hover:border-sky-500 transition"><div class="flex items-center justify-between text-[10px] text-slate-500 font-mono"><span>${escapeHtml(t.id)}</span><span>${t.workspaceMode === 'branch_stream' ? '接續同分支' : t.workspaceMode === 'in_place' ? '直接改目前資料夾' : '獨立工作區'}</span></div><div class="font-semibold text-slate-900 dark:text-slate-100 line-clamp-2">${escapeHtml(t.title)}</div></div>`).join('') : '<div class="p-2 text-[10px] text-slate-400 italic">無任務</div>'}
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          `;
+        }).join('') || '<div class="p-8 text-center text-xs text-slate-400">目前無分支任務</div>';
+        if (window.lucide) lucide.createIcons();
+        return;
+      }
+
       statuses.forEach(st => {
         const colEl = document.getElementById(`col-${st}`);
         const badgeEl = document.getElementById(`badge-${st}`);
@@ -137,7 +210,7 @@ import {
           return;
         }
 
-        colEl.innerHTML = colTasks.map(t => {
+        const renderCardHtml = (t) => {
           const proj = projects.find(p => p.id === t.project);
           const projName = proj ? proj.name : (t.project || '未指定專案');
           const priorityColor = t.priority === 'P0' ? 'bg-rose-100/90 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300' :
@@ -152,20 +225,8 @@ import {
           const hasGrillMe = projSkills.some(s => (s.id === 'grill-me' || s.label === 'grill-me'));
           const isPendingConfirm = (t.status === 'in_progress' && t.requiresConfirmation);
 
-          const cardStatusAccent = isNeedsHuman
-            ? 'border-l-[3px] border-l-rose-500'
-            : isPendingConfirm
-            ? 'border-l-[3px] border-l-amber-500'
-            : isInProgress
-              ? 'border-l-[3px] border-l-sky-500'
-              : isReviewStatus
-                ? 'border-l-[3px] border-l-amber-500'
-                : isDoneStatus
-                  ? 'border-l-[3px] border-l-emerald-500 opacity-95'
-                  : 'border-l-[3px] border-l-slate-400 dark:border-l-slate-500';
-
           return `
-            <div data-id="${t.id}" tabindex="0" role="button" aria-label="${escapeHtml(t.title)}" onclick="openModalForEdit('${t.id}')" onkeydown="handleCardKeyDown(event, '${t.id}')" class="kanban-card p-3 rounded-xl td-surface-card ${cardStatusAccent} transition-all cursor-pointer group space-y-2 relative focus:outline-none">
+            <div data-id="${t.id}" tabindex="0" role="button" aria-label="${escapeHtml(t.title)}" onclick="openModalForEdit('${t.id}')" onkeydown="handleCardKeyDown(event, '${t.id}')" class="kanban-card p-3 rounded-xl bg-[var(--card)] border border-[var(--border)] hover:border-[var(--primary)] shadow-xs transition-all cursor-pointer group space-y-2 relative focus:outline-none">
               <div class="flex items-start justify-between gap-1.5">
                 <div class="flex items-center gap-1.5 flex-wrap min-w-0">
                   <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded ${priorityColor} font-mono whitespace-nowrap flex-shrink-0">${t.priority || 'P1'}</span>
@@ -218,6 +279,15 @@ import {
 
               ${t.description ? `<p class="text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2 leading-relaxed">${escapeHtml(t.description)}</p>` : ''}
 
+              ${(t.targetBranch || t.baseBranch) ? `
+                <div class="flex items-center gap-1.5 pt-0.5">
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200/80 dark:border-indigo-800/70 text-[10px] font-mono text-indigo-700 dark:text-indigo-300 max-w-full truncate" title="目標分支: ${escapeHtml(t.targetBranch || t.baseBranch)}">
+                    <span>⎇</span>
+                    <span class="truncate">${escapeHtml(t.targetBranch || t.baseBranch)}</span>
+                  </span>
+                </div>
+              ` : ''}
+
               ${isPendingConfirm ? `
                 <!-- 待確認內容與邊界質詢摘要卡片 (支援 Grill-Me 專案) -->
                 <div class="p-2 rounded-lg shadow-xs ${hasGrillMe ? 'bg-orange-50/90 dark:bg-orange-950/35 text-orange-950 dark:text-orange-200' : 'bg-amber-50/90 dark:bg-amber-950/35 text-amber-950 dark:text-amber-200'} space-y-1 text-[11px]">
@@ -236,14 +306,19 @@ import {
 
               ${isInProgress ? `
                 <div class="space-y-1.5 pt-0.5">
-                  <!-- AI 輪巡中 / CLI 執行中 + 當前工作切片 (無框線色塊分層) -->
+                  <!-- AI 輪巡中 / CLI 執行中 / 排隊等待中 + 當前工作切片 (無框線色塊分層) -->
                   <div class="td-surface-panel rounded-lg p-2 space-y-1.5 text-[10px] text-slate-700 dark:text-slate-200">
                     <div class="flex items-center justify-between gap-1.5">
                       <span class="flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap min-w-0 truncate">
-                        <span class="w-2 h-2 rounded-full bg-sky-500 flex-shrink-0"></span>
-                        <span class="truncate">${settings.enableCliAgent ? ` CLI (${settings.cliCommand || 'hermes'}) 執行中` : ` AI 輪巡中`}</span>
+                        <span class="w-2 h-2 rounded-full ${t.queueState && t.queueState.blockedByTaskId ? 'bg-amber-500' : 'bg-sky-500'} flex-shrink-0"></span>
+                        <span class="truncate">${(t.queueState && t.queueState.blockedByTaskId) ? '排隊等待中' : (settings.enableCliAgent ? ` CLI (${settings.cliCommand || 'hermes'}) 執行中` : ` AI 輪巡中`)}</span>
                       </span>
                       <div class="flex items-center gap-1 flex-shrink-0">
+                        ${(t.queueState && t.queueState.blockedByTaskId) ? `
+                          <span class="text-[9px] font-semibold text-amber-800 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/60 px-1.5 py-0.5 rounded-full border border-amber-300/70 dark:border-amber-700/60 flex items-center gap-0.5 whitespace-nowrap flex-shrink-0" title="前一張任務提交後會自動接手開工">
+                            ⏳ 等待 ${escapeHtml(t.queueState.blockedByTaskId)} 完成中
+                          </span>
+                        ` : ''}
                         ${t.liveStatus?.isStalled ? `
                           <span class="text-[9px] font-mono font-semibold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/60 px-1.5 py-0.5 rounded flex items-center gap-0.5 whitespace-nowrap flex-shrink-0" title="超過 10 分鐘無新 worklog/進度更新，請檢視執行狀況">
                             ⚠️ 切片推進緩慢
@@ -320,8 +395,8 @@ import {
                     <i data-lucide="eye" class="w-3 h-3 text-amber-600 dark:text-amber-400 flex-shrink-0"></i>
                     <span class="truncate">${(t.modifiedFiles && t.modifiedFiles.length) ? `${t.modifiedFiles.length} 檔案 · ` : ''}含 Diff 異動</span>
                   </span>
-                  <button onclick="quickApproveDone('${t.id}', event)" class="bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-0.5 rounded font-semibold flex items-center gap-1 transition shadow-xs whitespace-nowrap flex-shrink-0">
-                    <i data-lucide="check" class="w-3 h-3 flex-shrink-0"></i> 驗收結案
+                  <button onclick="event.stopPropagation(); openModalForEdit('${t.id}')" class="bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-0.5 rounded font-semibold flex items-center gap-1 transition shadow-xs whitespace-nowrap flex-shrink-0">
+                    <i data-lucide="git-pull-request" class="w-3 h-3 flex-shrink-0"></i> 查看並提交
                   </button>
                 </div>
               ` : ''}
@@ -330,17 +405,21 @@ import {
                 const isLatestInProj = newestDoneTaskIdByProject[t.project || 'default']?.id === t.id;
                 const projGit = projectGitStatus[t.project];
                 const hasDiff = projGit ? projGit.hasDiff : false;
+                const landingSha = t.gitLanding && t.gitLanding.commitSha ? String(t.gitLanding.commitSha).slice(0, 7) : '';
+                const landedBranch = t.gitLanding && t.gitLanding.landedBranch ? String(t.gitLanding.landedBranch) : '';
 
                 return `
                   <div class="td-surface-panel rounded-lg p-1.5 flex items-center justify-between gap-1.5 text-[10px] text-slate-700 dark:text-slate-200">
-                    <span class="flex items-center gap-1 font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap flex-shrink-0">
-                      <i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-600 dark:text-emerald-400 flex-shrink-0"></i> 已完成
+                    <span class="flex items-center gap-1 font-medium text-emerald-700 dark:text-emerald-400 min-w-0 truncate">
+                      <i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-600 dark:text-emerald-400 flex-shrink-0"></i>
+                      <span class="truncate">${landingSha ? `✓ 已提交 ${escapeHtml(landingSha)}` : '已完成'}</span>
+                      ${landedBranch ? `<span class="px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-mono text-[9px] truncate">⎇ ${escapeHtml(landedBranch)}</span>` : ''}
                     </span>
                     <div class="flex items-center gap-1 flex-shrink-0">
                       <button onclick="archiveTaskFromCard('${t.id}', event)" class="bg-slate-200/90 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 px-2 py-0.5 rounded font-medium flex items-center gap-1 transition whitespace-nowrap flex-shrink-0" title="手動將此任務移入封存庫">
                         <i data-lucide="archive" class="w-3 h-3 text-slate-500 dark:text-slate-300 flex-shrink-0"></i> 封存
                       </button>
-                      ${isLatestInProj && hasDiff ? `
+                      ${!landingSha && isLatestInProj && hasDiff ? `
                         <button onclick="commitTaskFromCard('${t.id}', event)" class="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-0.5 rounded font-semibold flex items-center gap-1 transition shadow-xs whitespace-nowrap flex-shrink-0" title="提交 Git Commit 並封存">
                           <i data-lucide="git-commit" class="w-3 h-3 flex-shrink-0"></i> Commit
                         </button>
@@ -386,7 +465,35 @@ import {
               </div>
             </div>
           `;
-        }).join('');
+        };
+
+        if (typeof groupByBranch !== 'undefined' && groupByBranch) {
+          const branchGroups = new Map();
+          colTasks.forEach(t => {
+            const branchKey = (t.targetBranch || t.baseBranch || '').trim() || '未指定分支';
+            if (!branchGroups.has(branchKey)) branchGroups.set(branchKey, []);
+            branchGroups.get(branchKey).push(t);
+          });
+          const sortedKeys = Array.from(branchGroups.keys()).sort((a, b) => {
+            if (a === '未指定分支') return 1;
+            if (b === '未指定分支') return -1;
+            return a.localeCompare(b);
+          });
+          colEl.innerHTML = sortedKeys.map(branchKey => {
+            const groupTasks = branchGroups.get(branchKey);
+            return `
+              <div class="mb-2.5">
+                <div class="flex items-center justify-between px-2 py-1 mb-1.5 rounded-lg bg-slate-200/70 dark:bg-slate-800/80 text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+                  <span class="flex items-center gap-1 truncate font-mono">⎇ ${escapeHtml(branchKey)}</span>
+                  <span class="text-[10px] font-mono text-slate-500 dark:text-slate-400">${groupTasks.length}</span>
+                </div>
+                <div class="space-y-2.5">${groupTasks.map(renderCardHtml).join('')}</div>
+              </div>
+            `;
+          }).join('');
+        } else {
+          colEl.innerHTML = colTasks.map(renderCardHtml).join('');
+        }
       });
 
       if (window.lucide) lucide.createIcons();
