@@ -899,7 +899,7 @@ function removeTaskWorktree(repoPath, taskId, branchOrOptions = '') {
 }
 
 /**
- * 序列化安全合併管線：Rebase → 基線變動重驗 → Squash / PR 分流 → 清理
+ * 序列化安全合併管線：Rebase → 基線變動重驗 → 風險門確認 → Squash 合併 → 清理
  * @param {Object} options
  * @returns {Promise<Object>}
  */
@@ -967,20 +967,24 @@ async function mergeTaskWorktree(options = {}) {
       }
     }
 
-    // 1. 檢查主工作區是否有未提交髒狀態；若當前切在 baseBranch 且髒污則立即阻斷
-    const mainStatus = execFileSync('git', ['-C', cleanRepo, 'status', '--porcelain'], {
+    // 1. 檢查主工作區是否有未提交髒狀態；若當前切在 baseBranch 且有非 Harness 暫存之未提交變更則立即阻斷
+    const mainStatusRaw = execFileSync('git', ['-C', cleanRepo, 'status', '--porcelain', '-uall'], {
       encoding: 'utf8',
       env: customEnv,
       timeout: 5000
-    }).trim();
+    });
+    const realMainDirty = parsePorcelainStatus(mainStatusRaw).filter(entry => !isTransientHarnessPath(entry.path));
     const isMainOnBase = mainHead.branch === baseBranch;
-    if (isMainOnBase && mainStatus.length > 0) {
+    if (isMainOnBase && realMainDirty.length > 0) {
+      const previewList = realMainDirty.slice(0, 5).map(e => e.path).join(', ');
+      const suffix = realMainDirty.length > 5 ? ` 等 ${realMainDirty.length} 筆` : '';
       return {
         success: false,
         merged: false,
         status: 'dirty_main_workspace',
         baseBranch,
-        error: `主工作區目前位於 ${baseBranch} 分支且有未提交變更，已阻斷合併以避免覆蓋本地變更。`
+        dirtyFiles: realMainDirty.map(e => e.path),
+        error: `主工作區目前位於 ${baseBranch} 分支且有未提交變更 (${previewList}${suffix})，已阻斷合併以避免覆蓋本地變更。請先提交、暫存或還原上述檔案後再試。`
       };
     }
 
@@ -1068,46 +1072,9 @@ async function mergeTaskWorktree(options = {}) {
       }
     }
 
-    // 5. 依風險門分流合併：one-way 預設 push 分支開 PR 或須顯式確認才本地合併
+    // 5. 風險門確認：one-way 高風險任務須顯式確認才可本地 Squash 合併
     const riskDoor = (task && task.riskDoor) || 'two-way';
     if (riskDoor === 'one-way' && !confirmOneWayMerge && mode !== 'squash') {
-      let hasOrigin = false;
-      try {
-        const remotes = execFileSync('git', ['-C', worktreePath, 'remote'], { encoding: 'utf8', env: customEnv, timeout: 5000 });
-        hasOrigin = remotes.split('\n').map(r => r.trim()).includes('origin');
-      } catch (e) {}
-
-      if (hasOrigin && mode !== 'local-confirm') {
-        try {
-          execFileSync('git', ['-C', worktreePath, 'push', '-u', 'origin', branchName], {
-            encoding: 'utf8',
-            env: buildNonInteractiveGitEnv(customEnv),
-            stdio: ['ignore', 'pipe', 'pipe'],
-            timeout: 30000
-          });
-          let prUrl = '';
-          try {
-            prUrl = execFileSync('gh', ['pr', 'create', '--base', baseBranch, '--head', branchName, '--title', defaultSubject, '--body', defaultBody || `Task ${taskId}`], {
-              cwd: worktreePath,
-              encoding: 'utf8',
-              env: customEnv,
-              timeout: 20000
-            }).trim();
-          } catch (ghErr) {}
-          return {
-            success: true,
-            merged: false,
-            action: 'pr_pushed',
-            status: 'pr_ready',
-            branchName,
-            baseBranch,
-            prUrl,
-            baseMoved,
-            reVerified
-          };
-        } catch (pushErr) {}
-      }
-
       return {
         success: false,
         merged: false,
@@ -1117,7 +1084,7 @@ async function mergeTaskWorktree(options = {}) {
         baseBranch,
         baseMoved,
         reVerified,
-        error: `One-Way 高風險任務預設採推分支開 PR；若確定要本地 Squash 合併至 ${baseBranch}，請傳入 confirmOneWayMerge: true。`
+        error: `One-Way 高風險任務須經顯式確認才可本地 Squash 合併至 ${baseBranch}，請傳入 confirmOneWayMerge: true（遠端 Push 與開 PR 請於結案後由交付塢操作）。`
       };
     }
 
@@ -1331,6 +1298,26 @@ function checkTaskBaseDrift(repoPath, task = {}) {
         baseResult.conflictCheckSupported = false;
       }
     }
+  }
+
+  // 若為 worktree 任務且主工作區正位於 targetBranch 且有非暫存未提交變更，提前回報 dirty_main_workspace 讓前端正確提示
+  const isWorktreeTask = task?.workspaceMode === 'worktree' || Boolean(task?.worktreePath);
+  if (isWorktreeTask && targetBranch) {
+    try {
+      const mainHead = getGitBranchInfo(cleanRepo);
+      if (mainHead.branch === targetBranch) {
+        const mainStatusRaw = execFileSync('git', ['-C', cleanRepo, 'status', '--porcelain', '-uall'], {
+          encoding: 'utf8',
+          timeout: 5000
+        });
+        const realMainDirty = parsePorcelainStatus(mainStatusRaw).filter(entry => !isTransientHarnessPath(entry.path));
+        if (realMainDirty.length > 0) {
+          baseResult.dirtyMainWorkspace = true;
+          baseResult.dirtyFiles = realMainDirty.map(e => e.path);
+          baseResult.status = 'dirty_main_workspace';
+        }
+      }
+    } catch (e) {}
   }
 
   return baseResult;

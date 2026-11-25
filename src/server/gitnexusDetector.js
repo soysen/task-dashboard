@@ -83,7 +83,7 @@ function formatGitNexusGuidance(projPath) {
   if (!info.hasGitNexus) return '';
 
   const staleStep = info.isStale
-    ? `索引落後 HEAD，請先執行 ${info.commandPrefix} analyze 更新索引；`
+    ? `索引落後 HEAD，請先執行 ${info.commandPrefix} analyze --index-only 更新索引；`
     : '';
 
   return `• 【專案 Code Graph (先圖譜後讀檔)】: ${staleStep}讀取業務檔案前，請先執行 ${info.commandPrefix} query "<關鍵字>" ${info.repoFlag} 或 ${info.commandPrefix} impact <symbol> --direction upstream ${info.repoFlag} 鎖定呼叫鏈與受影響檔案，再切片 read_file。`;

@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { execFileSync } = require('child_process');
 const {
   MODEL_CAPABILITY_ROLES,
   PROVIDER_MATRIX,
@@ -348,6 +349,16 @@ function testAgentProviderAdapter() {
     assert.equal(wrapperInfo.repoFlag, '--repo .', 'wrapper 模式應帶 --repo .');
     const wrapperLine = formatGitNexusGuidance(wrapperProj);
     assert(wrapperLine.includes('node .gitnexus/run.cjs query') && !/subagent/i.test(wrapperLine), '指示必須含 query 且不含 Subagent');
+    // 驗證 stale 時指示必須帶 --index-only 避免覆寫 AGENTS.md / CLAUDE.md
+    execFileSync('git', ['-C', wrapperProj, 'init', '-b', 'main']);
+    execFileSync('git', ['-C', wrapperProj, 'config', 'user.email', 'test@example.com']);
+    execFileSync('git', ['-C', wrapperProj, 'config', 'user.name', 'Test']);
+    fs.writeFileSync(path.join(wrapperProj, 'a.txt'), '1\n');
+    execFileSync('git', ['-C', wrapperProj, 'add', 'a.txt']);
+    execFileSync('git', ['-C', wrapperProj, 'commit', '-m', 'init']);
+    fs.writeFileSync(path.join(wrapperProj, '.gitnexus', 'meta.json'), JSON.stringify({ lastCommit: '0000000' }));
+    const staleLine = formatGitNexusGuidance(wrapperProj);
+    assert(staleLine.includes('node .gitnexus/run.cjs analyze --index-only'), '索引過期指示必須包含 analyze --index-only');
 
     const globalGnProj = path.join(tmpRoot, 'my-curation-app');
     fs.mkdirSync(path.join(globalGnProj, '.gitnexus'), { recursive: true });

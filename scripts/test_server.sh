@@ -705,7 +705,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("os");
 const { execSync } = require("child_process");
-const { createTaskWorktree, mergeTaskWorktree } = require("./src/server/services/gitService");
+const { createTaskWorktree, mergeTaskWorktree, checkTaskBaseDrift } = require("./src/server/services/gitService");
 const base = `http://localhost:${process.env.TEST_PORT || "3031"}`;
 
 const tempRepo = fs.mkdtempSync(path.join(os.tmpdir(), "td-s2-merge-test-"));
@@ -1499,6 +1499,244 @@ const { ensureHarnessGitignore } = require("./src/server/services/harnessService
   }
 })();
 '
+
+echo "  [8.97/9] 測試 TASK-242 One-Way 高風險任務顯式確認後本地 Squash 合併（絕不偷推 td/* 至遠端）..."
+node -e '
+const assert = require("assert");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const { execFileSync } = require("child_process");
+const { createTaskWorktree, mergeTaskWorktree, checkTaskBaseDrift } = require("./src/server/services/gitService");
+
+(async () => {
+  const base = "http://localhost:" + process.argv[1];
+  const originBare = fs.mkdtempSync(path.join(os.tmpdir(), "td-242-origin-"));
+  const tempRepo = fs.mkdtempSync(path.join(os.tmpdir(), "td-242-repo-"));
+  const projId = "test-task242-proj-" + process.pid;
+  const createdTaskIds = [];
+
+  try {
+    // 初始化裸遠端與本地倉庫（含 main 與 feature/智慧客服 分支）
+    execFileSync("git", ["init", "--bare", originBare]);
+    execFileSync("git", ["-C", tempRepo, "init", "-b", "main"]);
+    execFileSync("git", ["-C", tempRepo, "config", "user.email", "tester@example.com"]);
+    execFileSync("git", ["-C", tempRepo, "config", "user.name", "Tester"]);
+    fs.writeFileSync(path.join(tempRepo, "README.md"), "# task242 test\n");
+    execFileSync("git", ["-C", tempRepo, "add", "README.md"]);
+    execFileSync("git", ["-C", tempRepo, "commit", "-m", "chore: init main"]);
+    execFileSync("git", ["-C", tempRepo, "remote", "add", "origin", originBare]);
+    execFileSync("git", ["-C", tempRepo, "push", "-u", "origin", "main"]);
+
+    execFileSync("git", ["-C", tempRepo, "checkout", "-b", "feature/智慧客服"]);
+    fs.writeFileSync(path.join(tempRepo, "base_feature.txt"), "base feature\n");
+    execFileSync("git", ["-C", tempRepo, "add", "base_feature.txt"]);
+    execFileSync("git", ["-C", tempRepo, "commit", "-m", "feat: init feature branch"]);
+    execFileSync("git", ["-C", tempRepo, "push", "-u", "origin", "feature/智慧客服"]);
+
+    // 1. 單元測試：mergeTaskWorktree (one-way 未確認 vs 顯式確認)
+    const unitWt = createTaskWorktree(tempRepo, "TASK-242-UNIT", { baseBranch: "feature/智慧客服" });
+    fs.writeFileSync(path.join(unitWt.worktreePath, "oneway_unit.txt"), "unit one-way change\n");
+    execFileSync("git", ["-C", unitWt.worktreePath, "add", "oneway_unit.txt"]);
+    execFileSync("git", ["-C", unitWt.worktreePath, "commit", "-m", "feat: unit oneway change"]);
+
+    const unitBlocked = await mergeTaskWorktree({
+      repoPath: tempRepo,
+      taskId: "TASK-242-UNIT",
+      task: { riskDoor: "one-way", title: "One-way unit test" },
+      baseBranch: "feature/智慧客服",
+      confirmOneWayMerge: false
+    });
+    assert.strictEqual(unitBlocked.success, false, "未確認時應回傳 success: false");
+    assert.strictEqual(unitBlocked.merged, false, "未確認時應回傳 merged: false");
+    assert.strictEqual(unitBlocked.status, "one_way_requires_confirmation");
+    assert.strictEqual(unitBlocked.requiresConfirmation, true);
+
+    const originTdRefs1 = execFileSync("git", ["-C", originBare, "for-each-ref", "refs/heads/td/"], { encoding: "utf8" }).trim();
+    assert.strictEqual(originTdRefs1, "", "即使有 origin 遠端也不得推送 td/* 分支");
+
+    const unitConfirmed = await mergeTaskWorktree({
+      repoPath: tempRepo,
+      taskId: "TASK-242-UNIT",
+      task: { riskDoor: "one-way", title: "One-way unit test" },
+      baseBranch: "feature/智慧客服",
+      confirmOneWayMerge: true
+    });
+    assert.strictEqual(unitConfirmed.success, true, "顯式確認後應成功合併");
+    assert.strictEqual(unitConfirmed.merged, true);
+    assert.strictEqual(unitConfirmed.status, "merged");
+    assert.strictEqual(unitConfirmed.baseBranch, "feature/智慧客服");
+
+    const featureTreeAfterUnit = execFileSync("git", ["-C", tempRepo, "ls-tree", "-r", "--name-only", "feature/智慧客服"], { encoding: "utf8" });
+    assert(featureTreeAfterUnit.includes("oneway_unit.txt"), "feature/智慧客服 應包含 oneway_unit.txt");
+    assert(!fs.existsSync(unitWt.worktreePath), "合併後 worktree 目錄應被清理");
+    const localTdUnit = execFileSync("git", ["-C", tempRepo, "for-each-ref", "refs/heads/td/TASK-242-UNIT"], { encoding: "utf8" }).trim();
+    assert.strictEqual(localTdUnit, "", "本地 td/TASK-242-UNIT 分支應已刪除");
+    const originTdRefs2 = execFileSync("git", ["-C", originBare, "for-each-ref", "refs/heads/td/"], { encoding: "utf8" }).trim();
+    assert.strictEqual(originTdRefs2, "", "確認本地合併後遠端 origin 仍不得有任何 td/* 分支");
+
+    // 2. 整合測試：POST /api/tasks/:id/land
+    const projRes = await fetch(`${base}/api/projects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: projId, name: "TASK-242 Repo", path: tempRepo, defaultBranch: "main" })
+    });
+    assert(projRes.status === 200 || projRes.status === 201, "POST /api/projects 應成功");
+
+    const createTaskRes = await fetch(`${base}/api/tasks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "One-way integration land test",
+        project: projId,
+        status: "review",
+        workspaceMode: "worktree",
+        riskDoor: "one-way",
+        targetBranch: "feature/智慧客服",
+        baseBranch: "feature/智慧客服"
+      })
+    });
+    assert.strictEqual(createTaskRes.status, 201);
+    const createdTask = await createTaskRes.json();
+    createdTaskIds.push(createdTask.id);
+
+    const intWt = createTaskWorktree(tempRepo, createdTask.id, { baseBranch: "feature/智慧客服" });
+    fs.writeFileSync(path.join(intWt.worktreePath, "oneway_land.txt"), "integration one-way land\n");
+    execFileSync("git", ["-C", intWt.worktreePath, "add", "oneway_land.txt"]);
+    execFileSync("git", ["-C", intWt.worktreePath, "commit", "-m", "feat: integration oneway land"]);
+
+    const putTaskRes = await fetch(`${base}/api/tasks/${encodeURIComponent(createdTask.id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        worktreePath: intWt.worktreePath,
+        branchName: intWt.branchName,
+        baseBranch: intWt.baseBranch,
+        targetBranch: "feature/智慧客服",
+        baseCommit: intWt.baseCommit
+      })
+    });
+    assert.strictEqual(putTaskRes.status, 200);
+
+    // 未傳入 confirmOneWayMerge 呼叫 /land -> 409 且不修改任務狀態/gitLanding
+    const landBlockedRes = await fetch(`${base}/api/tasks/${encodeURIComponent(createdTask.id)}/land`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subject: "feat(task-242): should wait confirm" })
+    });
+    assert.strictEqual(landBlockedRes.status, 409, "未確認 one-way /land 應回傳 409");
+    const landBlockedData = await landBlockedRes.json();
+    assert.strictEqual(landBlockedData.success, false);
+    assert.strictEqual(landBlockedData.merged, false);
+    assert.strictEqual(landBlockedData.isCommitted, false);
+    assert.strictEqual(landBlockedData.status, "one_way_requires_confirmation");
+    assert.strictEqual(landBlockedData.requiresConfirmation, true);
+
+    const taskAfterBlocked = await (await fetch(`${base}/api/tasks/${encodeURIComponent(createdTask.id)}`)).json();
+    assert.strictEqual(taskAfterBlocked.status, "review", "未確認時任務狀態必須維持 review");
+    assert(!(taskAfterBlocked.gitLanding && taskAfterBlocked.gitLanding.isCommitted), "未確認時不得寫入 gitLanding.isCommitted");
+    assert(!(taskAfterBlocked.gitLanding && taskAfterBlocked.gitLanding.landedBranch), "未確認時不得寫入 gitLanding.landedBranch");
+    const originTdRefs3 = execFileSync("git", ["-C", originBare, "for-each-ref", "refs/heads/td/"], { encoding: "utf8" }).trim();
+    assert.strictEqual(originTdRefs3, "", "整合測試未確認階段遠端 origin 不得有 td/* 分支");
+
+    // 顯式傳入 confirmOneWayMerge: true 呼叫 /land -> 200 成功本地合併
+    const landOkRes = await fetch(`${base}/api/tasks/${encodeURIComponent(createdTask.id)}/land`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        confirmOneWayMerge: true,
+        subject: "feat(task-242): one-way land to feature branch"
+      })
+    });
+    assert.strictEqual(landOkRes.status, 200, "顯式 confirmOneWayMerge: true 後 /land 應回傳 200");
+    const landOkData = await landOkRes.json();
+    assert.strictEqual(landOkData.success, true);
+    assert.strictEqual(landOkData.isCommitted, true);
+    assert.strictEqual(landOkData.status, "done");
+    assert.strictEqual(landOkData.gitLanding.isCommitted, true);
+    assert.strictEqual(landOkData.gitLanding.landedBranch, "feature/智慧客服");
+    assert.strictEqual(landOkData.gitLanding.pushedRemote, false);
+    assert(landOkData.gitLanding.commitSha && landOkData.gitLanding.commitSha.length >= 7, "應回傳有效的 commitSha");
+
+    const featureTreeAfterLand = execFileSync("git", ["-C", tempRepo, "ls-tree", "-r", "--name-only", "feature/智慧客服"], { encoding: "utf8" });
+    assert(featureTreeAfterLand.includes("oneway_land.txt"), "合併後 feature/智慧客服 應包含 oneway_land.txt");
+    assert(!fs.existsSync(intWt.worktreePath), "合併後 worktree 目錄應已清理");
+    const localTdInt = execFileSync("git", ["-C", tempRepo, "for-each-ref", "refs/heads/td/"], { encoding: "utf8" }).trim();
+    assert.strictEqual(localTdInt, "", "合併後本地 td/* 分支應已全數清理");
+    const originTdRefs4 = execFileSync("git", ["-C", originBare, "for-each-ref", "refs/heads/td/"], { encoding: "utf8" }).trim();
+    assert.strictEqual(originTdRefs4, "", "合併後遠端 origin 仍不得有任何 td/* 分支");
+
+    // 3. 驗證主工作區髒狀態檢查 (checkTaskBaseDrift 與 mergeTaskWorktree 同步過濾 Harness 暫存並回報 dirtyFiles)
+    const dirtyWt = createTaskWorktree(tempRepo, "TASK-242-DIRTY", { baseBranch: "feature/智慧客服" });
+    fs.writeFileSync(path.join(dirtyWt.worktreePath, "wt_clean.txt"), "wt change\n");
+    execFileSync("git", ["-C", dirtyWt.worktreePath, "add", "wt_clean.txt"]);
+    execFileSync("git", ["-C", dirtyWt.worktreePath, "commit", "-m", "feat: dirty check"]);
+
+    // 3a. 僅有 Harness 暫存檔時，checkTaskBaseDrift 不應誤報 dirty_main_workspace
+    fs.mkdirSync(path.join(tempRepo, ".github/worklog"), { recursive: true });
+    fs.writeFileSync(path.join(tempRepo, ".github/worklog/agent-status.md"), "# transient\n");
+    const driftWithTransient = checkTaskBaseDrift(tempRepo, {
+      workspaceMode: "worktree",
+      worktreePath: dirtyWt.worktreePath,
+      targetBranch: "feature/智慧客服",
+      baseBranch: "feature/智慧客服",
+      baseCommit: dirtyWt.baseCommit
+    });
+    assert.notStrictEqual(driftWithTransient.status, "dirty_main_workspace", "僅有 transient harness 檔時不應報 dirty_main_workspace");
+
+    // 3b. 主工作區有真實未提交變更時，checkTaskBaseDrift 與 mergeTaskWorktree 皆須回報 dirty_main_workspace 並列出檔名
+    fs.writeFileSync(path.join(tempRepo, "uncommitted_main.txt"), "dirty\n");
+    const driftWithRealDirty = checkTaskBaseDrift(tempRepo, {
+      workspaceMode: "worktree",
+      worktreePath: dirtyWt.worktreePath,
+      targetBranch: "feature/智慧客服",
+      baseBranch: "feature/智慧客服",
+      baseCommit: dirtyWt.baseCommit
+    });
+    assert.strictEqual(driftWithRealDirty.status, "dirty_main_workspace");
+    assert.strictEqual(driftWithRealDirty.dirtyMainWorkspace, true);
+    assert(Array.isArray(driftWithRealDirty.dirtyFiles) && driftWithRealDirty.dirtyFiles.includes("uncommitted_main.txt"));
+
+    const mergeDirtyRes = await mergeTaskWorktree({
+      repoPath: tempRepo,
+      taskId: "TASK-242-DIRTY",
+      task: { riskDoor: "two-way", title: "Dirty check" },
+      baseBranch: "feature/智慧客服"
+    });
+    assert.strictEqual(mergeDirtyRes.success, false);
+    assert.strictEqual(mergeDirtyRes.status, "dirty_main_workspace");
+    assert(Array.isArray(mergeDirtyRes.dirtyFiles) && mergeDirtyRes.dirtyFiles.includes("uncommitted_main.txt"));
+    assert(mergeDirtyRes.error.includes("uncommitted_main.txt"), "dirty_main_workspace 錯誤訊息應列出未提交檔名");
+
+    // 清理真實髒檔後（保留 transient harness 檔），mergeTaskWorktree 應放行並成功合併
+    fs.unlinkSync(path.join(tempRepo, "uncommitted_main.txt"));
+    const mergeAfterCleanRes = await mergeTaskWorktree({
+      repoPath: tempRepo,
+      taskId: "TASK-242-DIRTY",
+      task: { riskDoor: "two-way", title: "Dirty check" },
+      baseBranch: "feature/智慧客服"
+    });
+    assert.strictEqual(mergeAfterCleanRes.success, true);
+    assert.strictEqual(mergeAfterCleanRes.merged, true);
+
+    console.log("    ✅ TASK-242 One-Way 高風險顯式確認本地 Squash 合併與主工作區髒狀態檢查驗證通過");
+  } finally {
+    for (const tid of createdTaskIds) {
+      try { await fetch(`${base}/api/tasks/${encodeURIComponent(tid)}`, { method: "DELETE" }); } catch (e) {}
+    }
+    try {
+      await fetch(`${base}/api/projects/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: projId })
+      });
+    } catch (e) {}
+    try { fs.rmSync(`${tempRepo}.worktrees`, { recursive: true, force: true }); } catch (e) {}
+    try { fs.rmSync(tempRepo, { recursive: true, force: true }); } catch (e) {}
+    try { fs.rmSync(originBare, { recursive: true, force: true }); } catch (e) {}
+  }
+})();
+' "$TEST_PORT"
 
 echo "  [9/9] 測試 前端核心互動邏輯與狀態防線 ..."
 node "$PROJECT_DIR/scripts/test_ui_behavior.js"

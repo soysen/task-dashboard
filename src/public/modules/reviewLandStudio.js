@@ -136,6 +136,11 @@ function setLandErrorBox(message, options = {}) {
   if (window.lucide) window.lucide.createIcons();
 }
 
+function isTaskAlreadyWorktree(taskId) {
+  const activeTask = (taskId ? tasks.find(t => t.id === taskId) : null) || currentModalEditingTask;
+  return Boolean(activeTask && (activeTask.workspaceMode === "worktree" || activeTask.worktreePath));
+}
+
 function renderDriftStatusBadge(driftData, taskId) {
   const statusEl = document.getElementById("reviewLandDriftStatus");
   if (!statusEl) return;
@@ -150,21 +155,30 @@ function renderDriftStatusBadge(driftData, taskId) {
     return;
   }
 
+  const isDirtyMain = Boolean(driftData.status === "dirty_main_workspace" || driftData.dirtyMainWorkspace);
   const hasConflict = Boolean(
     driftData.hasConflict ||
     driftData.conflict ||
     driftData.status === "conflict" ||
-    driftData.status === "dirty_main_workspace"
+    isDirtyMain
   );
   const hasDrift = Boolean(driftData.hasDrift || Number(driftData.behindCount || driftData.behind || 0) > 0);
+  const alreadyWorktree = isTaskAlreadyWorktree(taskId);
 
   if (hasConflict) {
     const safeTaskAttr = escapeHtml(taskId || "");
+    const dirtyFiles = Array.isArray(driftData.dirtyFiles) ? driftData.dirtyFiles : [];
+    const dirtyPreview = dirtyFiles.length > 0
+      ? ` (${escapeHtml(dirtyFiles.slice(0, 3).join(", "))}${dirtyFiles.length > 3 ? ` 等 ${dirtyFiles.length} 筆` : ""})`
+      : "";
+    const conflictLabel = isDirtyMain
+      ? `主工作區有未提交變更${dirtyPreview}，請先清理後再提交`
+      : "有未提交檔案或衝突，無法直接寫入";
     statusEl.className = "inline-flex items-center gap-2 px-2.5 py-1 rounded-lg text-xs font-medium bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 text-rose-800 dark:text-rose-300 flex-wrap";
     statusEl.innerHTML = `
       <i data-lucide="alert-octagon" class="w-3.5 h-3.5 text-rose-500 flex-shrink-0"></i>
-      <span>有未提交檔案或衝突，無法直接寫入</span>
-      ${safeTaskAttr ? `
+      <span>${conflictLabel}</span>
+      ${safeTaskAttr && !alreadyWorktree ? `
         <button type="button" onclick="switchWorkspaceToWorktreeAndStart('${safeTaskAttr}')" class="px-2 py-0.5 rounded bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-semibold transition cursor-pointer">
           改用獨立工作區
         </button>
@@ -386,9 +400,12 @@ async function landTaskChanges(event, extraOptions = {}) {
       if (!res.ok || data.success === false) {
         const errMsg = data.error || data.message || `提交失敗 (HTTP ${res.status})`;
         const showSwitch = Boolean(
-          res.status === 409 ||
-          data.status === "dirty_main_workspace" ||
-          data.status === "rebase_conflict"
+          !isTaskAlreadyWorktree(taskId) &&
+          data.status !== "one_way_requires_confirmation" &&
+          (res.status === 409 ||
+            data.status === "dirty_main_workspace" ||
+            data.status === "rebase_conflict" ||
+            data.status === "conflict")
         );
         setLandErrorBox(errMsg, {
           taskId,

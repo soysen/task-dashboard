@@ -2911,13 +2911,7 @@ function runNativeFolderPicker(promptText, callback) {
               customEnv: buildCustomEnv()
             });
 
-            if (mergeResult.action === 'pr_pushed') {
-              commitSha = mergeResult.mergeCommit || '';
-              landedBranch = mergeResult.baseBranch || landedBranch;
-              pushedRemote = true;
-              prUrl = mergeResult.prUrl || '';
-              outputMsg = `已推送分支 ${mergeResult.branchName} 並建立 PR`;
-            } else if (mergeResult.merged) {
+            if (mergeResult && mergeResult.merged === true) {
               commitSha = mergeResult.mergeCommit || '';
               landedBranch = mergeResult.baseBranch || landedBranch;
               if (!commitSha && landedBranch) {
@@ -2931,16 +2925,16 @@ function runNativeFolderPicker(promptText, callback) {
               outputMsg = `Worktree 已安全合併至 ${landedBranch || '主分支'}`;
             } else {
               const statusCode =
-                mergeResult.status === 'verification_failed' ? 422 :
-                (mergeResult.status === 'rebase_conflict' || mergeResult.status === 'dirty_main_workspace' || mergeResult.status === 'one_way_requires_confirmation') ? 409 :
+                (mergeResult && mergeResult.status === 'verification_failed') ? 422 :
+                (mergeResult && (mergeResult.status === 'conflict' || mergeResult.status === 'rebase_conflict' || mergeResult.status === 'dirty_main_workspace' || mergeResult.status === 'one_way_requires_confirmation')) ? 409 :
                 400;
-              if (mergeResult.status === 'rebase_conflict') {
+              if (mergeResult && (mergeResult.status === 'conflict' || mergeResult.status === 'rebase_conflict')) {
                 appendTaskEvent({ taskId, type: 'merge_conflict', baseBranch: mergeResult.baseBranch, branchName: mergeResult.branchName });
-              } else if (mergeResult.status === 'verification_failed') {
+              } else if (mergeResult && mergeResult.status === 'verification_failed') {
                 appendTaskEvent({ taskId, type: 'merge_verification_failed', baseBranch: mergeResult.baseBranch, exitCode: mergeResult.exitCode });
               }
               res.writeHead(statusCode, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ ...mergeResult, success: false, taskId }));
+              res.end(JSON.stringify({ ...(mergeResult || {}), success: false, merged: false, isCommitted: false, taskId }));
               return;
             }
           } else {
@@ -3017,7 +3011,7 @@ function runNativeFolderPicker(promptText, callback) {
             };
           }
           if (workspaceMode === 'worktree' && t.id === taskId) {
-            t.mergeStatus = pushedRemote ? 'pr_ready' : 'merged';
+            t.mergeStatus = 'merged';
             t.mergedAt = nowIso;
             t.mergeCommit = commitSha;
             t.worktreePath = null;
@@ -3122,7 +3116,7 @@ function runNativeFolderPicker(promptText, callback) {
           task: taskSnapshot,
           worktreePath: reqData.worktreePath || task.worktreePath,
           branchName: reqData.branchName || task.branchName,
-          baseBranch: reqData.baseBranch || task.baseBranch,
+          baseBranch: reqData.baseBranch || task.targetBranch || task.baseBranch,
           baseCommit: reqData.baseCommit || task.baseCommit,
           verifyCommand,
           confirmOneWayMerge: reqData.confirmOneWayMerge === true,
@@ -3165,19 +3159,6 @@ function runNativeFolderPicker(promptText, callback) {
 
         if (mergeResult.status === 'dirty_main_workspace' || mergeResult.status === 'one_way_requires_confirmation') {
           res.writeHead(409, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(mergeResult));
-          return;
-        }
-
-        if (mergeResult.action === 'pr_pushed') {
-          if (freshIdx !== -1) {
-            freshTasks[freshIdx].mergeStatus = 'pr_ready';
-            freshTasks[freshIdx].prUrl = mergeResult.prUrl || '';
-            freshTasks[freshIdx].updatedAt = nowIso;
-            writeTasks(freshTasks);
-          }
-          appendTaskEvent({ taskId, type: 'merge_pr_pushed', baseBranch: mergeResult.baseBranch, branchName: mergeResult.branchName, prUrl: mergeResult.prUrl });
-          res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify(mergeResult));
           return;
         }
