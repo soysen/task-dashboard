@@ -270,7 +270,8 @@ const tabContext = vm.createContext({
   document: { getElementById: id => tabElements[id] || null },
   currentModalEditingTask: { id: 'TASK-119', status: 'review' },
   setTimeout: fn => fn(),
-  autoResizeTextarea: () => {}
+  autoResizeTextarea: () => {},
+  resetTextareaHeight: () => {}
 });
 vm.runInContext(['isDiffVisibleStatus', 'applyModalTabButtonStyles', 'applyModalWorkspaceColumns', 'switchModalWorkspaceTab'].map(actualFunction).join('\n'), tabContext);
 assert(allUiContent.includes('dark:bg-slate-950') && allUiContent.includes('dark:border-slate-700'), 'modalLeftWorkspaceTabs 必須在 Dark Mode 具備高對比深色凹槽背景與外框線');
@@ -866,6 +867,7 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
     renderExecutionPlan: () => {},
     setModalFieldsReadOnly: () => {},
     autoResizeTextarea: () => {},
+    resetTextareaHeight: () => {},
     setTimeout: () => {}
   });
   vm.runInContext(['isDiffVisibleStatus', 'applyModalWorkspaceColumns', 'updateModalButtonState'].map(actualFunction).join('\n'), modalBtnCtx);
@@ -974,7 +976,7 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
   assert(modalBtnEls.modalLeftColumn.classList.contains('hidden'), 'diff 分頁作用中時 updateModalButtonState 必須維持 #modalLeftColumn 隱藏');
   assert(!modalBtnEls.modalRightColumn.classList.contains('hidden') && modalBtnEls.modalRightColumn.classList.contains('lg:col-span-12'), 'diff 分頁作用中時 updateModalButtonState 必須維持 #modalRightColumn 全寬顯示');
 
-  // 24-2 toggleDiffFocusMode 在 diff 分頁與 null DOM 下皆安全運作
+  // 24-2 toggleDiffFocusMode 在 diff 分頁與 null DOM 下皆安全運作（TASK-247: 維持固定全寬高，不再切換尺寸）
   const focusEls = {
     modalLeftColumn: makeModalEl(),
     modalRightColumn: makeModalEl(),
@@ -984,6 +986,7 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
     btnToggleFocusModeIcon: makeModalEl(),
     btnModalTabDiff: makeModalEl()
   };
+  focusEls.modalDialogContainer.classList.add('max-w-[98vw]', 'h-[96vh]');
   focusEls.btnModalTabDiff.setAttribute('aria-selected', 'true');
   focusEls.modalLeftColumn.classList.add('hidden');
   focusEls.modalRightColumn.classList.add('lg:col-span-12');
@@ -994,10 +997,21 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
   });
   vm.runInContext(actualFunction('toggleDiffFocusMode'), focusCtx);
   focusCtx.toggleDiffFocusMode();
-  assert(focusEls.modalDialogContainer.classList.contains('max-w-[98vw]') && focusEls.modalDialogContainer.classList.contains('h-[96vh]'), '專注檢閱開啟時應放大 #modalDialogContainer');
+  assert(
+    focusEls.modalDialogContainer.classList.contains('max-w-[98vw]') &&
+    focusEls.modalDialogContainer.classList.contains('h-[96vh]') &&
+    !focusEls.modalDialogContainer.classList.contains('max-w-6xl'),
+    '專注檢閱開啟時應維持固定 #modalDialogContainer (max-w-[98vw] h-[96vh])'
+  );
   assert(focusEls.modalLeftColumn.classList.contains('hidden') && focusEls.modalRightColumn.classList.contains('lg:col-span-12'), 'diff 分頁開啟專注檢閱時不得顯示左欄或縮小右欄');
   focusCtx.toggleDiffFocusMode();
-  assert(focusEls.modalDialogContainer.classList.contains('max-w-6xl') && focusEls.modalDialogContainer.classList.contains('h-[90vh]'), '關閉專注檢閱時應還原 #modalDialogContainer 預設尺寸');
+  assert(
+    focusEls.modalDialogContainer.classList.contains('max-w-[98vw]') &&
+    focusEls.modalDialogContainer.classList.contains('h-[96vh]') &&
+    !focusEls.modalDialogContainer.classList.contains('max-w-6xl') &&
+    !focusEls.modalDialogContainer.classList.contains('h-[90vh]'),
+    '關閉專注檢閱時亦必須維持 #modalDialogContainer 固定全寬高 (max-w-[98vw] h-[96vh])'
+  );
   assert(focusEls.modalLeftColumn.classList.contains('hidden') && focusEls.modalRightColumn.classList.contains('lg:col-span-12'), 'diff 分頁關閉專注檢閱時必須保持左欄隱藏與右欄 lg:col-span-12');
 
   const nullFocusCtx = vm.createContext({
@@ -1007,6 +1021,184 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
   });
   vm.runInContext(actualFunction('toggleDiffFocusMode'), nullFocusCtx);
   nullFocusCtx.toggleDiffFocusMode();
+
+  // 24-4 TASK-247: 固定滿版彈窗、移除所有縮放按鈕、雙欄規格排版、#formDescription 自然撐滿高度與視窗級浮動選單驗證
+  assert(!htmlContent.includes('id="btnModalFullscreen"'), 'index.html 必須移除冗餘的 #btnModalFullscreen 按鈕');
+  assert(!htmlContent.includes('id="btnToggleFocusMode"'), 'index.html 必須移除冗餘的 #btnToggleFocusMode 視窗縮放按鈕');
+  const dialogTagMatch = htmlContent.match(/<div id="modalDialogContainer"[^>]*>/);
+  assert(
+    dialogTagMatch &&
+    dialogTagMatch[0].includes('max-w-[98vw]') &&
+    dialogTagMatch[0].includes('h-[96vh]') &&
+    !dialogTagMatch[0].includes('max-w-6xl') &&
+    !dialogTagMatch[0].includes('max-w-3xl'),
+    '#modalDialogContainer 預設必須為固定滿版寬高 (max-w-[98vw] h-[96vh])'
+  );
+  const specPaneMatch = htmlContent.match(/<div id="modalSpecPane"[^>]*>/);
+  assert(
+    specPaneMatch &&
+    specPaneMatch[0].includes('lg:grid-cols-12') &&
+    htmlContent.includes('class="lg:col-span-5 flex flex-col gap-3.5 min-w-0"') &&
+    htmlContent.includes('class="lg:col-span-7 flex flex-col gap-3.5 min-h-0 min-w-0"'),
+    '#modalSpecPane 必須採用全寬兩欄佈局 (lg:grid-cols-12: lg:col-span-5 + lg:col-span-7)'
+  );
+  const formDescTagMatch = htmlContent.match(/<textarea id="formDescription"[^>]*>/);
+  assert(
+    formDescTagMatch &&
+    formDescTagMatch[0].includes('flex-1') &&
+    formDescTagMatch[0].includes('resize-none'),
+    '#formDescription 必須具備 flex-1 與 resize-none 以自適應填滿右側高度並禁止手動拖拉變形'
+  );
+  const modalJsSource = fs.readFileSync(path.join(__dirname, '../src/public/modules/modal.js'), 'utf8');
+  assert(
+    !modalJsSource.includes('autoResizeTextarea(descEl') &&
+    !modalJsSource.includes("autoResizeTextarea(document.getElementById('formDescription')"),
+    'modal.js 不得對 #formDescription 呼叫 autoResizeTextarea 以免鎖死最小高度 72px'
+  );
+
+  const select2DropdownTag = htmlContent.match(/<div id="select2Dropdown"[^>]*>/);
+  const projectDropdownTag = htmlContent.match(/<div id="formProjectDropdown"[^>]*>/);
+  const formCloseIdx = htmlContent.indexOf('</form>', htmlContent.indexOf('id="taskForm"'));
+  const select2Idx = htmlContent.indexOf('id="select2Dropdown"');
+  const projectDropdownIdx = htmlContent.indexOf('id="formProjectDropdown"');
+  assert(
+    select2DropdownTag &&
+    select2DropdownTag[0].includes('fixed z-[90]') &&
+    !select2DropdownTag[0].includes('absolute') &&
+    select2Idx > formCloseIdx,
+    '#select2Dropdown 必須移至 </form> 之外並改用 fixed z-[90] 定位以避免被 overflow-hidden 容器裁切'
+  );
+  assert(
+    projectDropdownTag &&
+    projectDropdownTag[0].includes('fixed z-[90]') &&
+    !projectDropdownTag[0].includes('absolute') &&
+    projectDropdownIdx > formCloseIdx,
+    '#formProjectDropdown 必須移至 </form> 之外並改用 fixed z-[90] 定位以避免被 overflow-hidden 容器裁切'
+  );
+
+  // updateModalButtonState 在 new/todo/in_progress/review/done/archived 模式皆維持 max-w-[98vw] h-[96vh]
+  const statusCases = [
+    { taskId: '', status: 'todo', label: 'new' },
+    { taskId: 'TASK-247', status: 'in_progress', label: 'in_progress' },
+    { taskId: 'TASK-247', status: 'review', label: 'review' },
+    { taskId: 'TASK-247', status: 'done', label: 'done' },
+    { taskId: 'TASK-247', status: 'archived', label: 'archived' }
+  ];
+  for (const sc of statusCases) {
+    modalBtnEls.formStatus.value = sc.status;
+    modalBtnEls.formTaskId.value = sc.taskId;
+    modalBtnCtx.currentModalEditingTask = sc.taskId ? { id: sc.taskId, status: sc.status } : null;
+    modalBtnCtx.updateModalButtonState();
+    assert(
+      modalBtnEls.modalDialogContainer.className.includes('max-w-[98vw]') &&
+      modalBtnEls.modalDialogContainer.className.includes('h-[96vh]') &&
+      !modalBtnEls.modalDialogContainer.className.includes('max-w-3xl') &&
+      !modalBtnEls.modalDialogContainer.className.includes('max-w-6xl'),
+      `${sc.label} 模式下 updateModalButtonState 必須維持 max-w-[98vw] h-[96vh]`
+    );
+  }
+
+  // positionFloatingDropdown 行為驗證（向下展開、底部不足時向上翻轉、maxHeight clamp 與捲動越界隱藏）
+  const makeDropdownMock = () => {
+    const mock = makeModalEl();
+    mock.style = {};
+    mock.dataset = {};
+    mock.classList.add('hidden');
+    return mock;
+  };
+  let anchorRectMock = { top: 180, bottom: 216, left: 720, right: 1120, width: 400, height: 36 };
+  let leftColRectMock = { top: 80, bottom: 760 };
+  const floatingEls = {
+    select2ControlBox: {
+      getBoundingClientRect: () => anchorRectMock
+    },
+    select2Dropdown: makeDropdownMock(),
+    formProjectInput: {
+      value: '',
+      getBoundingClientRect: () => anchorRectMock
+    },
+    formProjectDropdown: makeDropdownMock(),
+    formProjectDropdownList: { innerHTML: '' },
+    modalLeftColumn: {
+      getBoundingClientRect: () => leftColRectMock,
+      addEventListener: () => {}
+    }
+  };
+  const floatingCtx = vm.createContext({
+    document: {
+      getElementById: id => floatingEls[id] || null,
+      documentElement: { clientWidth: 1280, clientHeight: 800 }
+    },
+    window: { innerWidth: 1280, innerHeight: 800, addEventListener: () => {} },
+    isCurrentModalReadOnly: false,
+    projects: [{ id: 'p1', name: 'Project 1', color: 'indigo' }],
+    escapeHtml: v => String(v ?? ''),
+    renderProjectAutocompleteList: () => {},
+    initSelect2Dropdown: () => {}
+  });
+  vm.runInContext(
+    [
+      'positionFloatingDropdown',
+      'isAnchorOutsideLeftColumn',
+      'repositionOpenFloatingDropdowns',
+      'ensureFloatingDropdownListeners',
+      'positionSelect2FloatingDropdown',
+      'toggleSelect2Dropdown',
+      'showProjectAutocomplete'
+    ].map(actualFunction).join('\n'),
+    floatingCtx
+  );
+
+  // 1) 空間充足時向下展開
+  const downRes = floatingCtx.positionFloatingDropdown(floatingEls.select2ControlBox, floatingEls.select2Dropdown, {
+    maxHeight: 380,
+    minHeight: 180
+  });
+  assert.strictEqual(downRes.placement, 'bottom', '下方空間充足時應向下展開');
+  assert.strictEqual(floatingEls.select2Dropdown.style.position, 'fixed', 'dropdown 必須設定 style.position = fixed');
+  assert.strictEqual(floatingEls.select2Dropdown.style.top, '220px', '向下展開時 top 應對齊 anchor bottom + gap');
+  assert.strictEqual(floatingEls.select2Dropdown.style.width, '400px', 'dropdown width 應對齊 anchor 寬度');
+  assert.strictEqual(floatingEls.select2Dropdown.style.maxHeight, '380px', '空間足夠時 maxHeight 應為 380px');
+
+  // 2) 靠近視窗底部時翻轉向上並 clamp maxHeight
+  anchorRectMock = { top: 690, bottom: 726, left: 720, right: 1120, width: 400, height: 36 };
+  const upRes = floatingCtx.positionFloatingDropdown(floatingEls.select2ControlBox, floatingEls.select2Dropdown, {
+    maxHeight: 380,
+    minHeight: 180
+  });
+  assert.strictEqual(upRes.placement, 'top', '下方空間不足且上方空間較大時應向上翻轉');
+  assert.strictEqual(floatingEls.select2Dropdown.style.top, 'auto', '向上翻轉時 top 應為 auto');
+  assert.strictEqual(floatingEls.select2Dropdown.style.bottom, '114px', '向上翻轉時 bottom 應錨定於 anchor 上方');
+
+  // 3) 上下皆偏窄時 maxHeight 必須 clamp 在視窗可用高度內
+  anchorRectMock = { top: 100, bottom: 136, left: 720, right: 1120, width: 400, height: 36 };
+  const tightRes = floatingCtx.positionFloatingDropdown(floatingEls.select2ControlBox, floatingEls.select2Dropdown, {
+    maxHeight: 380,
+    minHeight: 180,
+    viewportHeight: 260
+  });
+  assert.strictEqual(tightRes.placement, 'bottom', '下方空間大於上方時維持向下展開');
+  assert.strictEqual(tightRes.maxHeight, 108, 'maxHeight 必須被 clamp 在視窗剩餘空間 (260 - 136 - 4 - 12 = 108) 內');
+
+  // 4) toggleSelect2Dropdown 與 showProjectAutocomplete 開啟時自動套用 fixed 定位，滾出左欄時自動隱藏
+  anchorRectMock = { top: 200, bottom: 236, left: 720, right: 1120, width: 400, height: 36 };
+  floatingEls.select2Dropdown.classList.add('hidden');
+  floatingCtx.toggleSelect2Dropdown();
+  assert(!floatingEls.select2Dropdown.classList.contains('hidden'), 'toggleSelect2Dropdown 應打開 select2Dropdown');
+  assert.strictEqual(floatingEls.select2Dropdown.style.position, 'fixed', 'toggleSelect2Dropdown 應執行 fixed 定位');
+
+  floatingEls.formProjectDropdown.classList.add('hidden');
+  floatingCtx.showProjectAutocomplete();
+  assert(!floatingEls.formProjectDropdown.classList.contains('hidden'), 'showProjectAutocomplete 應打開 formProjectDropdown');
+  assert.strictEqual(floatingEls.formProjectDropdown.style.position, 'fixed', 'showProjectAutocomplete 應執行 fixed 定位');
+
+  anchorRectMock = { top: 10, bottom: 46, left: 720, right: 1120, width: 400, height: 36 };
+  floatingCtx.repositionOpenFloatingDropdowns();
+  assert(
+    floatingEls.select2Dropdown.classList.contains('hidden') &&
+    floatingEls.formProjectDropdown.classList.contains('hidden'),
+    'anchor 捲出 #modalLeftColumn 可視範圍時應自動隱藏浮動選單'
+  );
 
   // 24-3 renderLineNumberedDiff 統一格式帶行號 diff 輸出驗證
   const unifiedDiffCtx = vm.createContext({

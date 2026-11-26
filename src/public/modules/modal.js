@@ -159,6 +159,8 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       specPane?.classList?.toggle('hidden', !isSpec);
       reviewPane?.classList?.toggle('hidden', !isReview);
       contextSummary?.classList?.toggle('hidden', !isReview || !currentModalEditingTask);
+      document.getElementById('select2Dropdown')?.classList?.add('hidden');
+      document.getElementById('formProjectDropdown')?.classList?.add('hidden');
 
       applyModalWorkspaceColumns({ allowDiff, isDiff });
 
@@ -171,7 +173,9 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       if (currentModalEditingTask && currentModalEditingTask.status !== 'todo') {
         setTimeout(() => {
           if (isSpec) {
-            autoResizeTextarea(document.getElementById('formDescription'), 72, 380);
+            if (typeof resetTextareaHeight === 'function') {
+              resetTextareaHeight(document.getElementById('formDescription'));
+            }
           } else if (isReview) {
             autoResizeTextarea(document.getElementById('formExecutionPlan'), 60, 300);
             autoResizeTextarea(document.getElementById('formFeedback'), 48, 200);
@@ -194,7 +198,7 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       document.getElementById('formExecutionLog').value = '';
       const descEl = document.getElementById('formDescription');
       if (descEl) {
-        descEl.rows = 8;
+        descEl.rows = 10;
         resetTextareaHeight(descEl);
       }
       resetTextareaHeight(document.getElementById('formExecutionPlan'));
@@ -773,22 +777,21 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
         btnRetro.classList.toggle('inline-flex', showRetro);
       }
 
-      // 規範：在“進行中”之後的任務 (非 todo / 新增)，textarea 高度根據內容動態調整，避免內容較少時佔據大片無效空白
+      // #formDescription 由雙欄滿版右側 flex-1 自適應撐滿；僅 #formExecutionPlan / #formFeedback 依內容調整高度
       const descEl = document.getElementById('formDescription');
       const planEl = document.getElementById('formExecutionPlan');
       const fbEl = document.getElementById('formFeedback');
 
+      if (descEl) {
+        descEl.rows = 10;
+        resetTextareaHeight(descEl);
+      }
       if (task.status !== 'todo') {
         setTimeout(() => {
-          autoResizeTextarea(descEl, 72, 380);
           autoResizeTextarea(planEl, 60, 300);
           autoResizeTextarea(fbEl, 48, 200);
         }, 10);
       } else {
-        if (descEl) {
-          descEl.rows = 12;
-          resetTextareaHeight(descEl);
-        }
         resetTextareaHeight(planEl);
         resetTextareaHeight(fbEl);
       }
@@ -1039,20 +1042,22 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       const formGrid = document.getElementById('modalFormGrid');
       const leftCol = document.getElementById('modalLeftColumn');
 
+      const FIXED_DIALOG_CLASS = 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl w-full max-w-[98vw] h-[96vh] flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100';
+
       // 待處理、進行中、待人工協助或新增任務時：隱藏審查回饋、異動檔案與 Git Diff，左側欄位 100% 滿版展開
       const isSimpleMode = (status === 'todo' || status === 'in_progress' || status === 'needs_human' || !taskId);
 
       if (isSimpleMode) {
         if (reviewFeedbackBox) reviewFeedbackBox.classList.add('hidden');
         if (formGrid) {
-          formGrid.className = 'grid grid-cols-1 gap-5 flex-1 min-h-0 p-5 overflow-hidden';
+          formGrid.className = 'grid grid-cols-1 gap-4 flex-1 min-h-0 p-4 sm:p-5 overflow-hidden';
         }
         if (leftCol) {
-          leftCol.className = 'flex-1 overflow-y-auto pl-1 pr-2 overflow-x-hidden min-w-0 space-y-4 custom-scrollbar w-full';
+          leftCol.className = 'flex-1 overflow-y-auto pl-1 pr-2 overflow-x-hidden min-w-0 flex flex-col gap-3.5 custom-scrollbar w-full overscroll-contain';
         }
         applyModalWorkspaceColumns({ allowDiff: false, isDiff: false });
         if (dialogEl) {
-          dialogEl.className = 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100 transition-all';
+          dialogEl.className = FIXED_DIALOG_CLASS;
         }
       } else {
         const allowDiff = Boolean(taskId && isDiffVisibleStatus(status));
@@ -1086,11 +1091,11 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
           formGrid.className = 'grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0 p-4 sm:p-5 overflow-hidden';
         }
         if (leftCol) {
-          leftCol.className = `flex-1 overflow-y-auto pl-1 pr-2 overflow-x-hidden min-w-0 space-y-3.5 custom-scrollbar ${allowDiff ? (isDiffTabActive ? 'hidden' : 'lg:col-span-12') : 'w-full'}`;
+          leftCol.className = `flex-1 overflow-y-auto pl-1 pr-2 overflow-x-hidden min-w-0 flex flex-col gap-3.5 custom-scrollbar overscroll-contain ${allowDiff ? (isDiffTabActive ? 'hidden' : 'lg:col-span-12') : 'w-full'}`;
         }
         applyModalWorkspaceColumns({ allowDiff, isDiff: isDiffTabActive });
         if (dialogEl) {
-          dialogEl.className = 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-6xl h-[90vh] flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100 transition-all';
+          dialogEl.className = FIXED_DIALOG_CLASS;
         }
       }
 
@@ -1302,13 +1307,13 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
         setModalFieldsReadOnly(false);
       }
 
-      // 規範：在“進行中”之後的任務 (非 todo / 新增)，textarea 高度根據內容動態調整，避免內容較少時佔據大片無效空白
+      // #formDescription 由雙欄滿版右側 flex-1 自適應撐滿；僅 #formExecutionPlan / #formFeedback 依內容調整高度
       if (taskId && status !== 'todo') {
         const descEl = document.getElementById('formDescription');
         const planEl = document.getElementById('formExecutionPlan');
         const fbEl = document.getElementById('formFeedback');
+        if (typeof resetTextareaHeight === 'function') resetTextareaHeight(descEl);
         setTimeout(() => {
-          autoResizeTextarea(descEl, 72, 380);
           autoResizeTextarea(planEl, 60, 300);
           autoResizeTextarea(fbEl, 48, 200);
         }, 10);
@@ -2107,6 +2112,8 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       }
       try { currentModalEditingTask = null; } catch (_) {}
       document.getElementById('taskModal').classList.add('hidden');
+      document.getElementById('select2Dropdown')?.classList?.add('hidden');
+      document.getElementById('formProjectDropdown')?.classList?.add('hidden');
       if (typeof renderContextualHeaderActions === 'function') renderContextualHeaderActions();
 
       const btnBackToArchive = document.getElementById('btnBackToArchive');
@@ -2130,7 +2137,7 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
 
       const descEl = document.getElementById('formDescription');
       if (descEl) {
-        descEl.rows = 8;
+        descEl.rows = 10;
         resetTextareaHeight(descEl);
       }
       resetTextareaHeight(document.getElementById('formExecutionPlan'));

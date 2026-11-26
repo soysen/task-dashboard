@@ -86,12 +86,141 @@ import { loadProjectBranches } from "./branchNavigator.js";
       }
     }
 
+    function positionFloatingDropdown(anchorEl, dropdownEl, options = {}) {
+      if (!anchorEl || !dropdownEl || typeof anchorEl.getBoundingClientRect !== 'function') {
+        return null;
+      }
+
+      const gap = Number.isFinite(options.gap) ? options.gap : 4;
+      const desiredMaxHeight = Number.isFinite(options.maxHeight) ? options.maxHeight : 320;
+      const minHeight = Number.isFinite(options.minHeight) ? options.minHeight : 140;
+      const viewportMargin = Number.isFinite(options.viewportMargin) ? options.viewportMargin : 12;
+      const vw = Number.isFinite(options.viewportWidth)
+        ? options.viewportWidth
+        : (typeof window !== 'undefined' && window.innerWidth) ||
+          (typeof document !== 'undefined' && document.documentElement?.clientWidth) ||
+          1280;
+      const vh = Number.isFinite(options.viewportHeight)
+        ? options.viewportHeight
+        : (typeof window !== 'undefined' && window.innerHeight) ||
+          (typeof document !== 'undefined' && document.documentElement?.clientHeight) ||
+          800;
+
+      const rect = anchorEl.getBoundingClientRect();
+
+      if (options.hideIfOutOfViewport && (rect.bottom <= 0 || rect.top >= vh)) {
+        dropdownEl.classList?.add?.('hidden');
+        return { visible: false, placement: 'hidden' };
+      }
+
+      const spaceBelow = Math.max(0, vh - rect.bottom - gap - viewportMargin);
+      const spaceAbove = Math.max(0, rect.top - gap - viewportMargin);
+
+      const shouldFlipUp = spaceBelow < Math.min(desiredMaxHeight, minHeight) && spaceAbove > spaceBelow;
+      const placement = shouldFlipUp ? 'top' : 'bottom';
+      const availableSpace = placement === 'top' ? spaceAbove : spaceBelow;
+      const clampedMaxHeight = Math.max(0, Math.floor(Math.min(desiredMaxHeight, availableSpace)));
+
+      const maxAllowedWidth = Math.max(160, vw - viewportMargin * 2);
+      const width = Math.min(Math.max(160, Math.round(rect.width || 0)), maxAllowedWidth);
+      const rawLeft = Math.round(rect.left || 0);
+      const left = Math.max(viewportMargin, Math.min(rawLeft, vw - width - viewportMargin));
+
+      if (dropdownEl.style) {
+        dropdownEl.style.position = 'fixed';
+        dropdownEl.style.left = `${left}px`;
+        dropdownEl.style.width = `${width}px`;
+        dropdownEl.style.maxHeight = `${clampedMaxHeight}px`;
+        if (placement === 'top') {
+          dropdownEl.style.top = 'auto';
+          dropdownEl.style.bottom = `${Math.round(vh - rect.top + gap)}px`;
+        } else {
+          dropdownEl.style.top = `${Math.round(rect.bottom + gap)}px`;
+          dropdownEl.style.bottom = 'auto';
+        }
+      }
+
+      if (dropdownEl.dataset) {
+        dropdownEl.dataset.placement = placement;
+      }
+
+      return {
+        visible: true,
+        placement,
+        left,
+        width,
+        maxHeight: clampedMaxHeight,
+        top: dropdownEl.style ? dropdownEl.style.top : undefined,
+        bottom: dropdownEl.style ? dropdownEl.style.bottom : undefined
+      };
+    }
+
+    function isAnchorOutsideLeftColumn(anchorEl) {
+      if (typeof document === 'undefined' || !anchorEl || typeof anchorEl.getBoundingClientRect !== 'function') {
+        return false;
+      }
+      const leftCol = document.getElementById('modalLeftColumn');
+      if (!leftCol || typeof leftCol.getBoundingClientRect !== 'function') return false;
+      const colRect = leftCol.getBoundingClientRect();
+      const anchorRect = anchorEl.getBoundingClientRect();
+      return anchorRect.bottom < colRect.top || anchorRect.top > colRect.bottom;
+    }
+
+    function repositionOpenFloatingDropdowns() {
+      if (typeof document === 'undefined') return;
+      const select2Dropdown = document.getElementById('select2Dropdown');
+      const select2Anchor = document.getElementById('select2ControlBox');
+      if (select2Dropdown && !select2Dropdown.classList?.contains('hidden') && select2Anchor) {
+        if (isAnchorOutsideLeftColumn(select2Anchor)) {
+          select2Dropdown.classList.add('hidden');
+        } else {
+          positionFloatingDropdown(select2Anchor, select2Dropdown, {
+            maxHeight: 380,
+            minHeight: 180,
+            hideIfOutOfViewport: true
+          });
+        }
+      }
+
+      const projectDropdown = document.getElementById('formProjectDropdown');
+      const projectAnchor = document.getElementById('formProjectInput');
+      if (projectDropdown && !projectDropdown.classList?.contains('hidden') && projectAnchor) {
+        if (isAnchorOutsideLeftColumn(projectAnchor)) {
+          projectDropdown.classList.add('hidden');
+        } else {
+          positionFloatingDropdown(projectAnchor, projectDropdown, {
+            maxHeight: 240,
+            minHeight: 140,
+            hideIfOutOfViewport: true
+          });
+        }
+      }
+    }
+
+    function ensureFloatingDropdownListeners() {
+      if (typeof document !== 'undefined') {
+        const leftCol = document.getElementById('modalLeftColumn');
+        if (leftCol && typeof leftCol.addEventListener === 'function' && !leftCol.__tdFloatingListenerAttached) {
+          leftCol.addEventListener('scroll', repositionOpenFloatingDropdowns, { passive: true });
+          leftCol.__tdFloatingListenerAttached = true;
+        }
+      }
+      if (typeof window !== 'undefined' && typeof window.addEventListener === 'function' && !window.__tdFloatingResizeAttached) {
+        window.addEventListener('resize', repositionOpenFloatingDropdowns, { passive: true });
+        window.__tdFloatingResizeAttached = true;
+      }
+    }
+
     function showProjectAutocomplete() {
       const input = document.getElementById('formProjectInput');
       const query = (input ? input.value : '').toLowerCase();
       renderProjectAutocompleteList(query);
       const dropdown = document.getElementById('formProjectDropdown');
-      if (dropdown) dropdown.classList.remove('hidden');
+      if (dropdown) {
+        dropdown.classList.remove('hidden');
+        ensureFloatingDropdownListeners();
+        positionFloatingDropdown(input, dropdown, { maxHeight: 240, minHeight: 140 });
+      }
     }
 
     function hideProjectAutocomplete() {
@@ -116,7 +245,12 @@ import { loadProjectBranches } from "./branchNavigator.js";
       updateProjectClearButtonVisibility(val || '');
       renderProjectAutocompleteList((val || '').toLowerCase());
       const dropdown = document.getElementById('formProjectDropdown');
-      if (dropdown) dropdown.classList.remove('hidden');
+      const input = document.getElementById('formProjectInput');
+      if (dropdown) {
+        dropdown.classList.remove('hidden');
+        ensureFloatingDropdownListeners();
+        positionFloatingDropdown(input, dropdown, { maxHeight: 240, minHeight: 140 });
+      }
     }
 
     function renderProjectAutocompleteList(query = '') {
@@ -380,6 +514,15 @@ import { loadProjectBranches } from "./branchNavigator.js";
       if (window.lucide) lucide.createIcons();
     }
 
+    function positionSelect2FloatingDropdown() {
+      const dropdown = document.getElementById('select2Dropdown');
+      const controlBox = document.getElementById('select2ControlBox');
+      if (dropdown && controlBox && !dropdown.classList?.contains('hidden')) {
+        ensureFloatingDropdownListeners();
+        positionFloatingDropdown(controlBox, dropdown, { maxHeight: 380, minHeight: 180 });
+      }
+    }
+
     function toggleSelect2Dropdown(e) {
       if (isCurrentModalReadOnly) return;
       if (e) e.stopPropagation();
@@ -393,6 +536,7 @@ import { loadProjectBranches } from "./branchNavigator.js";
       } else {
         dropdown.classList.remove('hidden');
         initSelect2Dropdown(input ? input.value : '');
+        positionSelect2FloatingDropdown();
         if (input) input.focus();
       }
     }
@@ -402,6 +546,7 @@ import { loadProjectBranches } from "./branchNavigator.js";
       const dropdown = document.getElementById('select2Dropdown');
       if (dropdown) dropdown.classList.remove('hidden');
       initSelect2Dropdown(val);
+      positionSelect2FloatingDropdown();
     }
 
     function onSelect2KeyDown(e) {
@@ -414,12 +559,14 @@ import { loadProjectBranches } from "./branchNavigator.js";
           select2AddTag(val);
           input.value = '';
           initSelect2Dropdown('');
+          positionSelect2FloatingDropdown();
         }
       } else if (e.key === 'Backspace' && e.target.value === '' && select2SelectedTags.length > 0) {
         select2SelectedTags.pop();
         syncSelect2ToHiddenInput();
         renderSelect2Chips();
         initSelect2Dropdown('');
+        positionSelect2FloatingDropdown();
       } else if (e.key === 'Escape') {
         document.getElementById('select2Dropdown').classList.add('hidden');
       }
@@ -437,6 +584,7 @@ import { loadProjectBranches } from "./branchNavigator.js";
       syncSelect2ToHiddenInput();
       renderSelect2Chips();
       initSelect2Dropdown('');
+      positionSelect2FloatingDropdown();
     }
 
     function select2AddTag(tagName) {
@@ -455,6 +603,7 @@ import { loadProjectBranches } from "./branchNavigator.js";
       syncSelect2ToHiddenInput();
       renderSelect2Chips();
       initSelect2Dropdown('');
+      positionSelect2FloatingDropdown();
     }
 
     function syncSelect2ToHiddenInput() {
@@ -714,6 +863,8 @@ export {
   updateConfirmationGateForProject,
   clearFormProject,
   updateProjectClearButtonVisibility,
+  positionFloatingDropdown,
+  repositionOpenFloatingDropdowns,
   showProjectAutocomplete,
   hideProjectAutocomplete,
   toggleProjectAutocomplete,
@@ -743,6 +894,8 @@ export {
 };
 
 if (typeof window !== "undefined") {
+  window.positionFloatingDropdown = positionFloatingDropdown;
+  window.repositionOpenFloatingDropdowns = repositionOpenFloatingDropdowns;
   window.onFormProjectChangeLoadBranches = onFormProjectChangeLoadBranches;
   window.selectWorkspaceMode = selectWorkspaceMode;
   window.toggleQuickBranchBox = toggleQuickBranchBox;

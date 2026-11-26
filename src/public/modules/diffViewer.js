@@ -189,15 +189,7 @@ import { currentActiveTaskDiff, currentProject, currentModalEditingTask } from "
       const grid = document.getElementById('modalFormGrid');
       const btnText = document.getElementById('btnToggleFocusModeText');
       const btnIcon = document.getElementById('btnToggleFocusModeIcon');
-      const container = document.getElementById('modalDialogContainer');
       const isDiffTabActive = document.getElementById('btnModalTabDiff')?.getAttribute('aria-selected') === 'true';
-
-      if (container?.classList) {
-        container.classList.toggle('max-w-6xl', !isDiffFocusMode);
-        container.classList.toggle('h-[90vh]', !isDiffFocusMode);
-        container.classList.toggle('max-w-[98vw]', isDiffFocusMode);
-        container.classList.toggle('h-[96vh]', isDiffFocusMode);
-      }
 
       if (isDiffTabActive) {
         leftCol?.classList?.toggle('hidden', true);
@@ -220,22 +212,8 @@ import { currentActiveTaskDiff, currentProject, currentModalEditingTask } from "
       if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons();
     }
 
-    let isModalFullscreen = false;
     function toggleModalFullscreen() {
-      isModalFullscreen = !isModalFullscreen;
-      const container = document.getElementById('modalDialogContainer');
-      const icon = document.getElementById('modalFullscreenIcon');
-      if (!container) return;
-      if (isModalFullscreen) {
-        container.classList.remove('max-w-6xl', 'h-[90vh]');
-        container.classList.add('max-w-[98vw]', 'h-[96vh]');
-        if (icon) icon.setAttribute('data-lucide', 'minimize');
-      } else {
-        container.classList.remove('max-w-[98vw]', 'h-[96vh]');
-        container.classList.add('max-w-6xl', 'h-[90vh]');
-        if (icon) icon.setAttribute('data-lucide', 'maximize');
-      }
-      if (window.lucide) lucide.createIcons();
+      // 彈窗預設即為固定滿版寬高 (max-w-[98vw] h-[96vh])，保留匯出作為安全 no-op
     }
 
     function copyCurrentDiff() {

@@ -485,9 +485,9 @@
     </div>
   </div>
 
-  <!-- Task Detail & Edit Modal ( 支援 新增模式單欄 與 編輯模式左右雙欄) -->
-  <div id="taskModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[70] hidden flex items-center justify-center p-3 sm:p-4">
-    <div id="modalDialogContainer" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl w-full max-w-6xl h-[90vh] flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100 transition-all">
+  <!-- Task Detail & Edit Modal (固定滿版寬高：左 5 欄基本屬性與執行設定、右 7 欄標籤與詳細需求) -->
+  <div id="taskModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[70] hidden flex items-center justify-center p-2 sm:p-3">
+    <div id="modalDialogContainer" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl w-full max-w-[98vw] h-[96vh] flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100">
       
       <!-- Modal Header -->
       <div class="p-3.5 px-5 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
@@ -512,9 +512,6 @@
           </div>
         </div>
         <div class="flex items-center gap-1">
-          <button type="button" onclick="toggleModalFullscreen()" id="btnModalFullscreen" class="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition" title="切換視窗全螢幕 / 預設大小">
-            <i id="modalFullscreenIcon" data-lucide="maximize" class="w-4 h-4"></i>
-          </button>
           <button type="button" onclick="closeModal()" class="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition">
             <i data-lucide="x" class="w-4 h-4"></i>
           </button>
@@ -549,181 +546,169 @@
 
         <div id="modalFormGrid" class="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0 p-4 sm:p-5 overflow-hidden">
           
-          <!-- LEFT COLUMN (5/12): 依據資訊架構學 (IA) 分離「審核與執行成果」與「需求規格與屬性」雙視圖 (可滾動) -->
-          <div id="modalLeftColumn" class="flex-1 overflow-y-auto pl-1 pr-2 overflow-x-hidden min-w-0 space-y-3.5 custom-scrollbar lg:col-span-5">
+          <!-- LEFT COLUMN: 依據資訊架構學 (IA) 分離「審核與執行成果」與「需求規格與屬性」雙視圖 (可滾動) -->
+          <div id="modalLeftColumn" class="flex-1 overflow-y-auto pl-1 pr-2 overflow-x-hidden min-w-0 flex flex-col gap-3.5 custom-scrollbar lg:col-span-12 overscroll-contain">
             
             <!-- 進行中任務唯讀提示 -->
-            <div id="modalInProgressNotice" class="hidden items-center gap-2 p-2.5 mb-3.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-700 dark:text-amber-300 text-xs font-medium">
+            <div id="modalInProgressNotice" class="hidden items-center gap-2 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-700 dark:text-amber-300 text-xs font-medium">
               <span class="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0"></span>
               <span>任務進行中：所有欄位已鎖定唯讀，避免執行中途產生衝突異動。</span>
             </div>
 
-            <!-- ==================== PANE A: 需求規格與屬性 (Spec & Metadata) ==================== -->
-            <div id="modalSpecPane" role="tabpanel" class="space-y-3.5">
-              <!-- 標題 -->
-              <div>
-                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 任務標題</label>
-                <input type="text" id="formTitle" required placeholder="請輸入簡潔明確的任務名稱..." class="w-full h-9 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-100 focus:outline-none transition">
-              </div>
-
-              <!-- 所屬專案與關聯前置任務 -->
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div class="relative">
-                  <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 所屬專案 (可搜尋)</label>
-                  <input type="hidden" id="formProject">
-                  <div class="relative">
-                    <input type="text" id="formProjectInput" oninput="onProjectAutocompleteInput(this.value)" onfocus="showProjectAutocomplete()" onclick="showProjectAutocomplete()" placeholder="搜尋專案..." autocomplete="off" class="w-full h-9 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg pl-3 pr-8 text-xs text-slate-900 dark:text-slate-200 focus:outline-none transition">
-                    <button type="button" id="formProjectClearBtn" onclick="clearFormProject(event)" title="清除專案選擇" class="absolute right-8 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 opacity-0 pointer-events-none transition-opacity">
-                      <i data-lucide="x" class="w-3.5 h-3.5"></i>
-                    </button>
-                    <button type="button" id="formProjectDropdownBtn" onclick="toggleProjectAutocomplete(event)" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
-                      <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
-                    </button>
-                  </div>
-                  <div id="formProjectDropdown" class="absolute left-0 right-0 top-[66%] mt-1 bg-white dark:bg-slate-800 rounded-xl shadow-2xl z-[60] max-h-56 overflow-y-auto hidden custom-scrollbar">
-                    <div id="formProjectDropdownList" class="p-1 space-y-0.5 text-xs"></div>
-                  </div>
-                </div>
-
-                <!-- 關聯前置任務 (Dependencies) -->
-                <div>
-                  <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 關聯前置任務 (Dependencies)</label>
-                  <select id="formDependenciesSelect" onchange="addDependencyFromSelect(this.value)" class="w-full h-9 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none transition">
-                    <option value=""> 選擇關聯/前置任務...</option>
-                  </select>
-                  <!-- 選擇的依賴清單徽章 -->
-                  <div id="formDependenciesChips" class="flex flex-wrap gap-1.5 mt-1.5"></div>
-                </div>
-              </div>
-
-              <!-- 目標分支與執行方式 -->
-              <div class="grid grid-cols-1 gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80">
-                <div>
-                  <div class="flex items-center justify-between gap-2 mb-1">
-                    <label for="formTargetBranch" class="block text-xs font-semibold text-slate-700 dark:text-slate-200">目標分支</label>
-                    <button type="button" id="btnToggleQuickBranchBox" onclick="toggleQuickBranchBox()" class="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer">＋ 新建分支</button>
-                  </div>
-                  <select id="formTargetBranch" onchange="updateInPlaceDirtyWarning()" class="w-full h-9 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 text-xs font-mono text-slate-900 dark:text-slate-200 focus:outline-none transition">
-                    <option value="">（不指定 / 跟隨專案預設分支）</option>
-                  </select>
-                  <div id="formQuickBranchBox" class="hidden mt-2 p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800/80 space-y-2">
-                    <p class="text-[11px] text-slate-600 dark:text-slate-300">
-                      直接從 <span id="formQuickBranchFromLabel" class="font-mono font-semibold text-indigo-600 dark:text-indigo-300">main</span> 開新分支，不會影響目前修改中的檔案
-                    </p>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <select id="formQuickBranchFrom" onchange="document.getElementById('formQuickBranchFromLabel').innerText = this.value || 'main'" class="h-8 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2 text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none"></select>
-                      <input type="text" id="formQuickBranchName" placeholder="輸入新分支名稱 (如 feat/abc)" class="h-8 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500">
-                    </div>
-                    <div class="flex items-center justify-end gap-1.5">
-                      <button type="button" onclick="toggleQuickBranchBox(false)" class="px-2.5 py-1 rounded-md text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer">取消</button>
-                      <button type="button" onclick="quickCreateBranchInline()" class="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer">建立並選用</button>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1.5">執行方式</label>
-                  <input type="hidden" id="formWorkspaceMode" value="worktree">
-                  <div id="formWorkspaceModeGroup" class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <button type="button" data-workspace-mode="worktree" onclick="selectWorkspaceMode('worktree')" class="text-left p-2 rounded-lg border border-indigo-500 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-200 transition cursor-pointer">
-                      <div class="text-xs font-semibold">獨立工作區（推薦）</div>
-                      <div class="text-[10px] opacity-80 mt-0.5">另開乾淨目錄，不互相干擾</div>
-                    </button>
-                    <button type="button" data-workspace-mode="branch_stream" onclick="selectWorkspaceMode('branch_stream')" class="text-left p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 transition cursor-pointer">
-                      <div class="text-xs font-semibold">接續同分支</div>
-                      <div class="text-[10px] opacity-80 mt-0.5">在同一目標分支接續實作</div>
-                    </button>
-                    <button type="button" data-workspace-mode="in_place" onclick="selectWorkspaceMode('in_place')" class="text-left p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 transition cursor-pointer">
-                      <div class="text-xs font-semibold">直接改目前資料夾</div>
-                      <div class="text-[10px] opacity-80 mt-0.5">直接修改目前工作區檔案</div>
-                    </button>
-                  </div>
-                  <div id="formInPlaceDirtyHint" class="hidden mt-2 text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700 rounded-lg px-2.5 py-1.5"></div>
-                </div>
-              </div>
-
-              <!-- 優先級、狀態、負責人 (統一 h-9 高度，移除阻礙狀態選項) -->
-              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 優先級</label>
-                  <select id="formPriority" class="w-full h-9 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 focus:outline-none transition">
-                    <option value="P0"> P0 (緊急/阻礙)</option>
-                    <option value="P1" selected> P1 (高)</option>
-                    <option value="P2"> P2 (中)</option>
-                    <option value="P3"> P3 (低)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 目前狀態</label>
-                  <select id="formStatus" onchange="updateModalButtonState()" class="w-full h-9 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 focus:outline-none transition">
-                    <option value="todo"> 待處理 (To Do)</option>
-                    <option value="in_progress"> 進行中 (In Progress)</option>
-                    <option value="review"> 待驗收 (Review / Verify)</option>
-                    <option value="done"> 已完成 (Done)</option>
-                    <option value="needs_human"> 🛑 需人類接手 (2輪熔斷)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 執行 Agent (模型/助手)</label>
-                  <select id="formAssignee" class="w-full h-9 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 focus:outline-none font-medium transition">
-                    <option value="Antigravity" selected>Antigravity (預設)</option>
-                    <option value="Claude">Claude</option>
-                    <option value="Codex">Codex</option>
-                    <option value="Copilot">Copilot</option>
-                    <option value="All">All (通用跨平台認領)</option>
-                  </select>
-                </div>
-              </div>
-
-              <!-- 標籤體系：Select2 風格整合選擇器模組 (色塊無框線) -->
-              <div class="space-y-1.5 td-surface-panel p-3 rounded-xl">
-                <div class="flex items-center justify-between">
-                  <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200"> 標籤體系</label>
-                  <span class="text-[10px] text-slate-500 dark:text-slate-300"> 點擊選單 / 輸入後按 Enter 自訂</span>
-                </div>
-
-                <!-- 整合式 Select2 容器 -->
-                <div class="relative" id="select2Container">
-                  <div id="select2ControlBox" onclick="toggleSelect2Dropdown(event)" class="min-h-[36px] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-1.5 flex flex-wrap items-center gap-1.5 cursor-pointer transition">
-                    <!-- Chips 渲染區 -->
-                    <div id="select2Chips" class="flex flex-wrap items-center gap-1"></div>
-                    <!-- 輸入框 (支援即時打字篩選與自訂新增) -->
-                    <input type="text" id="select2Input" oninput="onSelect2Search(this.value)" onkeydown="onSelect2KeyDown(event)" placeholder="選擇標籤" class="flex-1 min-w-[80px] bg-transparent border-none outline-none text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 p-0.5">
-                    <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400 ml-auto flex-shrink-0"></i>
+            <!-- ==================== PANE A: 需求規格與屬性 (Spec & Metadata - 滿版雙欄排版) ==================== -->
+            <div id="modalSpecPane" role="tabpanel" class="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:flex-1 items-stretch min-w-0">
+              <!-- 左側基本屬性與執行環境欄 (5/12) -->
+              <div class="lg:col-span-5 flex flex-col gap-3.5 min-w-0">
+                <!-- Card 1: 基本識別與狀態 -->
+                <div class="td-surface-panel p-3.5 rounded-xl space-y-3">
+                  <!-- 標題 -->
+                  <div>
+                    <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 任務標題</label>
+                    <input type="text" id="formTitle" required placeholder="請輸入簡潔明確的任務名稱..." class="w-full h-9 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-100 focus:outline-none transition">
                   </div>
 
-                  <!-- 下拉展開選單 (帶 optgroup 分類) -->
-                  <div id="select2Dropdown" class="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-slate-800 rounded-xl shadow-2xl z-[60] max-h-[48rem] overflow-y-auto hidden custom-scrollbar p-1.5 space-y-2">
-                    <!-- Optgroup 0: 專案專屬 .github 技能 -->
-                    <div id="select2ProjectSkillSection" class="hidden">
-                      <div class="text-[10px] font-bold text-sky-600 dark:text-sky-400 px-2 py-0.5 uppercase tracking-wider flex items-center gap-1">
-                        <i data-lucide="sparkles" class="w-3 h-3"></i> 專案專屬 Skill (.github)
+                  <!-- 所屬專案與關聯前置任務 -->
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="relative">
+                      <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 所屬專案 (可搜尋)</label>
+                      <input type="hidden" id="formProject">
+                      <div class="relative">
+                        <input type="text" id="formProjectInput" oninput="onProjectAutocompleteInput(this.value)" onfocus="showProjectAutocomplete()" onclick="showProjectAutocomplete()" placeholder="搜尋專案..." autocomplete="off" class="w-full h-9 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg pl-3 pr-8 text-xs text-slate-900 dark:text-slate-200 focus:outline-none transition">
+                        <button type="button" id="formProjectClearBtn" onclick="clearFormProject(event)" title="清除專案選擇" class="absolute right-8 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 opacity-0 pointer-events-none transition-opacity">
+                          <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <button type="button" id="formProjectDropdownBtn" onclick="toggleProjectAutocomplete(event)" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                          <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
+                        </button>
                       </div>
-                      <div id="select2GroupProjectSkill" class="space-y-0.5"></div>
                     </div>
-                    <!-- Optgroup 1: Git 類型 -->
+
+                    <!-- 關聯前置任務 (Dependencies) -->
                     <div>
-                      <div class="text-[10px] font-bold text-slate-400 dark:text-slate-400 px-2 py-0.5 uppercase tracking-wider"> Git 變更類型</div>
-                      <div id="select2GroupGit" class="space-y-0.5"></div>
+                      <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 關聯前置任務 (Dependencies)</label>
+                      <select id="formDependenciesSelect" onchange="addDependencyFromSelect(this.value)" class="w-full h-9 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 text-xs text-slate-900 dark:text-slate-200 focus:outline-none transition">
+                        <option value=""> 選擇關聯/前置任務...</option>
+                      </select>
+                      <!-- 選擇的依賴清單徽章 -->
+                      <div id="formDependenciesChips" class="flex flex-wrap gap-1.5 mt-1.5"></div>
                     </div>
-                    <!-- Optgroup 2: 全域 Antigravity Skill -->
+                  </div>
+
+                  <!-- 優先級、狀態、負責人 (統一 h-9 高度，移除阻礙狀態選項) -->
+                  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
-                      <div class="text-[10px] font-bold text-slate-400 dark:text-slate-400 px-2 py-0.5 uppercase tracking-wider"> 全域 Skill (Antigravity)</div>
-                      <div id="select2GroupSkill" class="space-y-0.5"></div>
+                      <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 優先級</label>
+                      <select id="formPriority" class="w-full h-9 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 focus:outline-none transition">
+                        <option value="P0"> P0 (緊急/阻礙)</option>
+                        <option value="P1" selected> P1 (高)</option>
+                        <option value="P2"> P2 (中)</option>
+                        <option value="P3"> P3 (低)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 目前狀態</label>
+                      <select id="formStatus" onchange="updateModalButtonState()" class="w-full h-9 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 focus:outline-none transition">
+                        <option value="todo"> 待處理 (To Do)</option>
+                        <option value="in_progress"> 進行中 (In Progress)</option>
+                        <option value="review"> 待驗收 (Review / Verify)</option>
+                        <option value="done"> 已完成 (Done)</option>
+                        <option value="needs_human"> 🛑 需人類接手 (2輪熔斷)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 執行 Agent (模型/助手)</label>
+                      <select id="formAssignee" class="w-full h-9 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 text-xs text-slate-900 dark:text-slate-200 focus:outline-none font-medium transition">
+                        <option value="Antigravity" selected>Antigravity (預設)</option>
+                        <option value="Claude">Claude</option>
+                        <option value="Codex">Codex</option>
+                        <option value="Copilot">Copilot</option>
+                        <option value="All">All (通用跨平台認領)</option>
+                      </select>
                     </div>
                   </div>
                 </div>
 
-                <!-- 隱藏原生儲存欄位 -->
-                <input type="hidden" id="formTags">
+                <!-- Card 2: 目標分支與執行方式 -->
+                <div class="td-surface-panel p-3.5 rounded-xl space-y-3">
+                  <div>
+                    <div class="flex items-center justify-between gap-2 mb-1">
+                      <label for="formTargetBranch" class="block text-xs font-semibold text-slate-700 dark:text-slate-200">目標分支</label>
+                      <button type="button" id="btnToggleQuickBranchBox" onclick="toggleQuickBranchBox()" class="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer">＋ 新建分支</button>
+                    </div>
+                    <select id="formTargetBranch" onchange="updateInPlaceDirtyWarning()" class="w-full h-9 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 text-xs font-mono text-slate-900 dark:text-slate-200 focus:outline-none transition">
+                      <option value="">（不指定 / 跟隨專案預設分支）</option>
+                    </select>
+                    <div id="formQuickBranchBox" class="hidden mt-2 p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800/80 space-y-2">
+                      <p class="text-[11px] text-slate-600 dark:text-slate-300">
+                        直接從 <span id="formQuickBranchFromLabel" class="font-mono font-semibold text-indigo-600 dark:text-indigo-300">main</span> 開新分支，不會影響目前修改中的檔案
+                      </p>
+                      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <select id="formQuickBranchFrom" onchange="document.getElementById('formQuickBranchFromLabel').innerText = this.value || 'main'" class="h-8 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2 text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none"></select>
+                        <input type="text" id="formQuickBranchName" placeholder="輸入新分支名稱 (如 feat/abc)" class="h-8 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500">
+                      </div>
+                      <div class="flex items-center justify-end gap-1.5">
+                        <button type="button" onclick="toggleQuickBranchBox(false)" class="px-2.5 py-1 rounded-md text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer">取消</button>
+                        <button type="button" onclick="quickCreateBranchInline()" class="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer">建立並選用</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1.5">執行方式</label>
+                    <input type="hidden" id="formWorkspaceMode" value="worktree">
+                    <div id="formWorkspaceModeGroup" class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <button type="button" data-workspace-mode="worktree" onclick="selectWorkspaceMode('worktree')" class="text-left p-2 rounded-lg border border-indigo-500 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-200 transition cursor-pointer">
+                        <div class="text-xs font-semibold">獨立工作區（推薦）</div>
+                        <div class="text-[10px] opacity-80 mt-0.5">另開乾淨目錄，不互相干擾</div>
+                      </button>
+                      <button type="button" data-workspace-mode="branch_stream" onclick="selectWorkspaceMode('branch_stream')" class="text-left p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 transition cursor-pointer">
+                        <div class="text-xs font-semibold">接續同分支</div>
+                        <div class="text-[10px] opacity-80 mt-0.5">在同一目標分支接續實作</div>
+                      </button>
+                      <button type="button" data-workspace-mode="in_place" onclick="selectWorkspaceMode('in_place')" class="text-left p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 transition cursor-pointer">
+                        <div class="text-xs font-semibold">直接改目前資料夾</div>
+                        <div class="text-[10px] opacity-80 mt-0.5">直接修改目前工作區檔案</div>
+                      </button>
+                    </div>
+                    <div id="formInPlaceDirtyHint" class="hidden mt-2 text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700 rounded-lg px-2.5 py-1.5"></div>
+                  </div>
+                </div>
               </div>
 
-              <!-- 詳細需求與說明 (Description) -->
-              <div>
-                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1"> 詳細需求與說明 (Description)</label>
-                <textarea id="formDescription" rows="8" placeholder="描述任務背景、具體需求或待辦重點..." class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs leading-relaxed text-slate-900 dark:text-slate-100 focus:outline-none custom-scrollbar transition"></textarea>
+              <!-- 右側標籤與詳細說明欄 (7/12) -->
+              <div class="lg:col-span-7 flex flex-col gap-3.5 min-h-0 min-w-0">
+                <!-- 標籤體系：Select2 風格整合選擇器模組 (色塊無框線) -->
+                <div class="td-surface-panel p-3.5 rounded-xl space-y-1.5 flex-shrink-0">
+                  <div class="flex items-center justify-between">
+                    <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200"> 標籤體系</label>
+                    <span class="text-[10px] text-slate-500 dark:text-slate-300"> 點擊選單 / 輸入後按 Enter 自訂</span>
+                  </div>
+
+                  <!-- 整合式 Select2 容器 -->
+                  <div class="relative" id="select2Container">
+                    <div id="select2ControlBox" onclick="toggleSelect2Dropdown(event)" class="min-h-[36px] w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-1.5 flex flex-wrap items-center gap-1.5 cursor-pointer transition">
+                      <!-- Chips 渲染區 -->
+                      <div id="select2Chips" class="flex flex-wrap items-center gap-1"></div>
+                      <!-- 輸入框 (支援即時打字篩選與自訂新增) -->
+                      <input type="text" id="select2Input" oninput="onSelect2Search(this.value)" onkeydown="onSelect2KeyDown(event)" placeholder="選擇標籤" class="flex-1 min-w-[80px] bg-transparent border-none outline-none text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 p-0.5">
+                      <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400 ml-auto flex-shrink-0"></i>
+                    </div>
+                  </div>
+
+                  <!-- 隱藏原生儲存欄位 -->
+                  <input type="hidden" id="formTags">
+                </div>
+
+                <!-- 詳細需求與說明 (Description) -->
+                <div class="td-surface-panel p-3.5 rounded-xl flex-1 flex flex-col min-h-[260px] lg:min-h-0">
+                  <div class="flex items-center justify-between mb-1.5">
+                    <label for="formDescription" class="block text-xs font-semibold text-slate-700 dark:text-slate-200"> 詳細需求與說明 (Description)</label>
+                    <span class="text-[10px] text-slate-500 dark:text-slate-400"> 支援條列規格、驗收標準與背景脈絡</span>
+                  </div>
+                  <textarea id="formDescription" rows="10" placeholder="描述任務背景、具體需求或待辦重點..." class="w-full flex-1 min-h-[220px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-3 text-xs leading-relaxed text-slate-900 dark:text-slate-100 focus:outline-none custom-scrollbar resize-none transition"></textarea>
+                </div>
               </div>
             </div>
 
@@ -799,7 +784,7 @@
                 <!-- 結構化 HTML 計劃檢視容器 -->
                 <div id="formPlanVisual" class="text-xs min-w-0 max-w-full break-words [overflow-wrap:anywhere]"></div>
 
-                <textarea id="formExecutionPlan" oninput="updateModalButtonState()" rows="6" placeholder="此任務之預計執行計劃、步驟與驗證指標..." class="hidden w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs leading-relaxed text-slate-900 dark:text-slate-100 focus:outline-none custom-scrollbar font-mono transition"></textarea>
+                <textarea id="formExecutionPlan" oninput="updateModalButtonState()" rows="6" placeholder="此任務之預計執行計劃、步驟與驗證指標..." class="hidden w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs leading-relaxed text-slate-900 dark:text-slate-100 focus:outline-none custom-scrollbar font-mono resize-y transition"></textarea>
               </div>
 
               <!-- 工作切片與 Agent 藍圖追蹤 (Active Slice & Build Plan — 統一樣式圓角淺灰底 td-surface-panel) -->
@@ -921,7 +906,7 @@
                   <button type="button" onclick="insertFeedbackPreset('請調整實作切片邊界，分步驗證')" class="text-[11px] px-2 py-0.5 rounded-md bg-white hover:bg-amber-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 shadow-xs transition-colors whitespace-nowrap flex-shrink-0">調整實作切片</button>
                   <button type="button" onclick="insertFeedbackPreset('請補充 Phase 3 驗收截圖或詳細日誌')" class="text-[11px] px-2 py-0.5 rounded-md bg-white hover:bg-amber-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 shadow-xs transition-colors whitespace-nowrap flex-shrink-0">補充驗收證據</button>
                 </div>
-                <textarea id="formFeedback" rows="2" placeholder="請輸入希望 AI 調整的細節，輸入完點擊下方「請 AI 再修改」即可送出..." class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none custom-scrollbar transition"></textarea>
+                <textarea id="formFeedback" rows="2" placeholder="請輸入希望 AI 調整的細節，輸入完點擊下方「請 AI 再修改」即可送出..." class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none custom-scrollbar resize-y transition"></textarea>
               </div>
             </div>
 
@@ -949,10 +934,6 @@
                   <div class="flex items-center justify-between gap-1.5 min-w-0">
                     <span id="diffActiveFileBadge" class="text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate flex-1 min-w-0">尚未選取檔案</span>
                     <div class="flex items-center gap-1 flex-shrink-0">
-                      <button type="button" onclick="toggleDiffFocusMode()" id="btnToggleFocusMode" class="px-2 py-0.5 rounded-md text-[11px] font-medium bg-white dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 transition flex items-center gap-1 cursor-pointer whitespace-nowrap" title="切換寬版專注檢閱模式">
-                        <i id="btnToggleFocusModeIcon" data-lucide="maximize-2" class="w-3 h-3 text-indigo-500"></i>
-                        <span id="btnToggleFocusModeText">專注檢閱</span>
-                      </button>
                       <button type="button" onclick="copyCurrentDiff()" class="p-1 rounded-md text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer" title="複製完整 Diff">
                         <i data-lucide="copy" class="w-3.5 h-3.5"></i>
                       </button>
@@ -1017,6 +998,30 @@
           </div>
         </div>
       </form>
+    </div>
+
+    <!-- 視窗級浮動選單 (置於 #modalDialogContainer overflow-hidden 之外，徹底避免捲動與圓角容器裁切) -->
+    <div id="formProjectDropdown" class="fixed z-[90] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl max-h-56 overflow-y-auto hidden custom-scrollbar overscroll-contain">
+      <div id="formProjectDropdownList" class="p-1 space-y-0.5 text-xs"></div>
+    </div>
+    <div id="select2Dropdown" class="fixed z-[90] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl max-h-96 overflow-y-auto hidden custom-scrollbar overscroll-contain p-1.5 space-y-2">
+      <!-- Optgroup 0: 專案專屬 .github 技能 -->
+      <div id="select2ProjectSkillSection" class="hidden">
+        <div class="text-[10px] font-bold text-sky-600 dark:text-sky-400 px-2 py-0.5 uppercase tracking-wider flex items-center gap-1">
+          <i data-lucide="sparkles" class="w-3 h-3"></i> 專案專屬 Skill (.github)
+        </div>
+        <div id="select2GroupProjectSkill" class="space-y-0.5"></div>
+      </div>
+      <!-- Optgroup 1: Git 類型 -->
+      <div>
+        <div class="text-[10px] font-bold text-slate-400 dark:text-slate-400 px-2 py-0.5 uppercase tracking-wider"> Git 變更類型</div>
+        <div id="select2GroupGit" class="space-y-0.5"></div>
+      </div>
+      <!-- Optgroup 2: 全域 Antigravity Skill -->
+      <div>
+        <div class="text-[10px] font-bold text-slate-400 dark:text-slate-400 px-2 py-0.5 uppercase tracking-wider"> 全域 Skill (Antigravity)</div>
+        <div id="select2GroupSkill" class="space-y-0.5"></div>
+      </div>
     </div>
   </div>
 

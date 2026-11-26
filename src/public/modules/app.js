@@ -1532,12 +1532,21 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
     document.addEventListener('click', (e) => {
       const container = document.getElementById('select2Container');
       const dropdown = document.getElementById('select2Dropdown');
-      if (container && dropdown && !container.contains(e.target)) {
+      if (container && dropdown && !container.contains(e.target) && !dropdown.contains(e.target)) {
         dropdown.classList.add('hidden');
       }
       const projInput = document.getElementById('formProjectInput');
+      const projDropdownBtn = document.getElementById('formProjectDropdownBtn');
+      const projClearBtn = document.getElementById('formProjectClearBtn');
       const projDropdown = document.getElementById('formProjectDropdown');
-      if (projInput && projDropdown && !projInput.contains(e.target) && !projDropdown.contains(e.target)) {
+      if (
+        projInput &&
+        projDropdown &&
+        !projInput.contains(e.target) &&
+        !projDropdown.contains(e.target) &&
+        !(projDropdownBtn && projDropdownBtn.contains(e.target)) &&
+        !(projClearBtn && projClearBtn.contains(e.target))
+      ) {
         projDropdown.classList.add('hidden');
       }
       const engineContainer = document.getElementById('engineDropdownContainer');
