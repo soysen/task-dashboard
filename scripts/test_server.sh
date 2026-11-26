@@ -2319,7 +2319,19 @@ const { execFileSync } = require("child_process");
     assert.equal(badPathData.success, false);
     assert.equal(badPathData.status, "invalid_target_path");
 
-    console.log("    ✅ Worktree 未動過自動回退、Pull/Sync-Base 衝突安全還原與 /open-editor 安全邊界驗證通過");
+    // 驗證 /api/git/file-context 讀取完整檔案行與路徑穿越防護
+    fs.writeFileSync(path.join(tempRepo, "context_sample.js"), "function alpha() {\n  return 1;\n}\n", "utf8");
+    const fileCtxRes = await fetch(`${base}/api/git/file-context?projectId=${encodeURIComponent(projId)}&filePath=${encodeURIComponent("context_sample.js")}`);
+    assert.equal(fileCtxRes.status, 200);
+    const fileCtxData = await fileCtxRes.json();
+    assert.equal(fileCtxData.source, "workspace");
+    assert.equal(fileCtxData.totalLines, 3);
+    assert.deepEqual(fileCtxData.lines, ["function alpha() {", "  return 1;", "}"]);
+
+    const traversalRes = await fetch(`${base}/api/git/file-context?projectId=${encodeURIComponent(projId)}&filePath=${encodeURIComponent("../etc/passwd")}`);
+    assert.equal(traversalRes.status, 400);
+
+    console.log("    ✅ Worktree 未動過自動回退、Pull/Sync-Base 衝突安全還原、/open-editor 與 /api/git/file-context 驗證通過");
   } finally {
     for (const tid of createdTaskIds) {
       try { await fetch(`${base}/api/tasks/${encodeURIComponent(tid)}`, { method: "DELETE" }); } catch (_) {}

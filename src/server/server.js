@@ -4231,10 +4231,157 @@ function runNativeFolderPicker(promptText, callback) {
     return;
   }
 
+  // 查詢單一檔案的完整文字行內容，供前端 Diff 檢視器展開前後文與整檔檢視 (支援 worktree / commit 快照 / 工作區)
+  if (pathname === '/api/git/file-context' && req.method === 'GET') {
+    const taskId = String(query.taskId || '').trim();
+    const rawFilePath = String(query.filePath || '').trim().replace(/^\/+/, '');
+    if (!rawFilePath || rawFilePath.includes('\0') || rawFilePath.split('/').includes('..')) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid or missing filePath' }));
+      return;
+    }
+
+    let task = null;
+    if (taskId) {
+      const tasks = readTasks();
+      const archived = readArchivedTasks();
+      task = tasks.find(t => t.id === taskId) || archived.find(t => t.id === taskId) || null;
+    }
+
+    const projId = String(query.projectId || (task && task.project) || '').trim();
+    const projects = readProjects();
+    const proj = projects.find(p => p.id === projId || p.name === projId);
+    let projPath = (proj && proj.path) || (task && task.projectPath) || (projId ? path.join(PROJECTS_ROOT, projId) : '');
+    if (typeof projPath === 'string' && projPath.startsWith('~')) {
+      projPath = path.join(USER_HOME, projPath.slice(1));
+    }
+    if (projPath) projPath = path.resolve(projPath);
+
+    const candidatePaths = [rawFilePath];
+    if (projId && rawFilePath.startsWith(projId + '/')) {
+      candidatePaths.push(rawFilePath.slice(projId.length + 1));
+    }
+    const strippedFirstSeg = rawFilePath.replace(/^[^/]+\//, '');
+    if (strippedFirstSeg && strippedFirstSeg !== rawFilePath && !candidatePaths.includes(strippedFirstSeg)) {
+      // 僅在原始路徑找不到時才作為最後備援
+      candidatePaths.push(strippedFirstSeg);
+    }
+
+    const parseTextBufferToLines = (buf) => {
+      if (!Buffer.isBuffer(buf) || buf.length > 2 * 1024 * 1024) return null;
+      if (buf.subarray(0, 8192).includes(0)) return null;
+      let text = buf.toString('utf8').replace(/\r\n/g, '\n');
+      if (text.length === 0) return [];
+      if (text.endsWith('\n')) text = text.slice(0, -1);
+      return text.split('\n');
+    };
+
+    const readSafeDiskFileLines = (baseDir, relPath) => {
+      if (!baseDir || !fs.existsSync(baseDir)) return null;
+      const absBase = path.resolve(baseDir);
+      const absFile = path.resolve(absBase, relPath);
+      if (!absFile.startsWith(absBase + path.sep)) return null;
+      try {
+        const st = fs.statSync(absFile);
+        if (!st.isFile() || st.size > 2 * 1024 * 1024) return null;
+        return parseTextBufferToLines(fs.readFileSync(absFile));
+      } catch (e) {
+        return null;
+      }
+    };
+
+    const readGitBlobLines = (repoDir, ref, relPath) => {
+      if (!repoDir || !ref || !fs.existsSync(path.join(repoDir, '.git'))) return null;
+      try {
+        const buf = execFileSync('git', ['-C', repoDir, 'show', `${ref}:${relPath}`], {
+          maxBuffer: 3 * 1024 * 1024,
+          timeout: 5000,
+          stdio: ['ignore', 'pipe', 'ignore']
+        });
+        return parseTextBufferToLines(buf);
+      } catch (e) {
+        return null;
+      }
+    };
+
+    let resolvedLines = null;
+    let resolvedSource = 'unavailable';
+    let resolvedPath = rawFilePath;
+    let resolvedCommit = '';
+
+    // 1. 優先讀取任務專屬隔離 Worktree
+    if (task && task.worktreePath && fs.existsSync(task.worktreePath)) {
+      for (const cand of candidatePaths) {
+        const lines = readSafeDiskFileLines(task.worktreePath, cand);
+        if (lines !== null) {
+          resolvedLines = lines;
+          resolvedSource = 'worktree';
+          resolvedPath = cand;
+          break;
+        }
+      }
+    }
+
+    // 2. 若任務已提交/合併，優先從對應 Commit SHA 讀取精確歷史快照
+    const commitSha = String(
+      (task && (task.mergeCommit || (task.gitLanding && task.gitLanding.commitSha) || task.commitHash)) || ''
+    ).trim();
+    if (resolvedLines === null && /^[0-9a-f]{7,40}$/i.test(commitSha) && projPath) {
+      for (const cand of candidatePaths) {
+        const lines = readGitBlobLines(projPath, commitSha, cand);
+        if (lines !== null) {
+          resolvedLines = lines;
+          resolvedSource = 'commit';
+          resolvedPath = cand;
+          resolvedCommit = commitSha.slice(0, 7);
+          break;
+        }
+      }
+    }
+
+    // 3. 讀取專案目前工作區檔案
+    if (resolvedLines === null && projPath) {
+      for (const cand of candidatePaths) {
+        const lines = readSafeDiskFileLines(projPath, cand);
+        if (lines !== null) {
+          resolvedLines = lines;
+          resolvedSource = 'workspace';
+          resolvedPath = cand;
+          break;
+        }
+      }
+    }
+
+    // 4. 最後備援：從目前 HEAD 讀取
+    if (resolvedLines === null && projPath) {
+      for (const cand of candidatePaths) {
+        const lines = readGitBlobLines(projPath, 'HEAD', cand);
+        if (lines !== null) {
+          resolvedLines = lines;
+          resolvedSource = 'head';
+          resolvedPath = cand;
+          break;
+        }
+      }
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      filePath: resolvedPath,
+      source: resolvedSource,
+      commitSha: resolvedCommit,
+      totalLines: Array.isArray(resolvedLines) ? resolvedLines.length : 0,
+      lines: resolvedLines
+    }));
+    return;
+  }
+
   // 查詢單一檔案的 Git Diff (即時從本機 Git 讀取)
   if (pathname === '/api/git/file-diff' && req.method === 'GET') {
     const projId = query.projectId;
     const targetFilePath = query.filePath;
+    const parsedCtx = parseInt(query.contextLines, 10);
+    const unifiedArg = Number.isFinite(parsedCtx) && parsedCtx >= 0 && parsedCtx <= 5000 ? `-U${parsedCtx} ` : '';
     
     if (!projId || !targetFilePath) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -4249,15 +4396,17 @@ function runNativeFolderPicker(promptText, callback) {
     let diffOutput = '';
     try {
       if (fs.existsSync(projPath) && fs.existsSync(path.join(projPath, '.git'))) {
-        const cleanPath = targetFilePath.replace(/^[^/]+\//, '');
+        const cleanPath = fs.existsSync(path.join(projPath, targetFilePath))
+          ? targetFilePath
+          : targetFilePath.replace(/^[^/]+\//, '');
         try {
-          diffOutput = execSync(`git diff HEAD~1 -- "${cleanPath}"`, { cwd: projPath, encoding: 'utf8', timeout: 5000 }).trim();
+          diffOutput = execSync(`git diff ${unifiedArg}HEAD~1 -- "${cleanPath}"`, { cwd: projPath, encoding: 'utf8', timeout: 5000 }).trim();
         } catch (e1) {
           try {
-            diffOutput = execSync(`git log -p -1 -- "${cleanPath}"`, { cwd: projPath, encoding: 'utf8', timeout: 5000 }).trim();
+            diffOutput = execSync(`git log -p -1 ${unifiedArg}-- "${cleanPath}"`, { cwd: projPath, encoding: 'utf8', timeout: 5000 }).trim();
           } catch (e2) {
             try {
-              diffOutput = execSync(`git diff -- "${cleanPath}"`, { cwd: projPath, encoding: 'utf8', timeout: 5000 }).trim();
+              diffOutput = execSync(`git diff ${unifiedArg}-- "${cleanPath}"`, { cwd: projPath, encoding: 'utf8', timeout: 5000 }).trim();
             } catch (e3) {
               diffOutput = '';
             }

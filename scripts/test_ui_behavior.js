@@ -1471,6 +1471,77 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
   );
   console.log('  ✅ 執行中互動問答確認、卡牌精簡、緊湊側邊欄與 macOS Dock/通知橋接驗證通過');
 
+  // 驗證 Diff 前後文範圍切換、區塊展開器與歷史位移對齊引擎
+  const diffCtxEngine = vm.createContext({
+    escapeHtml: value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  });
+  vm.runInContext(
+    ['renderUnifiedDiffRow', 'renderLineNumberedDiff', 'parseUnifiedDiffHunks', 'alignHunksWithFileLines', 'renderContextualFileDiff'].map(actualFunction).join('\n'),
+    diffCtxEngine
+  );
+
+  const sampleFullLines = Array.from({ length: 60 }, (_, idx) => `const line_${idx + 1} = ${idx + 1};`);
+  sampleFullLines[29] = 'const updated_30 = 300;';
+  sampleFullLines.splice(30, 0, 'const inserted_31 = 310;'); // 總計 61 行
+
+  const sampleHunkDiff = [
+    'diff --git a/src/logic.js b/src/logic.js',
+    'index 1111111..2222222 100644',
+    '--- a/src/logic.js',
+    '+++ b/src/logic.js',
+    '@@ -28,5 +28,6 @@ function verifyLogic() {',
+    ' const line_28 = 28;',
+    ' const line_29 = 29;',
+    '-const line_30 = 30;',
+    '+const updated_30 = 300;',
+    '+const inserted_31 = 310;',
+    ' const line_31 = 31;',
+    ' const line_32 = 32;',
+    ''
+  ];
+
+  const parsedHunks = diffCtxEngine.parseUnifiedDiffHunks(sampleHunkDiff);
+  assert.strictEqual(parsedHunks.length, 1, 'parseUnifiedDiffHunks 應精確解析出 1 個 hunk 並忽略結尾空白換行');
+  assert.strictEqual(parsedHunks[0].expectedNewLines.length, 6, 'hunk 預期新檔案行數應為 6 行 (不含結尾空字串)');
+
+  const exactAlign = diffCtxEngine.alignHunksWithFileLines(parsedHunks, sampleFullLines);
+  assert.strictEqual(exactAlign.aligned, true, '完全相符之檔案內容應通過精準對齊');
+  assert.strictEqual(exactAlign.shifted, false, '未位移檔案之 shifted 應為 false');
+
+  // 預設 ±15 行前後文：應自動展開第 15~27 行與第 34~46 行，並保留上下展開按鈕
+  const ctx15Res = diffCtxEngine.renderContextualFileDiff(sampleHunkDiff, sampleFullLines, 'src/logic.js', 15, {}, { count: 0 });
+  assert(ctx15Res.aligned && ctx15Res.html.includes('const line_15 = 15;'), '±15 行模式應自動顯示異動前第 15 行前後文');
+  assert(ctx15Res.html.includes('const line_45 = 45;'), '±15 行模式應自動顯示異動後第 45 行前後文');
+  assert(ctx15Res.html.includes('diff-expand-bar') && ctx15Res.html.includes('展開此區間全部'), '未顯示區間必須提供原生展開按鈕列 (.diff-expand-bar)');
+  assert(ctx15Res.html.includes('data-diff-hunk-anchor="0"'), '每個異動 hunk 必須掛載 data-diff-hunk-anchor 供上下跳轉定位');
+
+  // 整檔完整模式：應顯示第 1 行至最後一行且無折疊列
+  const fullRes = diffCtxEngine.renderContextualFileDiff(sampleHunkDiff, sampleFullLines, 'src/logic.js', 'full', {}, { count: 0 });
+  assert(fullRes.html.includes('const line_1 = 1;') && fullRes.html.includes('const line_60 = 60;'), '整檔完整模式必須從第 1 行顯示至檔尾');
+  assert(!fullRes.html.includes('diff-expand-bar'), '整檔完整模式不得殘留隱藏區間展開列');
+
+  // 後續上方插入 5 行之位移檔案：仍應自動搜尋對齊並正確提供前後文
+  const shiftedLines = ['// header 1', '// header 2', '// header 3', ...sampleFullLines];
+  const shiftedAlign = diffCtxEngine.alignHunksWithFileLines(parsedHunks, shiftedLines);
+  assert(shiftedAlign.aligned && shiftedAlign.shifted, '上方增行後應透過區塊比對成功位移對齊');
+
+  // 若檔案已被徹底改寫不符，應安全回退至快照模式而非拼接錯誤行號
+  const rewrittenLines = ['completely different file'];
+  const mismatchRes = diffCtxEngine.renderContextualFileDiff(sampleHunkDiff, rewrittenLines, 'src/logic.js', 15, {}, { count: 0 });
+  assert.strictEqual(mismatchRes.aligned, false, '檔案內容不相符時必須標記 aligned: false 並安全回退至原始快照，防止誤導邏輯檢查');
+
+  assert(
+    htmlContent.includes('id="diffContextToolbar"') &&
+    htmlContent.includes('setDiffContextLines(15)') &&
+    htmlContent.includes("setDiffContextLines('full')") &&
+    htmlContent.includes('jumpToDiffHunk(') &&
+    diffViewerSource.includes('window.setDiffContextLines = setDiffContextLines') &&
+    diffViewerSource.includes('window.expandDiffGap = expandDiffGap') &&
+    diffViewerSource.includes('window.jumpToDiffHunk = jumpToDiffHunk'),
+    'index.html 與 diffViewer.js 必須完整綁定前後文切換、區間展開與異動跳轉全域函式'
+  );
+  console.log('  ✅ Diff 前後文展開列、±3/±15/±40/整檔模式與位移安全對齊驗證通過');
+
   console.log('🎉 所有前端核心互動邏輯與防禦機制測試通過！\n');
 })().catch(err => {
   console.error(err);

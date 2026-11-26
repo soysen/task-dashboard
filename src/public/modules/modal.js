@@ -249,6 +249,7 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       document.getElementById('formSliceInfoBox')?.classList.add('hidden');
 
       // 清空右欄 Diff 與 Modified Files
+      document.getElementById('diffContextToolbar')?.classList.add('hidden');
       document.getElementById('formModifiedFilesList').innerHTML = '<div class="text-center py-2 text-slate-400 text-xs italic"> 尚未有異動檔案紀錄</div>';
       document.getElementById('formDiffVisual').innerHTML = `
         <div class="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">

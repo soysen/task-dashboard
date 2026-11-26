@@ -1,6 +1,13 @@
 import { escapeHtml, showToast, copyToClipboard } from "./utils.js";
 import { currentActiveTaskDiff, currentProject, currentModalEditingTask } from "./state.js";
 
+    let currentDiffContextMode = 15; // 3 | 15 | 40 | 'full'
+    let activeDiffHunkIndex = 0;
+    let lastRenderedDiffState = { taskKey: '', diffText: '', singleFilePath: '' };
+    const diffFileContextCache = new Map();
+    const diffPendingFetches = new Set();
+    let diffExpandedGapsState = {};
+
     function extractFilePathFromDiffSection(lines) {
       for (const line of lines) {
         if (line.startsWith('diff --git a/')) {
@@ -306,9 +313,9 @@ import { currentActiveTaskDiff, currentProject, currentModalEditingTask } from "
       renderDiffViewer(currentActiveTaskDiff);
     }
 
-    function renderUnifiedDiffRow({ rowClass = '', oldNum = '', newNum = '', sign = ' ', signClass = '', content = '' }) {
+    function renderUnifiedDiffRow({ rowClass = '', oldNum = '', newNum = '', sign = ' ', signClass = '', content = '', rowAttrs = '' }) {
       return `
-        <div class="diff-row ${rowClass}">
+        <div class="diff-row ${rowClass}"${rowAttrs}>
           <div class="diff-num">${oldNum}</div>
           <div class="diff-num">${newNum}</div>
           <div class="diff-sign ${signClass}">${sign}</div>
@@ -361,7 +368,7 @@ import { currentActiveTaskDiff, currentProject, currentModalEditingTask } from "
           });
         }
 
-        if (!line.startsWith('diff --git') && !line.startsWith('diff --no-index') && !line.startsWith('index ') && !line.startsWith('new file mode') && !line.startsWith('deleted file mode') && !line.startsWith('---') && !line.startsWith('+++')) {
+        if (!line.startsWith('diff --git') && !line.startsWith('diff --no-index') && !line.startsWith('index ') && !line.startsWith('new file mode') && !line.startsWith('deleted file mode') && !line.startsWith('---') && !line.startsWith('+++') && !line.startsWith('\\')) {
           const curOld = oldLineNum !== null ? oldLineNum++ : '';
           const curNew = newLineNum !== null ? newLineNum++ : '';
           return renderUnifiedDiffRow({
@@ -383,22 +390,592 @@ import { currentActiveTaskDiff, currentProject, currentModalEditingTask } from "
       }).join('');
     }
 
-    function renderDiffViewer(diffText, singleFilePath) {
+    function parseUnifiedDiffHunks(lines) {
+      if (!Array.isArray(lines) || lines.length === 0) return [];
+      const hunks = [];
+      let current = null;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (line.startsWith('@@')) {
+          const m = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/);
+          if (!m) continue;
+          const oldStart = parseInt(m[1], 10);
+          const oldCount = m[2] !== undefined ? parseInt(m[2], 10) : 1;
+          const newStart = parseInt(m[3], 10);
+          const newCount = m[4] !== undefined ? parseInt(m[4], 10) : 1;
+          current = {
+            header: line,
+            funcHint: (m[5] || '').trim(),
+            oldStart,
+            oldCount,
+            newStart,
+            newCount,
+            oldConsumed: 0,
+            newConsumed: 0,
+            curOld: oldStart,
+            curNew: newStart,
+            rows: []
+          };
+          hunks.push(current);
+          continue;
+        }
+
+        if (!current) continue;
+        if (line.startsWith('\\')) continue;
+        if (current.oldConsumed >= current.oldCount && current.newConsumed >= current.newCount) {
+          continue;
+        }
+
+        if (line.startsWith('+') && !line.startsWith('+++')) {
+          current.rows.push({
+            type: 'add',
+            oldNum: '',
+            newNum: current.curNew++,
+            content: line.slice(1)
+          });
+          current.newConsumed++;
+        } else if (line.startsWith('-') && !line.startsWith('---')) {
+          current.rows.push({
+            type: 'del',
+            oldNum: current.curOld++,
+            newNum: '',
+            content: line.slice(1)
+          });
+          current.oldConsumed++;
+        } else {
+          current.rows.push({
+            type: 'ctx',
+            oldNum: current.curOld++,
+            newNum: current.curNew++,
+            content: line.startsWith(' ') ? line.slice(1) : line
+          });
+          current.oldConsumed++;
+          current.newConsumed++;
+        }
+      }
+
+      return hunks.map(h => {
+        const expectedNewLines = h.rows.filter(r => r.type !== 'del').map(r => r.content);
+        let leadingCtxCount = 0;
+        for (let i = 0; i < h.rows.length; i++) {
+          if (h.rows[i].type === 'ctx') leadingCtxCount++;
+          else break;
+        }
+        let trailingCtxCount = 0;
+        for (let i = h.rows.length - 1; i >= 0; i--) {
+          if (h.rows[i].type === 'ctx') trailingCtxCount++;
+          else break;
+        }
+        const actualOldLen = h.rows.filter(r => r.type !== 'add').length;
+        const actualNewLen = expectedNewLines.length;
+        return {
+          header: h.header,
+          funcHint: h.funcHint,
+          oldStart: h.oldStart,
+          oldEnd: actualOldLen > 0 ? (h.oldStart + actualOldLen - 1) : Math.max(0, h.oldStart),
+          newStart: actualNewLen > 0 ? h.newStart : (h.newStart + 1),
+          newEnd: actualNewLen > 0 ? (h.newStart + actualNewLen - 1) : h.newStart,
+          expectedNewLines,
+          leadingCtxCount,
+          trailingCtxCount,
+          rows: h.rows
+        };
+      });
+    }
+
+    function alignHunksWithFileLines(hunks, fileLines) {
+      if (!Array.isArray(hunks) || hunks.length === 0 || !Array.isArray(fileLines)) {
+        return { aligned: false, shifted: false, hunks: [] };
+      }
+
+      const matchesAtIndex = (expected, startIdx) => {
+        if (startIdx < 0 || startIdx + expected.length > fileLines.length) return false;
+        for (let i = 0; i < expected.length; i++) {
+          if (fileLines[startIdx + i] !== expected[i]) return false;
+        }
+        return true;
+      };
+
+      const alignedHunks = [];
+      let prevMatchedEnd = 0;
+      let anyShifted = false;
+
+      for (let idx = 0; idx < hunks.length; idx++) {
+        const h = hunks[idx];
+        const expected = h.expectedNewLines;
+        if (expected.length === 0) {
+          const clampedEnd = Math.min(Math.max(prevMatchedEnd, h.newEnd), fileLines.length);
+          alignedHunks.push({
+            ...h,
+            matchedNewStart: clampedEnd + 1,
+            matchedNewEnd: clampedEnd
+          });
+          prevMatchedEnd = clampedEnd;
+          continue;
+        }
+
+        const nominalZeroIdx = h.newStart - 1;
+        if (nominalZeroIdx >= prevMatchedEnd && matchesAtIndex(expected, nominalZeroIdx)) {
+          alignedHunks.push({
+            ...h,
+            matchedNewStart: h.newStart,
+            matchedNewEnd: h.newStart + expected.length - 1
+          });
+          prevMatchedEnd = h.newStart + expected.length - 1;
+          continue;
+        }
+
+        // 若檔案後續曾於上方增刪行，以單調順序在附近搜尋完全一致的程式碼區塊
+        let foundIdx = -1;
+        const maxRadius = Math.max(200, fileLines.length);
+        for (let delta = 1; delta <= maxRadius; delta++) {
+          const forward = nominalZeroIdx + delta;
+          if (forward >= prevMatchedEnd && matchesAtIndex(expected, forward)) {
+            foundIdx = forward;
+            break;
+          }
+          const backward = nominalZeroIdx - delta;
+          if (backward >= prevMatchedEnd && matchesAtIndex(expected, backward)) {
+            foundIdx = backward;
+            break;
+          }
+        }
+
+        if (foundIdx === -1) {
+          return { aligned: false, shifted: false, hunks: [] };
+        }
+        anyShifted = true;
+        const matchedStart = foundIdx + 1;
+        const matchedEnd = foundIdx + expected.length;
+        alignedHunks.push({
+          ...h,
+          matchedNewStart: matchedStart,
+          matchedNewEnd: matchedEnd
+        });
+        prevMatchedEnd = matchedEnd;
+      }
+
+      return { aligned: true, shifted: anyShifted, hunks: alignedHunks };
+    }
+
+    function renderContextualFileDiff(secLines, fileLines, fileKey, contextMode = 15, gapStates = {}, hunkCounterRef = { count: 0 }) {
+      const parsedHunks = parseUnifiedDiffHunks(secLines);
+      if (parsedHunks.length === 0) {
+        return { html: renderLineNumberedDiff(secLines), aligned: false, shifted: false };
+      }
+
+      if (!Array.isArray(fileLines)) {
+        // 檔案前後文尚未載入或無法取得：保留標準 Diff 並為每個 @@ 區塊加上跳轉錨點
+        let oldLineNum = null;
+        let newLineNum = null;
+        const fallbackHtml = secLines.map(line => {
+          if (line.startsWith('@@')) {
+            const match = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+            if (match) {
+              oldLineNum = parseInt(match[1], 10);
+              newLineNum = parseInt(match[2], 10);
+            }
+            const anchorIdx = hunkCounterRef.count++;
+            return renderUnifiedDiffRow({
+              rowClass: 'diff-line-chunk bg-indigo-50/80 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-bold px-1 py-0.5 rounded my-0.5',
+              oldNum: '...',
+              newNum: '...',
+              sign: '@',
+              signClass: 'text-indigo-500',
+              content: line,
+              rowAttrs: ` data-diff-hunk-anchor="${anchorIdx}"`
+            });
+          }
+          if (line.startsWith('+') && !line.startsWith('+++')) {
+            const curNew = newLineNum !== null ? newLineNum++ : '';
+            return renderUnifiedDiffRow({
+              rowClass: 'diff-line-add hover:bg-emerald-500/20',
+              newNum: curNew,
+              sign: '+',
+              signClass: 'text-emerald-600 dark:text-emerald-400',
+              content: line.slice(1)
+            });
+          }
+          if (line.startsWith('-') && !line.startsWith('---')) {
+            const curOld = oldLineNum !== null ? oldLineNum++ : '';
+            return renderUnifiedDiffRow({
+              rowClass: 'diff-line-del hover:bg-rose-500/20',
+              oldNum: curOld,
+              sign: '-',
+              signClass: 'text-rose-600 dark:text-rose-400',
+              content: line.slice(1)
+            });
+          }
+          if (!line.startsWith('diff --git') && !line.startsWith('diff --no-index') && !line.startsWith('index ') && !line.startsWith('new file mode') && !line.startsWith('deleted file mode') && !line.startsWith('---') && !line.startsWith('+++') && !line.startsWith('\\')) {
+            const curOld = oldLineNum !== null ? oldLineNum++ : '';
+            const curNew = newLineNum !== null ? newLineNum++ : '';
+            return renderUnifiedDiffRow({
+              rowClass: 'hover:bg-slate-100/70 dark:hover:bg-slate-800/40 text-slate-700 dark:text-slate-300',
+              oldNum: curOld,
+              newNum: curNew,
+              sign: ' ',
+              signClass: 'text-slate-300 dark:text-slate-700',
+              content: line.startsWith(' ') ? line.slice(1) : line
+            });
+          }
+          return renderUnifiedDiffRow({
+            rowClass: 'text-slate-400 dark:text-slate-500 italic py-0.5',
+            sign: '#',
+            signClass: 'font-mono',
+            content: line
+          });
+        }).join('');
+        return { html: fallbackHtml, aligned: false, shifted: false };
+      }
+
+      const alignment = alignHunksWithFileLines(parsedHunks, fileLines);
+      if (!alignment.aligned) {
+        return {
+          html: renderContextualFileDiff(secLines, null, fileKey, contextMode, gapStates, hunkCounterRef).html,
+          aligned: false,
+          shifted: false,
+          mismatch: true
+        };
+      }
+
+      const hunks = alignment.hunks;
+      const K = hunks.length;
+      const totalLines = fileLines.length;
+      const isFull = contextMode === 'full';
+      const targetCtx = isFull ? Infinity : (Number(contextMode) || 15);
+      const encodedKey = encodeURIComponent(fileKey || '');
+      const htmlParts = [];
+
+      const renderFileRangeRows = (fromNew, toNew, oldAtFrom) => {
+        const rowsOut = [];
+        for (let n = fromNew; n <= toNew; n++) {
+          const computedOld = oldAtFrom + (n - fromNew);
+          rowsOut.push(renderUnifiedDiffRow({
+            rowClass: 'diff-line-expanded-ctx hover:bg-slate-100/70 dark:hover:bg-slate-800/40 text-slate-700 dark:text-slate-300',
+            oldNum: computedOld >= 1 ? computedOld : '',
+            newNum: n,
+            sign: ' ',
+            signClass: 'text-slate-300 dark:text-slate-700',
+            content: fileLines[n - 1] ?? ''
+          }));
+        }
+        return rowsOut.join('');
+      };
+
+      for (let g = 0; g <= K; g++) {
+        const gapStart = g === 0 ? 1 : (hunks[g - 1].matchedNewEnd + 1);
+        const gapEnd = g < K ? (hunks[g].matchedNewStart - 1) : totalLines;
+        const oldAtGapStart = g === 0
+          ? (hunks[0].oldStart - (hunks[0].matchedNewStart - 1))
+          : (hunks[g - 1].oldEnd + 1);
+
+        if (gapEnd >= gapStart) {
+          const gapLen = gapEnd - gapStart + 1;
+          const gState = (gapStates && gapStates[g]) || { top: 0, bottom: 0, all: false };
+
+          let topReveal = 0;
+          let bottomReveal = 0;
+          if (isFull || gState.all) {
+            topReveal = gapLen;
+          } else {
+            const prevTrail = g > 0 ? hunks[g - 1].trailingCtxCount : 0;
+            const nextLead = g < K ? hunks[g].leadingCtxCount : 0;
+            const autoTop = g > 0 ? Math.max(0, targetCtx - prevTrail) : 0;
+            const autoBottom = g < K ? Math.max(0, targetCtx - nextLead) : 0;
+            topReveal = Math.min(gapLen, autoTop + (gState.top || 0));
+            bottomReveal = Math.min(gapLen, autoBottom + (gState.bottom || 0));
+          }
+
+          const remaining = gapLen - (topReveal + bottomReveal);
+          if (remaining <= 3) {
+            htmlParts.push(renderFileRangeRows(gapStart, gapEnd, oldAtGapStart));
+          } else {
+            if (topReveal > 0) {
+              htmlParts.push(renderFileRangeRows(gapStart, gapStart + topReveal - 1, oldAtGapStart));
+            }
+
+            const hiddenStart = gapStart + topReveal;
+            const hiddenEnd = gapEnd - bottomReveal;
+            const hiddenCount = hiddenEnd - hiddenStart + 1;
+            const nextFuncHint = (g < K && hunks[g].funcHint) ? ` · <span class="font-mono text-indigo-600 dark:text-indigo-400">${escapeHtml(hunks[g].funcHint)}</span>` : '';
+
+            const btnParts = [];
+            if (g > 0 && hiddenCount > 20) {
+              const downEnd = Math.min(hiddenEnd, hiddenStart + 19);
+              btnParts.push(`<button type="button" onclick="expandDiffGap('${encodedKey}', ${g}, 'down', 20)" aria-label="向下展開 20 行 (第 ${hiddenStart} 至 ${downEnd} 行)" class="px-2 py-0.5 rounded bg-white dark:bg-slate-800 hover:bg-sky-50 dark:hover:bg-slate-700 text-sky-700 dark:text-sky-300 border border-sky-300/70 dark:border-sky-700/70 font-medium transition cursor-pointer">↓ 向下展開 20 行</button>`);
+            }
+            btnParts.push(`<button type="button" onclick="expandDiffGap('${encodedKey}', ${g}, 'all', 0)" aria-label="展開此區間全部 ${hiddenCount} 行 (第 ${hiddenStart} 至 ${hiddenEnd} 行)" class="px-2 py-0.5 rounded bg-white dark:bg-slate-800 hover:bg-sky-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-medium transition cursor-pointer">↕ 展開此區間全部 ${hiddenCount} 行</button>`);
+            if (g < K && hiddenCount > 20) {
+              const upStart = Math.max(hiddenStart, hiddenEnd - 19);
+              btnParts.push(`<button type="button" onclick="expandDiffGap('${encodedKey}', ${g}, 'up', 20)" aria-label="向上展開 20 行 (第 ${upStart} 至 ${hiddenEnd} 行)" class="px-2 py-0.5 rounded bg-white dark:bg-slate-800 hover:bg-sky-50 dark:hover:bg-slate-700 text-sky-700 dark:text-sky-300 border border-sky-300/70 dark:border-sky-700/70 font-medium transition cursor-pointer">↑ 向上展開 20 行</button>`);
+            }
+
+            htmlParts.push(`
+              <div class="diff-expand-bar" data-gap-file="${escapeHtml(encodedKey)}" data-gap-idx="${g}">
+                <div class="diff-expand-gutter" aria-hidden="true">⋯</div>
+                <div class="flex-1 min-w-0 flex items-center justify-between gap-2 flex-wrap">
+                  <span class="text-slate-600 dark:text-slate-400 truncate">隱藏第 ${hiddenStart}–${hiddenEnd} 行（${hiddenCount} 行未異動）${nextFuncHint}</span>
+                  <div class="flex items-center gap-1.5 flex-wrap">${btnParts.join('')}</div>
+                </div>
+              </div>
+            `);
+
+            if (bottomReveal > 0) {
+              const bottomStart = gapEnd - bottomReveal + 1;
+              const oldAtBottom = oldAtGapStart + (bottomStart - gapStart);
+              htmlParts.push(renderFileRangeRows(bottomStart, gapEnd, oldAtBottom));
+            }
+          }
+        }
+
+        if (g < K) {
+          const hunk = hunks[g];
+          const anchorIdx = hunkCounterRef.count++;
+          const firstChangeIdx = hunk.rows.findIndex(r => r.type === 'add' || r.type === 'del');
+          const targetRowIdx = firstChangeIdx !== -1 ? firstChangeIdx : 0;
+          let runningMatchedNew = hunk.matchedNewStart;
+
+          hunk.rows.forEach((row, rIdx) => {
+            const anchorAttr = rIdx === targetRowIdx
+              ? ` data-diff-hunk-anchor="${anchorIdx}" data-hunk-file="${escapeHtml(encodedKey)}" data-hunk-local="${g}"`
+              : '';
+            if (row.type === 'add') {
+              const displayNew = alignment.shifted ? runningMatchedNew++ : row.newNum;
+              htmlParts.push(renderUnifiedDiffRow({
+                rowClass: 'diff-line-add hover:bg-emerald-500/20',
+                newNum: displayNew,
+                sign: '+',
+                signClass: 'text-emerald-600 dark:text-emerald-400',
+                content: row.content,
+                rowAttrs: anchorAttr
+              }));
+            } else if (row.type === 'del') {
+              htmlParts.push(renderUnifiedDiffRow({
+                rowClass: 'diff-line-del hover:bg-rose-500/20',
+                oldNum: row.oldNum,
+                sign: '-',
+                signClass: 'text-rose-600 dark:text-rose-400',
+                content: row.content,
+                rowAttrs: anchorAttr
+              }));
+            } else {
+              const displayNew = alignment.shifted ? runningMatchedNew++ : row.newNum;
+              htmlParts.push(renderUnifiedDiffRow({
+                rowClass: 'hover:bg-slate-100/70 dark:hover:bg-slate-800/40 text-slate-700 dark:text-slate-300',
+                oldNum: row.oldNum,
+                newNum: displayNew,
+                sign: ' ',
+                signClass: 'text-slate-300 dark:text-slate-700',
+                content: row.content,
+                rowAttrs: anchorAttr
+              }));
+            }
+          });
+        }
+      }
+
+      return { html: htmlParts.join(''), aligned: true, shifted: alignment.shifted };
+    }
+
+    function updateDiffContextToolbar(hasDiff, totalHunks, sourceText = '') {
+      const toolbar = document.getElementById('diffContextToolbar');
+      if (!toolbar) return;
+      if (!hasDiff) {
+        toolbar.classList.add('hidden');
+        return;
+      }
+      toolbar.classList.remove('hidden');
+
+      document.querySelectorAll?.('.diff-ctx-btn')?.forEach(btn => {
+        const val = btn.getAttribute('data-diff-ctx');
+        const isActive = String(currentDiffContextMode) === String(val);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      });
+
+      const srcBadge = document.getElementById('diffContextSourceBadge');
+      if (srcBadge) srcBadge.innerText = sourceText || '';
+
+      const posBadge = document.getElementById('diffHunkPositionBadge');
+      if (posBadge) {
+        if (totalHunks > 0) {
+          const clamped = Math.min(Math.max(0, activeDiffHunkIndex), totalHunks - 1);
+          posBadge.innerText = `${clamped + 1} / ${totalHunks} 處異動`;
+        } else {
+          posBadge.innerText = '0 處異動';
+        }
+      }
+    }
+
+    async function fetchFileContextForTask(taskId, projId, filePath) {
+      if (!filePath || typeof fetch !== 'function') return null;
+      const cacheKey = `${taskId || 'live'}::${projId || ''}::${filePath}`;
+      if (diffFileContextCache.has(cacheKey)) {
+        return diffFileContextCache.get(cacheKey);
+      }
+      if (diffPendingFetches.has(cacheKey)) return null;
+      diffPendingFetches.add(cacheKey);
+      try {
+        const qs = `taskId=${encodeURIComponent(taskId || '')}&projectId=${encodeURIComponent(projId || '')}&filePath=${encodeURIComponent(filePath)}`;
+        const res = await fetch(`/api/git/file-context?${qs}`);
+        if (!res || !res.ok) {
+          diffFileContextCache.set(cacheKey, { lines: null, source: 'unavailable', totalLines: 0 });
+          return null;
+        }
+        const data = await res.json();
+        const entry = {
+          lines: Array.isArray(data && data.lines) ? data.lines : null,
+          source: (data && data.source) || 'unavailable',
+          commitSha: (data && data.commitSha) || '',
+          totalLines: Number(data && data.totalLines) || 0
+        };
+        if (diffFileContextCache.size > 60) {
+          const oldestKey = diffFileContextCache.keys().next().value;
+          if (oldestKey) diffFileContextCache.delete(oldestKey);
+        }
+        diffFileContextCache.set(cacheKey, entry);
+        return entry;
+      } catch (e) {
+        diffFileContextCache.set(cacheKey, { lines: null, source: 'unavailable', totalLines: 0 });
+        return null;
+      } finally {
+        diffPendingFetches.delete(cacheKey);
+      }
+    }
+
+    function setDiffContextLines(mode) {
+      const normalized = mode === 'full' ? 'full' : (parseInt(mode, 10) || 15);
+      currentDiffContextMode = normalized;
+      diffExpandedGapsState = {};
+      if (lastRenderedDiffState.diffText) {
+        renderDiffViewer(lastRenderedDiffState.diffText, lastRenderedDiffState.singleFilePath, {
+          autoScrollToActiveHunk: normalized === 'full' || normalized === 40
+        });
+      }
+    }
+
+    function expandDiffGap(encodedFileKey, gapIdx, direction, step = 20) {
+      const fileKey = decodeURIComponent(encodedFileKey || '');
+      if (!diffExpandedGapsState[fileKey]) diffExpandedGapsState[fileKey] = {};
+      if (!diffExpandedGapsState[fileKey][gapIdx]) {
+        diffExpandedGapsState[fileKey][gapIdx] = { top: 0, bottom: 0, all: false };
+      }
+      const st = diffExpandedGapsState[fileKey][gapIdx];
+      if (direction === 'all') {
+        st.all = true;
+      } else if (direction === 'down') {
+        st.top += (Number(step) || 20);
+      } else if (direction === 'up') {
+        st.bottom += (Number(step) || 20);
+      }
+
       const diffVisual = document.getElementById('formDiffVisual');
+      let anchorSelector = '';
+      let prevOffsetFromContainerTop = null;
+      if (direction === 'up' && diffVisual && typeof diffVisual.querySelector === 'function') {
+        anchorSelector = `[data-hunk-file="${encodedFileKey}"][data-hunk-local="${gapIdx}"]`;
+        const anchorEl = diffVisual.querySelector(anchorSelector);
+        if (anchorEl && typeof anchorEl.getBoundingClientRect === 'function' && typeof diffVisual.getBoundingClientRect === 'function') {
+          prevOffsetFromContainerTop = anchorEl.getBoundingClientRect().top - diffVisual.getBoundingClientRect().top;
+        }
+      }
+
+      if (lastRenderedDiffState.diffText) {
+        renderDiffViewer(lastRenderedDiffState.diffText, lastRenderedDiffState.singleFilePath, { preserveHunkIndex: true });
+      }
+
+      if (prevOffsetFromContainerTop !== null && anchorSelector && diffVisual && typeof diffVisual.querySelector === 'function') {
+        const nextAnchorEl = diffVisual.querySelector(anchorSelector);
+        if (nextAnchorEl && typeof nextAnchorEl.getBoundingClientRect === 'function') {
+          const newOffset = nextAnchorEl.getBoundingClientRect().top - diffVisual.getBoundingClientRect().top;
+          diffVisual.scrollTop += (newOffset - prevOffsetFromContainerTop);
+        }
+      }
+    }
+
+    function jumpToDiffHunk(delta) {
+      const diffVisual = document.getElementById('formDiffVisual');
+      if (!diffVisual || typeof diffVisual.querySelectorAll !== 'function') return;
+      const anchors = Array.from(diffVisual.querySelectorAll('[data-diff-hunk-anchor]'));
+      if (anchors.length === 0) return;
+
+      if (delta === 0) {
+        activeDiffHunkIndex = Math.min(Math.max(0, activeDiffHunkIndex), anchors.length - 1);
+      } else {
+        activeDiffHunkIndex = (activeDiffHunkIndex + delta + anchors.length) % anchors.length;
+      }
+
+      const target = anchors[activeDiffHunkIndex];
+      if (target && typeof target.scrollIntoView === 'function') {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        anchors.forEach(el => el.classList?.remove('diff-hunk-active-flash'));
+        target.classList?.add('diff-hunk-active-flash');
+      }
+
+      const posBadge = document.getElementById('diffHunkPositionBadge');
+      if (posBadge) {
+        posBadge.innerText = `${activeDiffHunkIndex + 1} / ${anchors.length} 處異動`;
+      }
+    }
+
+    function renderDiffViewer(diffText, singleFilePath, renderOptions = {}) {
+      const diffVisual = document.getElementById('formDiffVisual');
+      const taskId = currentModalEditingTask ? (currentModalEditingTask.id || '') : '';
+      const projId = currentModalEditingTask ? (currentModalEditingTask.project || '') : (currentProject !== 'ALL' ? currentProject : 'task-dashboard');
+      const taskKey = `${taskId}::${projId}`;
+
+      if (lastRenderedDiffState.taskKey !== taskKey) {
+        diffExpandedGapsState = {};
+        activeDiffHunkIndex = 0;
+      } else if (lastRenderedDiffState.singleFilePath !== (singleFilePath || '') && !renderOptions.preserveHunkIndex) {
+        activeDiffHunkIndex = 0;
+      }
+      lastRenderedDiffState = { taskKey, diffText: diffText || '', singleFilePath: singleFilePath || '' };
+
       if (!diffText || diffText.trim().length === 0) {
         updateDiffSummaryBar('');
-        diffVisual.innerHTML = `
-          <div class="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
-            <i data-lucide="git-pull-request" class="w-8 h-8 text-slate-500 mb-2 opacity-50"></i>
-            <span class="text-xs"> 尚未產生代碼變更或 Diff</span>
-          </div>
-        `;
-        if (window.lucide) lucide.createIcons();
+        updateDiffContextToolbar(false, 0, '');
+        if (diffVisual) {
+          diffVisual.innerHTML = `
+            <div class="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
+              <i data-lucide="git-pull-request" class="w-8 h-8 text-slate-500 mb-2 opacity-50"></i>
+              <span class="text-xs"> 尚未產生代碼變更或 Diff</span>
+            </div>
+          `;
+        }
+        if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons();
         return;
       }
 
       updateDiffSummaryBar(diffText, singleFilePath);
       const sections = splitDiffByFiles(diffText);
+      const hunkCounterRef = { count: 0 };
+      const filesMissingContext = [];
+      let sourceBadgeLabel = '';
+
+      const resolveCachedContext = (fp, status) => {
+        if (!fp || status === 'A' || status === 'D') return null;
+        const cacheKey = `${taskId || 'live'}::${projId || ''}::${fp}`;
+        if (!diffFileContextCache.has(cacheKey)) {
+          filesMissingContext.push(fp);
+          return null;
+        }
+        return diffFileContextCache.get(cacheKey);
+      };
+
+      const describeSourceBadge = (ctxEntry, resInfo) => {
+        if (!ctxEntry) return '';
+        if (resInfo && resInfo.mismatch) return '檔案後續已重構 · 顯示快照片段';
+        if (!resInfo || !resInfo.aligned) return '';
+        if (ctxEntry.source === 'worktree') return `Worktree 完整前後文 (${ctxEntry.totalLines} 行)`;
+        if (ctxEntry.source === 'commit') return `Commit ${ctxEntry.commitSha || ''} 快照 (${ctxEntry.totalLines} 行)`;
+        if (ctxEntry.source === 'workspace' || ctxEntry.source === 'head') {
+          return resInfo.shifted
+            ? `工作區位移對齊 (${ctxEntry.totalLines} 行)`
+            : `完整前後文已就緒 (${ctxEntry.totalLines} 行)`;
+        }
+        return '';
+      };
 
       if (sections.length > 1) {
         // 多檔案高級結構化卡片呈現
@@ -417,6 +994,20 @@ import { currentActiveTaskDiff, currentProject, currentModalEditingTask } from "
               ? '<span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">D</span>'
               : '<span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">M</span>');
 
+          const ctxEntry = resolveCachedContext(sec.filePath, status);
+          const rendered = renderContextualFileDiff(
+            sec.lines,
+            ctxEntry ? ctxEntry.lines : null,
+            fileName,
+            currentDiffContextMode,
+            diffExpandedGapsState[fileName] || {},
+            hunkCounterRef
+          );
+          if (!sourceBadgeLabel) {
+            sourceBadgeLabel = describeSourceBadge(ctxEntry, rendered);
+          }
+          const totalDisplayLines = (rendered.aligned && ctxEntry) ? ctxEntry.totalLines : sec.lines.length;
+
           return `
             <div id="diffCard_${idx}" class="diff-card mb-3 last:mb-0 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 shadow-xs">
               <div onclick="toggleSingleDiffCard('diffCard_${idx}')" class="bg-slate-100/90 dark:bg-slate-800/80 px-3 py-2 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between cursor-pointer select-none hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition">
@@ -427,12 +1018,12 @@ import { currentActiveTaskDiff, currentProject, currentModalEditingTask } from "
                 <div class="flex items-center gap-2 flex-shrink-0">
                   <span class="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400">+${addCount}</span>
                   <span class="text-[10px] font-mono font-bold text-rose-600 dark:text-rose-400">-${delCount}</span>
-                  <span class="text-[10px] text-slate-400 font-sans">${sec.lines.length} 行</span>
+                  <span class="text-[10px] text-slate-400 font-sans">${totalDisplayLines} 行</span>
                   <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400"></i>
                 </div>
               </div>
               <div class="diff-card-body p-2 overflow-x-auto custom-scrollbar font-mono text-xs leading-relaxed">
-                ${renderLineNumberedDiff(sec.lines)}
+                ${rendered.html}
               </div>
             </div>
           `;
@@ -456,6 +1047,20 @@ import { currentActiveTaskDiff, currentProject, currentModalEditingTask } from "
               ? '<span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">D</span>'
               : '<span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">M</span>');
 
+          const ctxEntry = resolveCachedContext(headerTitle, status);
+          const rendered = renderContextualFileDiff(
+            lines,
+            ctxEntry ? ctxEntry.lines : null,
+            headerTitle,
+            currentDiffContextMode,
+            diffExpandedGapsState[headerTitle] || {},
+            hunkCounterRef
+          );
+          sourceBadgeLabel = describeSourceBadge(ctxEntry, rendered);
+          if (!sourceBadgeLabel && status === 'A') sourceBadgeLabel = '新增檔案 (已顯示全檔)';
+          if (!sourceBadgeLabel && status === 'D') sourceBadgeLabel = '刪除檔案 (已顯示全檔)';
+          const totalDisplayLines = (rendered.aligned && ctxEntry) ? ctxEntry.totalLines : lines.length;
+
           diffVisual.innerHTML = `
             <div id="diffCard_single" class="diff-card border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 shadow-xs">
               <div onclick="toggleSingleDiffCard('diffCard_single')" class="bg-slate-100/90 dark:bg-slate-800/80 px-3 py-2 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between cursor-pointer select-none hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition">
@@ -466,12 +1071,12 @@ import { currentActiveTaskDiff, currentProject, currentModalEditingTask } from "
                 <div class="flex items-center gap-2 flex-shrink-0">
                   <span class="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400">+${addCount}</span>
                   <span class="text-[10px] font-mono font-bold text-rose-600 dark:text-rose-400">-${delCount}</span>
-                  <span class="text-[10px] text-slate-400 font-sans">${lines.length} 行</span>
+                  <span class="text-[10px] text-slate-400 font-sans">${totalDisplayLines} 行</span>
                   <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400"></i>
                 </div>
               </div>
               <div class="diff-card-body p-2 overflow-x-auto custom-scrollbar font-mono text-xs leading-relaxed">
-                ${renderLineNumberedDiff(lines)}
+                ${rendered.html}
               </div>
             </div>
           `;
@@ -479,7 +1084,35 @@ import { currentActiveTaskDiff, currentProject, currentModalEditingTask } from "
           diffVisual.innerHTML = renderLineNumberedDiff(lines);
         }
       }
-      if (window.lucide) lucide.createIcons();
+
+      const hasRealDiffHunks = hunkCounterRef.count > 0;
+      updateDiffContextToolbar(hasRealDiffHunks, hunkCounterRef.count, sourceBadgeLabel);
+
+      if (renderOptions.autoScrollToActiveHunk && hasRealDiffHunks) {
+        jumpToDiffHunk(0);
+      }
+
+      if (filesMissingContext.length > 0 && filesMissingContext.length <= 12) {
+        const snapshotTaskKey = taskKey;
+        const snapshotSinglePath = singleFilePath || '';
+        const snapshotDiffText = diffText;
+        Promise.all(filesMissingContext.map(fp => fetchFileContextForTask(taskId, projId, fp))).then(results => {
+          const anyLoaded = results.some(r => r && Array.isArray(r.lines));
+          if (
+            anyLoaded &&
+            lastRenderedDiffState.taskKey === snapshotTaskKey &&
+            lastRenderedDiffState.singleFilePath === snapshotSinglePath &&
+            lastRenderedDiffState.diffText === snapshotDiffText
+          ) {
+            renderDiffViewer(snapshotDiffText, snapshotSinglePath, {
+              preserveHunkIndex: true,
+              autoScrollToActiveHunk: currentDiffContextMode === 'full'
+            });
+          }
+        });
+      }
+
+      if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons();
     }
 
 
@@ -497,6 +1130,12 @@ export {
   filterDiffForFile,
   showAllDiffs,
   renderLineNumberedDiff,
+  parseUnifiedDiffHunks,
+  alignHunksWithFileLines,
+  renderContextualFileDiff,
+  setDiffContextLines,
+  expandDiffGap,
+  jumpToDiffHunk,
   renderDiffViewer
 };
 
@@ -514,5 +1153,11 @@ if (typeof window !== "undefined") {
   window.filterDiffForFile = filterDiffForFile;
   window.showAllDiffs = showAllDiffs;
   window.renderLineNumberedDiff = renderLineNumberedDiff;
+  window.parseUnifiedDiffHunks = parseUnifiedDiffHunks;
+  window.alignHunksWithFileLines = alignHunksWithFileLines;
+  window.renderContextualFileDiff = renderContextualFileDiff;
+  window.setDiffContextLines = setDiffContextLines;
+  window.expandDiffGap = expandDiffGap;
+  window.jumpToDiffHunk = jumpToDiffHunk;
   window.renderDiffViewer = renderDiffViewer;
 }

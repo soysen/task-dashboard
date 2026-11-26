@@ -986,7 +986,27 @@
               </div>
 
               <!-- 右欄 (自動填滿剩餘寬度)：滿版高度單檔 Visual Git Diff 容器 -->
-              <div id="diffContentPane" class="flex-1 min-w-0 flex flex-col min-h-0">
+              <div id="diffContentPane" class="flex-1 min-w-0 flex flex-col min-h-0 gap-1.5">
+                <div id="diffContextToolbar" class="hidden flex-shrink-0 td-surface-panel rounded-xl px-2.5 py-1.5 flex items-center justify-between gap-2 flex-wrap">
+                  <div class="flex items-center gap-1.5 flex-wrap min-w-0">
+                    <span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1 flex-shrink-0">
+                      <i data-lucide="unfold-vertical" aria-hidden="true" class="w-3.5 h-3.5 text-sky-500"></i>
+                      <span>前後文</span>
+                    </span>
+                    <div role="group" aria-label="Diff 前後文顯示範圍" class="inline-flex items-center rounded-lg bg-slate-200/70 dark:bg-slate-900/80 p-0.5 border border-slate-300/70 dark:border-slate-700/80">
+                      <button type="button" data-diff-ctx="3" aria-pressed="false" onclick="setDiffContextLines(3)" class="diff-ctx-btn px-2 py-0.5 rounded-md text-[11px] font-mono font-medium transition cursor-pointer">±3 行</button>
+                      <button type="button" data-diff-ctx="15" aria-pressed="true" onclick="setDiffContextLines(15)" class="diff-ctx-btn px-2 py-0.5 rounded-md text-[11px] font-mono font-medium transition cursor-pointer">±15 行</button>
+                      <button type="button" data-diff-ctx="40" aria-pressed="false" onclick="setDiffContextLines(40)" class="diff-ctx-btn px-2 py-0.5 rounded-md text-[11px] font-mono font-medium transition cursor-pointer">±40 行</button>
+                      <button type="button" data-diff-ctx="full" aria-pressed="false" onclick="setDiffContextLines('full')" class="diff-ctx-btn px-2 py-0.5 rounded-md text-[11px] font-medium transition cursor-pointer">整檔完整</button>
+                    </div>
+                    <span id="diffContextSourceBadge" class="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate"></span>
+                  </div>
+                  <div class="flex items-center gap-1 flex-shrink-0">
+                    <span id="diffHunkPositionBadge" class="text-[11px] font-mono text-slate-500 dark:text-slate-400 mr-0.5">0 / 0 處異動</span>
+                    <button type="button" onclick="jumpToDiffHunk(-1)" aria-label="跳至上一處異動" class="px-2 py-0.5 rounded-md text-[11px] font-medium bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 transition cursor-pointer">↑ 上一處</button>
+                    <button type="button" onclick="jumpToDiffHunk(1)" aria-label="跳至下一處異動" class="px-2 py-0.5 rounded-md text-[11px] font-medium bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 transition cursor-pointer">↓ 下一處</button>
+                  </div>
+                </div>
                 <div id="formDiffVisual" class="flex-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs font-mono overflow-auto custom-scrollbar leading-relaxed">
                   <div class="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
                     <i data-lucide="git-pull-request" class="w-8 h-8 text-slate-500 mb-2 opacity-50"></i>
