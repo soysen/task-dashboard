@@ -15,7 +15,9 @@ const {
   calculateRiskDoor,
   autoAssembleExecutionReport,
   determineTaskTier,
-  normalizeDisclosureList
+  normalizeDisclosureList,
+  normalizePendingQuestions,
+  formatClarificationDecisionBlock
 } = require('./feedbackManager');
 const {
   PROVIDER_MATRIX,
@@ -55,13 +57,17 @@ const {
   removeTaskWorktree,
   mergeTaskWorktree,
   checkTaskBaseDrift,
-  mergeFeatureBranch
+  mergeFeatureBranch,
+  getRealDirtyFiles,
+  isWorktreeUntouched,
+  openRepoInExternalEditor
 } = require('./services/gitService');
 const {
   getBranchRemoteStatus,
   pushBranch,
   cloneRepository,
   fetchAndPullBranch,
+  syncBranchWithBase,
   createPullRequest
 } = require('./services/gitRemoteService');
 const {
@@ -70,6 +76,10 @@ const {
   switchGithubAccount,
   verifyAndSaveAzureDevOpsPat
 } = require('./services/gitAccountService');
+
+function isTaskAwaitingClarification(task) {
+  return Boolean(task && (task.awaitingInput === true || (Array.isArray(task.pendingQuestions) && task.pendingQuestions.length > 0)));
+}
 
 /**
  * 統一於任務開工時準備隔離工作區（Worktree）或檢查共享工作區排隊互斥狀態
@@ -90,8 +100,8 @@ function prepareTaskWorkspaceOnStart(projPath, task, allTasks = []) {
   const cleanRepo = projPath ? String(projPath).replace(/\/+$/, '') : '';
   const isGitRepo = Boolean(cleanRepo && fs.existsSync(cleanRepo) && fs.existsSync(path.join(cleanRepo, '.git')));
 
-  // 若尚待使用者審閱確認（requiresConfirmation === true），暫不建立 Worktree 或佔用排隊鎖，待確認執行時再隔離
-  if (task.requiresConfirmation === true) {
+  // 若尚待使用者審閱確認（requiresConfirmation === true 或 awaitingInput === true），暫不建立 Worktree 或佔用排隊鎖，待確認執行時再隔離
+  if (task.requiresConfirmation === true || isTaskAwaitingClarification(task)) {
     task.queueState = null;
     if (isGitRepo && (!task.baseBranch || !task.baseCommit)) {
       const info = getGitBranchInfo(cleanRepo);
@@ -234,8 +244,16 @@ const {
   getNextTaskId
 } = require('./services/taskStorage');
 
-function resolveTaskGitWorkDir(task, projPath) {
+function resolveTaskGitWorkDir(task, projPath, options = {}) {
   if (task && task.worktreePath && fs.existsSync(task.worktreePath)) {
+    if (
+      options &&
+      options.preferMainIfWorktreeUntouched === true &&
+      isWorktreeUntouched(projPath, task.worktreePath, task) &&
+      getRealDirtyFiles(projPath).length > 0
+    ) {
+      return projPath;
+    }
     return task.worktreePath;
   }
   return projPath;
@@ -741,6 +759,12 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
     return;
   }
 
+  // Clarification Gate: 尚有待使用者回答的問答選項時，暫停啟動 CLI Agent
+  if (isTaskAwaitingClarification(task)) {
+    console.log(`💬 [Clarification Gate] 任務 ${taskId} 正等待使用者確認問答選項，暫緩啟動 CLI Agent。`);
+    return;
+  }
+
   // 檢查每日運行上限熔斷 (Pulse Quota Circuit Breaker)
   const dailyRunCap = Number(settings.dailyCliRunCap) > 0 ? Number(settings.dailyCliRunCap) : 30;
   if (getCliRunsToday() >= dailyRunCap) {
@@ -827,7 +851,7 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
     subagentGuidance +
     confirmationGuidance +
     '1. Pre-Flight: 優先滿足 Feedback，檢閱規範並執行前置驗證（' + harnessCmd + '）；若任務勾選需確認後再執行且未具備執行計劃，必須先產出完整執行計劃回寫 executionPlan 供確認；若需求包含【最新需求覆蓋】，其內容具備最高優先權，衝突處一律覆蓋舊有描述；面對 > 500 行大檔嚴禁整檔閱讀，必須以 grep-n 先定位後切片 30-50 行，檢索上限 2 次避免 Loop。\n' +
-    '2. Implementation: 遵循專案架構最小範圍實作並補齊測試，嚴禁跨專案副作用。\n' +
+    '2. Implementation: 遵循專案架構最小範圍實作並補齊測試，嚴禁跨專案副作用；若執行中途遇到規格模糊或需拍板事項，嚴禁僅在對話框乾等，請呼叫 PUT http://localhost:3030/api/tasks/' + task.id + ' 寫入 pendingQuestions（含題目、選項與 recommended 推薦項，維持 in_progress），等待使用者於儀表板點選確認後接續。\n' +
     '3. Review Promotion: 驗證通過且完成 Pre-Commit 預檢（若專案具備 .git/hooks/pre-commit 必須先執行通過），收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })，推進至 review 並清空 feedback。\n' +
     '【執行紀錄證據】：executionLog 必須逐步記錄實際檢閱檔案、診斷結果、修改檔案與原因，以及每項驗證的命令、工作目錄、退出碼與實際 stdout/stderr。區分工作摘要與原始執行細節，不得僅寫「測試通過／工作完成」，不得宣稱未執行的檢查已通過；保留可用輸出且不得截斷，敏感憑證不得寫入日誌。';
 
@@ -1467,10 +1491,43 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  function listActiveSentinels() {
+    const dir = resolveDataDir();
+    const active = [];
+    try {
+      if (!fs.existsSync(dir)) return active;
+      const files = fs.readdirSync(dir).filter(f => /^sentinel-.*\.lock$/.test(f));
+      for (const file of files) {
+        const fullPath = path.join(dir, file);
+        try {
+          const info = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+          const pid = Number(info && info.pid);
+          if (!pid) {
+            fs.unlinkSync(fullPath);
+            continue;
+          }
+          try {
+            process.kill(pid, 0);
+            active.push({
+              pid,
+              targetAgent: info.targetAgent || 'all',
+              tiers: Array.isArray(info.tiers) ? info.tiers : [],
+              startedAt: info.startedAt || ''
+            });
+          } catch (e) {
+            // PID 已退出，自動清理殘留 lockfile
+            try { fs.unlinkSync(fullPath); } catch (_) {}
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return active;
+  }
+
   // 系統設定 (CLI Agent 開關與指令)
   if (pathname === '/api/settings' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(readSettings()));
+    res.end(JSON.stringify({ ...readSettings(), activeSentinels: listActiveSentinels() }));
     return;
   }
 
@@ -1917,14 +1974,17 @@ function runNativeFolderPicker(promptText, callback) {
         const branch = String(data.branch || data.branchName || '').trim();
         const mode = data.mode === 'fetch' ? 'fetch' : 'pull';
         const rebase = data.rebase === true;
+        const merge = data.merge === true;
         const repoPath = proj.path || path.join(PROJECTS_ROOT, proj.id);
         const pullRes = await fetchAndPullBranch(repoPath, branch, {
           mode,
           rebase,
+          merge,
           customEnv: buildCustomEnv()
         });
         if (!pullRes.success) {
-          res.writeHead(pullRes.canRetryWithRebase ? 409 : 400, { 'Content-Type': 'application/json' });
+          const errStatus = (pullRes.canRetryWithRebase || pullRes.conflict || pullRes.status === 'dirty_workspace') ? 409 : 400;
+          res.writeHead(errStatus, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ...pullRes, projectId: proj.id }));
           return;
         }
@@ -1973,7 +2033,7 @@ function runNativeFolderPicker(promptText, callback) {
         const repoPath = proj.path || path.join(PROJECTS_ROOT, proj.id);
         const pushRes = await pushBranch(repoPath, branch, { customEnv: buildCustomEnv() });
         if (!pushRes.success) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.writeHead(pushRes.nonFastForward ? 409 : 400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ...pushRes, projectId: proj.id }));
           return;
         }
@@ -2021,6 +2081,102 @@ function runNativeFolderPicker(promptText, callback) {
       } catch (err) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: false, error: (err && err.message) || 'Failed to push branch' }));
+      }
+    });
+    return;
+  }
+
+  // 將主幹基線 (如 origin/master 或 main) 安全同步至功能分支 (Merge / Rebase)
+  const branchesSyncBaseMatch = req.method === 'POST' && pathname.match(/^\/api\/projects\/([^/]+)\/branches\/sync-base$/);
+  if (branchesSyncBaseMatch) {
+    const projId = decodeURIComponent(branchesSyncBaseMatch[1]).trim();
+    let body = '';
+    req.on('data', chunk => (body += chunk));
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body || '{}');
+        const projects = readProjects();
+        const proj = projects.find(p => p.id === projId);
+        if (!proj) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Project not found' }));
+          return;
+        }
+        const repoPath = proj.path || path.join(PROJECTS_ROOT, proj.id);
+        const branch = String(data.branch || data.branchName || '').trim();
+        let baseBranch = String(data.baseBranch || '').trim();
+        if (!baseBranch) {
+          const bInfo = getProjectBranches(repoPath, [], { refresh: false });
+          baseBranch = bInfo.defaultBranch || 'main';
+        }
+        const strategy = data.strategy === 'rebase' ? 'rebase' : 'merge';
+        const syncRes = await syncBranchWithBase(repoPath, branch, baseBranch, {
+          strategy,
+          customEnv: buildCustomEnv()
+        });
+        if (!syncRes.success) {
+          const errStatus = (syncRes.conflict || syncRes.status === 'dirty_workspace') ? 409 : 400;
+          res.writeHead(errStatus, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ...syncRes, projectId: proj.id }));
+          return;
+        }
+        gitProjectsStatusCache = { timestamp: 0, data: null };
+        const tasks = readTasks().filter(t => t.project === proj.id && t.status !== 'archived');
+        const branchInfo = getProjectBranches(repoPath, tasks, { refresh: true });
+        broadcastSse('project-branch-synced', {
+          projectId: proj.id,
+          branch: syncRes.branch,
+          baseBranch: syncRes.baseBranch,
+          strategy: syncRes.strategy,
+          remoteStatus: syncRes.remoteStatus
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ...syncRes, projectId: proj.id, branchInfo }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: (err && err.message) || 'Failed to sync base branch' }));
+      }
+    });
+    return;
+  }
+
+  // 在外部編輯器或系統工具開啟專案 / Worktree (Antigravity / VS Code / Finder / Terminal)
+  const openEditorMatch = req.method === 'POST' && pathname.match(/^\/api\/projects\/([^/]+)\/open-editor$/);
+  if (openEditorMatch) {
+    const projId = decodeURIComponent(openEditorMatch[1]).trim();
+    let body = '';
+    req.on('data', chunk => (body += chunk));
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body || '{}');
+        const projects = readProjects();
+        const proj = projects.find(p => p.id === projId);
+        if (!proj) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Project not found' }));
+          return;
+        }
+        const repoPath = proj.path || path.join(PROJECTS_ROOT, proj.id);
+        let targetPath = '';
+        if (data.taskId && data.openWorktree === true) {
+          const allTasks = readTasks();
+          const targetTask = allTasks.find(t => t.id === String(data.taskId).trim());
+          if (targetTask && targetTask.worktreePath && fs.existsSync(targetTask.worktreePath)) {
+            targetPath = targetTask.worktreePath;
+          }
+        } else if (data.targetPath) {
+          targetPath = String(data.targetPath).trim();
+        }
+        const openRes = await openRepoInExternalEditor(repoPath, {
+          editor: data.editor || 'antigravity',
+          targetPath,
+          dryRun: data.dryRun === true
+        });
+        res.writeHead(openRes.success ? 200 : 400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ...openRes, projectId: proj.id }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: (err && err.message) || 'Failed to open external editor' }));
       }
     });
     return;
@@ -2579,6 +2735,8 @@ function runNativeFolderPicker(promptText, callback) {
         const workspaceMode = (data.workspaceMode === 'worktree' || data.workspaceMode === 'branch_stream' || data.workspaceMode === 'in_place')
           ? data.workspaceMode
           : 'worktree';
+        const normalizedQuestions = normalizePendingQuestions(data.pendingQuestions);
+        const awaitingInput = Boolean(normalizedQuestions.length > 0 || data.awaitingInput === true);
         const newTask = {
           id: newId,
           title: data.title,
@@ -2597,6 +2755,9 @@ function runNativeFolderPicker(promptText, callback) {
           feedback: data.feedback || '',
           requiresConfirmation: data.requiresConfirmation === true,
           executionPlan: data.executionPlan || '',
+          pendingQuestions: normalizedQuestions,
+          awaitingInput,
+          clarificationHistory: Array.isArray(data.clarificationHistory) ? data.clarificationHistory : [],
           tier: data.tier || '',
           riskDoor: data.riskDoor || '',
           riskReasons: Array.isArray(data.riskReasons) ? data.riskReasons : undefined,
@@ -2623,13 +2784,21 @@ function runNativeFolderPicker(promptText, callback) {
         tasks.push(newTask);
         writeTasks(tasks);
 
-        // 若新增任務直接為 in_progress，同步 worklog 並觸發 CLI Agent 執行（若進入排隊則暫緩）
+        // 若新增任務直接為 in_progress，同步 worklog 並觸發 CLI Agent 執行（若進入排隊或待問答確認則暫緩）
         if (newTask.status === 'in_progress') {
           const projects = readProjects();
           const proj = projects.find(p => p.id === newTask.project);
           const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, newTask.project || '');
           syncProjectWorklogForActiveTask(projPath, newTask);
-          if (!workspacePrep.queued) {
+          if (newTask.awaitingInput && newTask.pendingQuestions.length > 0) {
+            broadcastSse('task-question', {
+              taskId: newTask.id,
+              title: newTask.title,
+              project: newTask.project,
+              count: newTask.pendingQuestions.length,
+              firstQuestion: newTask.pendingQuestions[0].question || ''
+            });
+          } else if (!workspacePrep.queued) {
             executeTaskWithCliAgent(newTask.id);
           }
         }
@@ -2640,6 +2809,90 @@ function runNativeFolderPicker(promptText, callback) {
       } catch (err) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Invalid JSON' }));
+      }
+    });
+    return;
+  }
+
+  // 回覆進行中任務之待確認問答 (Interactive Clarification Gate)
+  const answerRouteMatch = req.method === 'POST' && pathname.match(/^\/api\/tasks\/([^/]+)\/answer$/);
+  if (answerRouteMatch) {
+    const taskId = decodeURIComponent(answerRouteMatch[1]).trim();
+    let body = '';
+    req.on('data', chunk => (body += chunk));
+    req.on('end', () => {
+      try {
+        const data = body ? JSON.parse(body) : {};
+        const tasks = readTasks();
+        const index = tasks.findIndex(t => t.id === taskId);
+        if (index === -1) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Task not found' }));
+          return;
+        }
+
+        const task = tasks[index];
+        const result = formatClarificationDecisionBlock(
+          task.pendingQuestions || [],
+          data.answers !== undefined ? data.answers : {},
+          data.feedback || ''
+        );
+        if (!result.valid) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `請先回答必填確認項目：「${result.missingQuestion}」` }));
+          return;
+        }
+
+        const nowIso = new Date().toISOString();
+        let curDesc = String(task.description || '').trim();
+        if (!curDesc.includes(result.sectionHeader)) {
+          curDesc = `${curDesc}\n\n${result.sectionHeader}\n${result.entryBlock}`.trim();
+        } else {
+          curDesc = `${curDesc}\n\n${result.entryBlock}`.trim();
+        }
+        task.description = curDesc;
+
+        task.clarificationHistory = Array.isArray(task.clarificationHistory) ? task.clarificationHistory : [];
+        task.clarificationHistory.push(result.historyEntry);
+
+        const prevLog = normalizeLogText(task.executionLog);
+        task.executionLog = `${prevLog}\n[${nowIso}] 💬 [Clarification Gate] ${result.logSummary}\n----------------------------------------\n`;
+
+        task.pendingQuestions = [];
+        task.awaitingInput = false;
+        task.feedback = '';
+        if (typeof data.executionPlan === 'string' && data.executionPlan.trim()) {
+          task.executionPlan = data.executionPlan.trim();
+        }
+        if (data.confirmExecution === true || task.requiresConfirmation === true) {
+          task.requiresConfirmation = false;
+        }
+        task.claimedBy = null;
+        task.claimedAt = null;
+        task.status = 'in_progress';
+        task.updatedAt = nowIso;
+
+        const projectsForStart = readProjects();
+        const projForStart = projectsForStart.find(p => p.id === task.project);
+        const projPathForStart = projForStart ? projForStart.path : path.join(PROJECTS_ROOT, task.project || '');
+        const workspacePrep = prepareTaskWorkspaceOnStart(projPathForStart, task, tasks);
+        writeTasks(tasks);
+
+        appendTaskEvent({
+          taskId,
+          type: 'clarification_answered',
+          count: result.historyEntry.items.length
+        });
+        broadcastSse('task-update', { taskId, status: 'in_progress' });
+        if (!workspacePrep.queued) {
+          executeTaskWithCliAgent(taskId);
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(task));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message || 'Invalid JSON' }));
       }
     });
     return;
@@ -2708,6 +2961,25 @@ function runNativeFolderPicker(promptText, callback) {
 
         // [Slice Judge Gate] 若將狀態推進至 review，非手動強制推進 (forceReview !== true) 時強制檢驗 executionLog
         if (data.status === 'review' && prevStatus !== 'review' && !data.forceReview) {
+          // [Clarification Gate] 若仍有未回答之 pendingQuestions，嚴禁推進至 review
+          const stillHasPendingQuestions = data.pendingQuestions === undefined
+            ? isTaskAwaitingClarification(tasks[index])
+            : normalizePendingQuestions(data.pendingQuestions).length > 0;
+          if (stillHasPendingQuestions) {
+            appendTaskEvent({
+              taskId,
+              type: 'review_gate_rejected',
+              shimId: 'GATE-002',
+              reason: 'Task has unanswered pendingQuestions awaiting user clarification.'
+            });
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              error: 'Clarification gate failed: task has unanswered pendingQuestions. Wait for user confirmation before promoting to review.',
+              reason: 'pendingQuestions unanswered.'
+            }));
+            return;
+          }
+
           // [Confirmation Gate] 若任務 requiresConfirmation 為 true 且尚未確認 (confirmExecution !== true 且 data.requiresConfirmation !== false)，嚴禁推進至 review
           if (tasks[index].requiresConfirmation && data.requiresConfirmation !== false && !data.confirmExecution) {
             appendTaskEvent({
@@ -2821,6 +3093,14 @@ function runNativeFolderPicker(promptText, callback) {
         const nextWorkspaceMode = (rawMode === 'worktree' || rawMode === 'branch_stream' || rawMode === 'in_place')
           ? rawMode
           : 'worktree';
+
+        if (data.pendingQuestions !== undefined) {
+          data.pendingQuestions = normalizePendingQuestions(data.pendingQuestions);
+          data.awaitingInput = data.pendingQuestions.length > 0;
+        } else if (data.confirmExecution === true) {
+          data.pendingQuestions = [];
+          data.awaitingInput = false;
+        }
 
         tasks[index] = {
           ...tasks[index],
@@ -2964,9 +3244,32 @@ function runNativeFolderPicker(promptText, callback) {
             workspacePrep = prepareTaskWorkspaceOnStart(projPathForStart, tasks[index], tasks);
           }
           writeTasks(tasks);
-          if (tasks[index].status === 'in_progress' && !workspacePrep.queued) {
+          if (tasks[index].status === 'in_progress' && !workspacePrep.queued && !isTaskAwaitingClarification(tasks[index])) {
             executeTaskWithCliAgent(taskId);
           }
+        }
+
+        // 若於進行中提交了新的 pendingQuestions，確保標記 awaitingInput、記錄事件並廣播 task-question
+        const updatedPendingQuestions = Array.isArray(tasks[index].pendingQuestions) ? tasks[index].pendingQuestions : [];
+        if (
+          tasks[index].status === 'in_progress' &&
+          updatedPendingQuestions.length > 0 &&
+          JSON.stringify(prevTaskBeforeUpdate.pendingQuestions || []) !== JSON.stringify(updatedPendingQuestions)
+        ) {
+          tasks[index].awaitingInput = true;
+          writeTasks(tasks);
+          appendTaskEvent({
+            taskId,
+            type: 'clarification_requested',
+            count: updatedPendingQuestions.length
+          });
+          broadcastSse('task-question', {
+            taskId,
+            title: tasks[index].title,
+            project: tasks[index].project,
+            count: updatedPendingQuestions.length,
+            firstQuestion: updatedPendingQuestions[0]?.question || ''
+          });
         }
 
         // 若任務離開 in_progress，清理自身 queueState 並自動解除被此任務阻塞的排隊任務
@@ -2999,7 +3302,7 @@ function runNativeFolderPicker(promptText, callback) {
           const projects = readProjects();
           const proj = projects.find(p => p.id === tasks[index].project);
           const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, tasks[index].project || '');
-          const gitTargetDir = resolveTaskGitWorkDir(tasks[index], projPath);
+          const gitTargetDir = resolveTaskGitWorkDir(tasks[index], projPath, { preferMainIfWorktreeUntouched: true });
           const customEnv = buildCustomEnv();
           collectGitDiff(gitTargetDir, customEnv, (modifiedList, diffContent) => {
             const freshTasks = readTasks();
@@ -3274,12 +3577,18 @@ function runNativeFolderPicker(promptText, callback) {
       let pushedRemote = false;
       let prUrl = '';
       let outputMsg = '已通過並提交';
+      let shouldFallbackToInPlace = false;
 
       try {
         if (isGitRepo) {
+          const customEnv = buildCustomEnv();
           const effectiveWorktreePath = task.worktreePath || `${projPath.replace(/\/+$/, '')}.worktrees/${taskId}`;
           const hasPhysicalWorktree = Boolean(effectiveWorktreePath && fs.existsSync(effectiveWorktreePath));
-          if (workspaceMode === 'worktree' && hasPhysicalWorktree) {
+          const wtUntouched = hasPhysicalWorktree ? isWorktreeUntouched(projPath, effectiveWorktreePath, task, customEnv) : true;
+          const mainRealDirty = getRealDirtyFiles(projPath, customEnv);
+          shouldFallbackToInPlace = workspaceMode === 'worktree' && wtUntouched && (!hasPhysicalWorktree || mainRealDirty.length > 0);
+
+          if (workspaceMode === 'worktree' && hasPhysicalWorktree && !shouldFallbackToInPlace) {
             const taskForMerge = { ...task };
             if (sub || bod !== undefined) {
               taskForMerge.commitMessage = {
@@ -3295,7 +3604,7 @@ function runNativeFolderPicker(promptText, callback) {
               verifyCommand: bodyData.verifyCommand || (proj && proj.verifyCommand) || '',
               confirmOneWayMerge: Boolean(bodyData.confirmOneWayMerge),
               mode: bodyData.mode || '',
-              customEnv: buildCustomEnv()
+              customEnv
             });
 
             if (mergeResult && mergeResult.merged === true) {
@@ -3325,6 +3634,12 @@ function runNativeFolderPicker(promptText, callback) {
               return;
             }
           } else {
+            if (shouldFallbackToInPlace && hasPhysicalWorktree) {
+              removeTaskWorktree(projPath, taskId, {
+                branchName: task.branchName || `td/${taskId}`,
+                worktreePath: effectiveWorktreePath
+              });
+            }
             const commitRes = await withRepoMergeLock(projPath, async () => {
               return executeProjectCommit(projPath, task, {
                 subject: sub,
@@ -3397,7 +3712,10 @@ function runNativeFolderPicker(promptText, callback) {
               body: bod !== undefined ? bod : ((t.commitMessage && t.commitMessage.body) || '')
             };
           }
-          if (workspaceMode === 'worktree' && t.id === taskId) {
+          if (shouldFallbackToInPlace && t.id === taskId) {
+            t.workspaceMode = 'in_place';
+            t.worktreePath = null;
+          } else if (workspaceMode === 'worktree' && t.id === taskId) {
             t.mergeStatus = 'merged';
             t.mergedAt = nowIso;
             t.mergeCommit = commitSha;
@@ -3599,7 +3917,7 @@ function runNativeFolderPicker(promptText, callback) {
     const projects = readProjects();
     const proj = projects.find(p => p.id === task.project);
     const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, task.project || '');
-    const gitTargetDir = resolveTaskGitWorkDir(task, projPath);
+    const gitTargetDir = resolveTaskGitWorkDir(task, projPath, { preferMainIfWorktreeUntouched: true });
     const commitSkill = findProjectCommitSkill(projPath);
 
     let bodyData = {};
@@ -4051,7 +4369,7 @@ function runNativeFolderPicker(promptText, callback) {
     const projects = readProjects();
     const proj = projects.find(p => p.id === task.project);
     const projPath = proj ? proj.path : path.join(PROJECTS_ROOT, task.project || '');
-    const gitTargetDir = resolveTaskGitWorkDir(task, projPath);
+    const gitTargetDir = resolveTaskGitWorkDir(task, projPath, { preferMainIfWorktreeUntouched: true });
 
     let hasDiff = false;
     let summary = '';

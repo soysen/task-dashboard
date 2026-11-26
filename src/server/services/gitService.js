@@ -1,6 +1,10 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
-const { exec, execSync, execFileSync } = require('child_process');
+const { exec, execSync, execFile, execFileSync } = require('child_process');
+const { promisify } = require('util');
+
+const execFileAsync = promisify(execFile);
 
 const GIT_COMMIT_TYPES = ['feat', 'fix', 'refactor', 'perf', 'test', 'chore', 'docs', 'style', 'ci', 'build'];
 const repoMergeQueues = new Map();
@@ -1300,21 +1304,24 @@ function checkTaskBaseDrift(repoPath, task = {}) {
     }
   }
 
-  // 若為 worktree 任務且主工作區正位於 targetBranch 且有非暫存未提交變更，提前回報 dirty_main_workspace 讓前端正確提示
+  // 若為 worktree 任務且主工作區正位於 targetBranch 且有非暫存未提交變更，需區分「Worktree 未動過 (實際變更在主工作區)」與「真正雙邊衝突風險」
   const isWorktreeTask = task?.workspaceMode === 'worktree' || Boolean(task?.worktreePath);
   if (isWorktreeTask && targetBranch) {
     try {
       const mainHead = getGitBranchInfo(cleanRepo);
       if (mainHead.branch === targetBranch) {
-        const mainStatusRaw = execFileSync('git', ['-C', cleanRepo, 'status', '--porcelain', '-uall'], {
-          encoding: 'utf8',
-          timeout: 5000
-        });
-        const realMainDirty = parsePorcelainStatus(mainStatusRaw).filter(entry => !isTransientHarnessPath(entry.path));
+        const realMainDirty = getRealDirtyFiles(cleanRepo);
         if (realMainDirty.length > 0) {
-          baseResult.dirtyMainWorkspace = true;
-          baseResult.dirtyFiles = realMainDirty.map(e => e.path);
-          baseResult.status = 'dirty_main_workspace';
+          const wtPath = task?.worktreePath || `${cleanRepo}.worktrees/${task?.id || ''}`;
+          if (isWorktreeUntouched(cleanRepo, wtPath, task)) {
+            baseResult.worktreeUntouchedMainDirty = true;
+            baseResult.dirtyFiles = realMainDirty;
+            baseResult.status = 'main_workspace_has_task_changes';
+          } else {
+            baseResult.dirtyMainWorkspace = true;
+            baseResult.dirtyFiles = realMainDirty;
+            baseResult.status = 'dirty_main_workspace';
+          }
         }
       }
     } catch (e) {}
@@ -1742,6 +1749,170 @@ function buildNonInteractiveGitEnv(customEnv) {
   };
 }
 
+/**
+ * 取得專案或 Worktree 內過濾 Harness 暫存檔後的真實未提交檔案清單
+ * @param {string} repoPath
+ * @param {Object} [customEnv]
+ * @returns {string[]}
+ */
+function getRealDirtyFiles(repoPath, customEnv = process.env) {
+  const cleanRepo = repoPath ? String(repoPath).replace(/\/+$/, '') : '';
+  if (!cleanRepo || !fs.existsSync(cleanRepo)) return [];
+  try {
+    const raw = execFileSync('git', ['-C', cleanRepo, 'status', '--porcelain', '-uall'], {
+      encoding: 'utf8',
+      env: customEnv,
+      timeout: 5000
+    });
+    return parsePorcelainStatus(raw)
+      .filter(entry => !isTransientHarnessPath(entry.path))
+      .map(entry => entry.path);
+  } catch (e) {
+    return [];
+  }
+}
+
+/**
+ * 判斷任務專屬 Worktree 是否完全未動過（無未提交實質修改且領先基線 0 commit）
+ * @param {string} repoPath
+ * @param {string} worktreePath
+ * @param {Object} [task]
+ * @param {Object} [customEnv]
+ * @returns {boolean}
+ */
+function isWorktreeUntouched(repoPath, worktreePath, task = {}, customEnv = process.env) {
+  if (!worktreePath || !fs.existsSync(worktreePath)) return true;
+  if (getRealDirtyFiles(worktreePath, customEnv).length > 0) return false;
+  try {
+    const wtHead = execFileSync('git', ['-C', worktreePath, 'rev-parse', '--verify', 'HEAD'], {
+      encoding: 'utf8',
+      env: customEnv,
+      timeout: 5000
+    }).trim();
+    const explicitBaseCommit = String(task?.baseCommit || '').trim();
+    if (explicitBaseCommit && wtHead === explicitBaseCommit) {
+      return true;
+    }
+    const baseRef = explicitBaseCommit || String(task?.targetBranch || task?.baseBranch || '').trim();
+    if (!baseRef) return false;
+    const aheadRaw = execFileSync('git', ['-C', worktreePath, 'rev-list', '--count', `${baseRef}..HEAD`], {
+      encoding: 'utf8',
+      env: customEnv,
+      timeout: 5000
+    }).trim();
+    return Number.parseInt(aheadRaw, 10) === 0;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * 在外部編輯器或系統工具開啟專案或隔離 Worktree 目錄 (Antigravity / VS Code / Finder / Terminal)
+ * @param {string} repoPath
+ * @param {Object} [options]
+ * @returns {Promise<Object>}
+ */
+async function openRepoInExternalEditor(repoPath, options = {}) {
+  const editor = String(options?.editor || 'antigravity').trim().toLowerCase();
+  const allowedEditors = new Set(['antigravity', 'vscode', 'finder', 'terminal']);
+  if (!allowedEditors.has(editor)) {
+    return {
+      success: false,
+      status: 'invalid_editor',
+      error: `不支援的編輯器類型: ${editor}`
+    };
+  }
+
+  const rawRepo = String(repoPath || '').trim();
+  if (!rawRepo) {
+    return { success: false, status: 'invalid_repo', error: '缺少專案目錄路徑' };
+  }
+  const resolvedRepo = path.resolve(rawRepo);
+  if (!fs.existsSync(resolvedRepo) || !fs.statSync(resolvedRepo).isDirectory()) {
+    return { success: false, status: 'repo_missing', error: `找不到專案目錄: ${resolvedRepo}` };
+  }
+
+  const rawTarget = options?.targetPath ? String(options.targetPath).trim() : '';
+  const resolvedTarget = rawTarget ? path.resolve(rawTarget) : resolvedRepo;
+  const worktreesPrefix = `${resolvedRepo}.worktrees${path.sep}`;
+  const isAllowedTarget = resolvedTarget === resolvedRepo || resolvedTarget.startsWith(worktreesPrefix);
+  if (!isAllowedTarget || !fs.existsSync(resolvedTarget) || !fs.statSync(resolvedTarget).isDirectory()) {
+    return {
+      success: false,
+      status: 'invalid_target_path',
+      error: '不允許開啟專案範圍外的路徑'
+    };
+  }
+
+  let command = '';
+  let args = [];
+  if (editor === 'antigravity') {
+    const candidates = [
+      '/Applications/Antigravity.app',
+      path.join(os.homedir(), 'Applications/Antigravity.app'),
+      '/Applications/Antigravity IDE.app',
+      path.join(os.homedir(), 'Applications/Antigravity IDE.app')
+    ];
+    const foundApp = candidates.find(p => fs.existsSync(p));
+    if (foundApp) {
+      command = 'open';
+      args = ['-a', foundApp, resolvedTarget];
+    } else {
+      command = 'agy';
+      args = [resolvedTarget];
+    }
+  } else if (editor === 'vscode') {
+    const candidates = [
+      '/Applications/Visual Studio Code.app',
+      path.join(os.homedir(), 'Applications/Visual Studio Code.app')
+    ];
+    const foundApp = candidates.find(p => fs.existsSync(p));
+    if (foundApp) {
+      command = 'open';
+      args = ['-a', foundApp, resolvedTarget];
+    } else {
+      command = 'code';
+      args = [resolvedTarget];
+    }
+  } else if (editor === 'finder') {
+    command = 'open';
+    args = [resolvedTarget];
+  } else if (editor === 'terminal') {
+    command = 'open';
+    args = ['-a', 'Terminal', resolvedTarget];
+  }
+
+  if (options?.dryRun === true || process.env.TD_TEST_DRY_RUN_OPEN_EDITOR === '1') {
+    return {
+      success: true,
+      dryRun: true,
+      editor,
+      targetPath: resolvedTarget,
+      command,
+      args
+    };
+  }
+
+  try {
+    await execFileAsync(command, args, { timeout: 10000 });
+    return {
+      success: true,
+      editor,
+      targetPath: resolvedTarget,
+      command,
+      args
+    };
+  } catch (err) {
+    return {
+      success: false,
+      status: 'launch_failed',
+      editor,
+      targetPath: resolvedTarget,
+      error: (err && err.message) ? err.message : `無法開啟 ${editor}`
+    };
+  }
+}
+
 module.exports = {
   collectGitDiff,
   discardGitChanges,
@@ -1762,5 +1933,8 @@ module.exports = {
   mergeFeatureBranch,
   parsePorcelainStatus,
   isTransientHarnessPath,
-  buildNonInteractiveGitEnv
+  buildNonInteractiveGitEnv,
+  getRealDirtyFiles,
+  isWorktreeUntouched,
+  openRepoInExternalEditor
 };

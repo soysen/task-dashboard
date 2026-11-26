@@ -8,7 +8,8 @@ const {
   getProjectBranches,
   clearProjectBranchCache,
   withRepoMergeLock,
-  buildNonInteractiveGitEnv
+  buildNonInteractiveGitEnv,
+  getRealDirtyFiles
 } = require('./gitService');
 const {
   getAzureDevOpsPatFromKeychain,
@@ -142,6 +143,56 @@ function buildLocalGitEnv(customEnv) {
     ...base,
     PATH: (base && base.PATH) ? base.PATH : (process.env.PATH || '')
   };
+}
+
+function readUnmergedFiles(cleanRepo, gitEnv) {
+  try {
+    const raw = execFileSync('git', ['-C', cleanRepo, 'diff', '--name-only', '--diff-filter=U'], {
+      env: gitEnv,
+      encoding: 'utf8',
+      timeout: 5000
+    });
+    return raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  } catch (e) {
+    return [];
+  }
+}
+
+function abortInProgressGitOps(cleanRepo, gitEnv) {
+  const gitPathExists = (name) => {
+    try {
+      const relOrAbs = execFileSync('git', ['-C', cleanRepo, 'rev-parse', '--git-path', name], {
+        env: gitEnv,
+        encoding: 'utf8',
+        timeout: 3000
+      }).trim();
+      if (!relOrAbs) return false;
+      const full = path.isAbsolute(relOrAbs) ? relOrAbs : path.resolve(cleanRepo, relOrAbs);
+      return fs.existsSync(full);
+    } catch (e) {
+      return false;
+    }
+  };
+  if (gitPathExists('rebase-merge') || gitPathExists('rebase-apply')) {
+    try {
+      execFileSync('git', ['-C', cleanRepo, 'rebase', '--abort'], {
+        env: gitEnv,
+        encoding: 'utf8',
+        timeout: 10000,
+        stdio: 'ignore'
+      });
+    } catch (e) {}
+  }
+  if (gitPathExists('MERGE_HEAD')) {
+    try {
+      execFileSync('git', ['-C', cleanRepo, 'merge', '--abort'], {
+        env: gitEnv,
+        encoding: 'utf8',
+        timeout: 10000,
+        stdio: 'ignore'
+      });
+    } catch (e) {}
+  }
 }
 
 function isGitWorkingTree(cleanRepo, customEnv) {
@@ -410,12 +461,18 @@ async function pushBranch(repoPath, branchName, options = {}) {
         remoteStatus: getBranchRemoteStatus(cleanRepo, branch, { customEnv })
       };
     } catch (err) {
+      const rawErrText = [err && err.stderr, err && err.stdout, err && err.message].filter(Boolean).join('\n').trim();
+      const isAuthFailure = /Authentication failed|Permission denied|could not read Username|401|403/i.test(rawErrText);
+      const isNonFastForward = !isAuthFailure && /non-fast-forward|fetch first|Updates were rejected|tip of your current branch is behind|failed to push some refs/i.test(rawErrText);
       return {
         success: false,
         branch,
+        nonFastForward: isNonFastForward,
+        status: isNonFastForward ? 'non_fast_forward' : 'push_failed',
         error: redactUrlCredentials(err && err.message ? err.message : 'git push 失敗'),
         stdout: redactUrlCredentials(err && err.stdout ? err.stdout : ''),
-        stderr: redactUrlCredentials(err && err.stderr ? err.stderr : '')
+        stderr: redactUrlCredentials(err && err.stderr ? err.stderr : ''),
+        remoteStatus: getBranchRemoteStatus(cleanRepo, branch, { customEnv })
       };
     }
   });
@@ -524,6 +581,7 @@ async function fetchAndPullBranch(repoPath, branchName = '', options = {}) {
   const customEnv = options.customEnv || process.env;
   const mode = options.mode === 'fetch' ? 'fetch' : 'pull';
   const rebase = options.rebase === true;
+  const merge = options.merge === true;
   const cleanRepo = repoPath ? path.resolve(String(repoPath)) : '';
 
   if (!isGitWorkingTree(cleanRepo, customEnv)) {
@@ -543,6 +601,7 @@ async function fetchAndPullBranch(repoPath, branchName = '', options = {}) {
     }
 
     const { env: gitEnv, authArgs } = buildRemoteAuthGitContext(rawUrl, customEnv);
+    const isCheckedOut = currentInfo.branch === branch;
     try {
       // 1. 先執行 fetch origin --prune 取得遠端最新狀態
       const fetchRes = await execFileAsync('git', ['-C', cleanRepo, ...authArgs, 'fetch', 'origin', '--prune'], {
@@ -575,13 +634,35 @@ async function fetchAndPullBranch(repoPath, branchName = '', options = {}) {
         };
       }
 
-      const isCheckedOut = currentInfo.branch === branch;
+      if (isCheckedOut) {
+        const dirtyFiles = getRealDirtyFiles(cleanRepo, customEnv);
+        if (dirtyFiles.length > 0) {
+          const preview = dirtyFiles.slice(0, 4).join(', ');
+          const suffix = dirtyFiles.length > 4 ? ` 等 ${dirtyFiles.length} 筆` : '';
+          return {
+            success: false,
+            mode,
+            branch,
+            status: 'dirty_workspace',
+            dirtyFiles,
+            error: `目前分支有未提交變更 (${preview}${suffix})，請先提交或暫存後再拉取遠端進度。`,
+            remoteStatus: getBranchRemoteStatus(cleanRepo, branch, { customEnv })
+          };
+        }
+      }
+
       let pullStdout = '';
       let pullStderr = '';
 
       if (isCheckedOut) {
-        const pullArgs = ['-C', cleanRepo, ...authArgs, 'pull', rebase ? '--rebase' : '--ff-only', 'origin', branch];
-        const pullRes = await execFileAsync('git', pullArgs, { env: gitEnv, timeout: 60000 });
+        const pullStrategyArgs = rebase
+          ? ['--rebase']
+          : (merge ? ['--no-rebase', '--no-edit'] : ['--ff-only']);
+        const pullArgs = ['-C', cleanRepo, ...authArgs, 'pull', ...pullStrategyArgs, 'origin', branch];
+        const pullRes = await execFileAsync('git', pullArgs, {
+          env: { ...gitEnv, GIT_EDITOR: 'true' },
+          timeout: 60000
+        });
         pullStdout = pullRes.stdout || '';
         pullStderr = pullRes.stderr || '';
       } else {
@@ -600,20 +681,204 @@ async function fetchAndPullBranch(repoPath, branchName = '', options = {}) {
         success: true,
         mode: 'pull',
         rebase,
+        merge,
         branch,
         output: output || `分支 ${branch} 已同步至遠端最新進度`,
         remoteStatus: getBranchRemoteStatus(cleanRepo, branch, { customEnv })
       };
     } catch (err) {
+      const errText = redactUrlCredentials([err && err.stderr, err && err.stdout, err && err.message].filter(Boolean).join('\n').trim() || 'git pull 失敗');
+      const conflictingFiles = readUnmergedFiles(cleanRepo, gitEnv);
+      if (isCheckedOut && (rebase || merge)) {
+        abortInProgressGitOps(cleanRepo, gitEnv);
+      }
       clearProjectBranchCache(cleanRepo);
-      const errText = redactUrlCredentials([err && err.stderr, err && err.message].filter(Boolean).join('\n').trim() || 'git pull 失敗');
-      const canRetryWithRebase = !rebase && /non-fast-forward|Not possible to fast-forward|divergent branches/i.test(errText);
+      const isConflict = conflictingFiles.length > 0 || /CONFLICT|Automatic merge failed|could not apply/i.test(errText);
+      const canRetryWithRebase = !rebase && !merge && !isConflict && /non-fast-forward|Not possible to fast-forward|divergent branches/i.test(errText);
+      const conflictDetail = conflictingFiles.length > 0 ? ` (${conflictingFiles.join(', ')})` : '';
       return {
         success: false,
         mode,
         branch,
+        conflict: isConflict,
+        conflictingFiles,
+        status: isConflict ? 'conflict' : (canRetryWithRebase ? 'diverged' : 'pull_failed'),
         canRetryWithRebase,
-        error: errText,
+        canRetryWithMerge: canRetryWithRebase,
+        error: isConflict
+          ? `拉取 origin/${branch} 時發生衝突${conflictDetail}，已自動安全還原工作區。請在 Antigravity 或 VS Code 中同步並解完衝突。`
+          : errText,
+        remoteStatus: getBranchRemoteStatus(cleanRepo, branch, { customEnv })
+      };
+    }
+  });
+}
+
+/**
+ * 將目標主幹基線 (如 origin/master 或 main) 安全同步至指定功能分支 (Merge 或 Rebase)
+ * @param {string} repoPath
+ * @param {string} branchName
+ * @param {string} baseBranch
+ * @param {Object} [options]
+ */
+async function syncBranchWithBase(repoPath, branchName, baseBranch, options = {}) {
+  const customEnv = options.customEnv || process.env;
+  const strategy = options.strategy === 'rebase' ? 'rebase' : 'merge';
+  const cleanRepo = repoPath ? path.resolve(String(repoPath)) : '';
+
+  if (!isGitWorkingTree(cleanRepo, customEnv)) {
+    return { success: false, status: 'not_git_repo', error: '目標路徑非 Git 儲存庫' };
+  }
+
+  const branchInfo = getGitBranchInfo(cleanRepo);
+  const branch = String(branchName || branchInfo.branch || '').trim();
+  const base = String(baseBranch || '').trim();
+  if (!branch || !base) {
+    return { success: false, status: 'invalid_branch', error: '請指定要同步的分支與目標主幹分支' };
+  }
+  if (branch === base) {
+    return { success: false, status: 'same_branch', error: '來源與目標分支相同，請直接使用「拉取」同步遠端進度。' };
+  }
+
+  return withRepoMergeLock(cleanRepo, async () => {
+    const localEnv = { ...buildNonInteractiveGitEnv(buildLocalGitEnv(customEnv)), GIT_EDITOR: 'true' };
+    if (!refExists(cleanRepo, `refs/heads/${branch}`, customEnv)) {
+      return { success: false, status: 'branch_missing', branch, error: `找不到本地分支 ${branch}` };
+    }
+
+    const dirtyFiles = getRealDirtyFiles(cleanRepo, customEnv);
+    if (dirtyFiles.length > 0) {
+      const preview = dirtyFiles.slice(0, 4).join(', ');
+      const suffix = dirtyFiles.length > 4 ? ` 等 ${dirtyFiles.length} 筆` : '';
+      return {
+        success: false,
+        status: 'dirty_workspace',
+        branch,
+        baseBranch: base,
+        dirtyFiles,
+        error: `工作區有未提交變更 (${preview}${suffix})，請先提交或暫存後再同步 ${base}。`
+      };
+    }
+
+    const rawUrl = readOriginRawUrl(cleanRepo, customEnv);
+    if (rawUrl) {
+      const { env: fetchEnv, authArgs } = buildRemoteAuthGitContext(rawUrl, customEnv);
+      try {
+        await execFileAsync('git', ['-C', cleanRepo, ...authArgs, 'fetch', 'origin', '--prune'], {
+          env: fetchEnv,
+          timeout: 60000
+        });
+        if (branchInfo.branch !== base && refExists(cleanRepo, `refs/remotes/origin/${base}`, customEnv)) {
+          try {
+            await execFileAsync('git', ['-C', cleanRepo, ...authArgs, 'fetch', 'origin', `${base}:${base}`], {
+              env: fetchEnv,
+              timeout: 30000
+            });
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
+
+    const hasRemoteBase = refExists(cleanRepo, `refs/remotes/origin/${base}`, customEnv);
+    const hasLocalBase = refExists(cleanRepo, `refs/heads/${base}`, customEnv);
+    if (!hasRemoteBase && !hasLocalBase) {
+      return { success: false, status: 'base_branch_missing', branch, baseBranch: base, error: `找不到基準分支 ${base}` };
+    }
+    const syncRef = hasRemoteBase ? `origin/${base}` : base;
+
+    const originalBranch = getGitBranchInfo(cleanRepo).branch || '';
+    const restoreOriginalBranch = () => {
+      if (originalBranch && originalBranch !== branch) {
+        try {
+          execFileSync('git', ['-C', cleanRepo, 'checkout', originalBranch], {
+            env: localEnv,
+            encoding: 'utf8',
+            timeout: 10000,
+            stdio: 'ignore'
+          });
+        } catch (_) {}
+      }
+    };
+
+    try {
+      if (originalBranch !== branch) {
+        execFileSync('git', ['-C', cleanRepo, 'checkout', branch], {
+          env: localEnv,
+          encoding: 'utf8',
+          timeout: 10000
+        });
+      }
+
+      let isAncestor = false;
+      try {
+        execFileSync('git', ['-C', cleanRepo, 'merge-base', '--is-ancestor', syncRef, branch], {
+          env: localEnv,
+          encoding: 'utf8',
+          timeout: 5000
+        });
+        isAncestor = true;
+      } catch (_) {}
+
+      if (isAncestor) {
+        restoreOriginalBranch();
+        clearProjectBranchCache(cleanRepo);
+        return {
+          success: true,
+          alreadyUpToDate: true,
+          branch,
+          baseBranch: base,
+          syncRef,
+          strategy,
+          output: `${branch} 已包含 ${syncRef} 的最新進度`,
+          remoteStatus: getBranchRemoteStatus(cleanRepo, branch, { customEnv })
+        };
+      }
+
+      const cmdArgs = strategy === 'rebase'
+        ? ['-C', cleanRepo, 'rebase', syncRef]
+        : ['-C', cleanRepo, 'merge', '--no-edit', syncRef];
+      const { stdout = '', stderr = '' } = await execFileAsync('git', cmdArgs, {
+        env: localEnv,
+        timeout: 60000
+      });
+
+      const commitSha = execFileSync('git', ['-C', cleanRepo, 'rev-parse', '--verify', `refs/heads/${branch}`], {
+        env: localEnv,
+        encoding: 'utf8',
+        timeout: 5000
+      }).trim();
+      restoreOriginalBranch();
+      clearProjectBranchCache(cleanRepo);
+      return {
+        success: true,
+        branch,
+        baseBranch: base,
+        syncRef,
+        strategy,
+        commitSha,
+        output: redactUrlCredentials([stdout, stderr].filter(Boolean).join('\n').trim()) || `已使用 ${strategy} 將 ${syncRef} 同步至 ${branch}`,
+        remoteStatus: getBranchRemoteStatus(cleanRepo, branch, { customEnv })
+      };
+    } catch (err) {
+      const conflictingFiles = readUnmergedFiles(cleanRepo, localEnv);
+      abortInProgressGitOps(cleanRepo, localEnv);
+      restoreOriginalBranch();
+      clearProjectBranchCache(cleanRepo);
+      const conflictDetail = conflictingFiles.length > 0 ? ` (${conflictingFiles.join(', ')})` : '';
+      const errText = redactUrlCredentials([err && err.stderr, err && err.stdout, err && err.message].filter(Boolean).join('\n').trim());
+      const isConflict = conflictingFiles.length > 0 || /CONFLICT|Automatic merge failed|could not apply/i.test(errText);
+      return {
+        success: false,
+        conflict: isConflict,
+        status: isConflict ? 'conflict' : 'sync_failed',
+        branch,
+        baseBranch: base,
+        syncRef,
+        strategy,
+        conflictingFiles,
+        error: isConflict
+          ? `將 ${syncRef} 同步至 ${branch} 時發生衝突${conflictDetail}，已自動安全還原工作區。請在 Antigravity 或 VS Code 中合併並解完衝突後再推送。`
+          : (errText || `同步 ${syncRef} 失敗`),
         remoteStatus: getBranchRemoteStatus(cleanRepo, branch, { customEnv })
       };
     }
@@ -903,5 +1168,6 @@ module.exports = {
   pushBranch,
   cloneRepository,
   fetchAndPullBranch,
+  syncBranchWithBase,
   createPullRequest
 };

@@ -1424,6 +1424,53 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
   );
   console.log('  ✅ TASK-243 ~ TASK-245 Push/PR、requirePr、Git 帳號設定、Clone 與 Pull UI 綁定驗證通過');
 
+  // 驗證執行中互動問答確認 UI、卡牌精簡與 macOS 原生通知橋接
+  const mainMSource = fs.readFileSync(path.join(__dirname, '../src/native/main.m'), 'utf8');
+  const modalModuleSource = fs.readFileSync(path.join(__dirname, '../src/public/modules/modal.js'), 'utf8');
+  assert(
+    htmlContent.includes('id="formClarificationBox"') &&
+    htmlContent.includes('id="btnSubmitClarification"') &&
+    htmlContent.includes('id="headerPendingAttentionBtn"') &&
+    htmlContent.includes('id="attentionToast"'),
+    'index.html 必須包含執行中問答確認面板、送出按鈕與頂部/浮動待確認提醒元素'
+  );
+  assert(
+    modalModuleSource.includes('window.submitClarificationAnswers = submitClarificationAnswers') &&
+    modalModuleSource.includes('window.applyRecommendedClarificationAnswers = applyRecommendedClarificationAnswers') &&
+    modalModuleSource.includes('window.onClarificationOptionSelect = onClarificationOptionSelect') &&
+    modalModuleSource.includes('window.onClarificationCustomInput = onClarificationCustomInput'),
+    'modal.js 必須將問答確認處理函式掛載至 window'
+  );
+  assert(
+    appModuleSource.includes('window.openNextPendingAttentionTask = openNextPendingAttentionTask') &&
+    appModuleSource.includes('window.openAttentionToastTask = openAttentionToastTask') &&
+    appModuleSource.includes('window.dismissAttentionToast = dismissAttentionToast') &&
+    appModuleSource.includes('window.openTaskFromNativeNotification = openTaskFromNativeNotification') &&
+    appModuleSource.includes("evtSource.addEventListener('task-question'"),
+    'app.js 必須掛載待確認提醒與原生通知跳轉函式並監聽 task-question SSE 事件'
+  );
+  assert(
+    kanbanSrc237.includes('💬 待確認') &&
+    kanbanSrc237.includes('🚨 單向門') &&
+    !kanbanSrc237.includes('🚪 雙向門'),
+    'kanban.js 必須渲染「💬 待確認」徽章且精簡移除「🚪 雙向門」雜訊標籤'
+  );
+  assert(
+    mainMSource.includes('updateDockBadge') &&
+    mainMSource.includes('notifyUserAttention') &&
+    mainMSource.includes('UNUserNotificationCenter') &&
+    mainMSource.includes('openTaskFromNativeNotification'),
+    'main.m 必須包含 Dock 角標 (updateDockBadge) 與 macOS UserNotifications 系統通知橋接'
+  );
+  assert(
+    htmlContent.includes('lg:w-48 xl:w-52') &&
+    htmlContent.includes('id="projectSidebarList"') &&
+    appModuleSource.includes('text-[12px] font-semibold leading-snug tracking-[-0.01em] truncate') &&
+    branchNavSource.includes('text-[10.5px] leading-snug'),
+    '側邊專案欄必須套用緊湊寬度 (lg:w-48 xl:w-52) 並維持專案名稱 (12px 半粗) 高於分支樹 (10.5px) 之可讀性層級'
+  );
+  console.log('  ✅ 執行中互動問答確認、卡牌精簡、緊湊側邊欄與 macOS Dock/通知橋接驗證通過');
+
   console.log('🎉 所有前端核心互動邏輯與防禦機制測試通過！\n');
 })().catch(err => {
   console.error(err);

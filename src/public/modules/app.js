@@ -50,6 +50,171 @@ import {
   closeActionConfirmModal, executeTaskActionConfirmed, deleteCurrentTask, closeModal
 } from "./modal.js";
 
+    let notifiedAttentionSignatures = new Set();
+    let initializedAttentionBaseline = false;
+    let lastDockBadgeCount = -1;
+    let currentAttentionToastTaskId = '';
+    let dismissedAttentionSignatures = new Set();
+
+    function getTaskAttentionInfo(t) {
+      if (!t || t.status !== 'in_progress') return null;
+      const questions = Array.isArray(t.pendingQuestions) ? t.pendingQuestions.filter(q => q && q.question) : [];
+      if (t.awaitingInput === true || questions.length > 0) {
+        const count = questions.length || 1;
+        const firstQ = questions[0]?.question || '請檢視待確認事項並拍板';
+        return {
+          needsAttention: true,
+          kind: 'question',
+          signature: `${t.id}:q:${JSON.stringify(questions)}`,
+          title: `💬 [${t.id}] 有 ${count} 項問題待確認`,
+          summary: `${t.title || ''} — ${firstQ}`
+        };
+      }
+      if (t.requiresConfirmation && t.executionPlan && String(t.executionPlan).trim().length > 0) {
+        return {
+          needsAttention: true,
+          kind: 'plan',
+          signature: `${t.id}:plan:${String(t.executionPlan).trim().slice(0, 120)}`,
+          title: `📋 [${t.id}] 執行計劃待確認`,
+          summary: t.title || '請審閱執行計劃並確認開始實作'
+        };
+      }
+      return null;
+    }
+
+    function showAttentionToastForItem(item) {
+      if (!item || !item.task || !item.info) return;
+      const box = document.getElementById('attentionToast');
+      const titleEl = document.getElementById('attentionToastTitle');
+      const bodyEl = document.getElementById('attentionToastBody');
+      if (!box) return;
+      currentAttentionToastTaskId = item.task.id;
+      if (titleEl) titleEl.innerText = item.info.title;
+      if (bodyEl) bodyEl.innerText = item.info.summary;
+      box.classList.remove('hidden');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function notifyNativeSystemAlert(item) {
+      if (!item || !item.task || !item.info) return;
+      const payload = {
+        taskId: item.task.id,
+        title: item.info.title,
+        body: item.info.summary
+      };
+      try {
+        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.notifyUserAttention) {
+          window.webkit.messageHandlers.notifyUserAttention.postMessage(payload);
+        }
+      } catch (e) {}
+
+      try {
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          const n = new Notification(payload.title, { body: payload.body });
+          n.onclick = () => {
+            window.focus();
+            openTaskFromNativeNotification(payload.taskId);
+          };
+        }
+      } catch (e) {}
+    }
+
+    function syncPendingAttentionState(tasksList = tasks) {
+      const list = Array.isArray(tasksList) ? tasksList : [];
+      const pendingItems = list
+        .map(t => ({ task: t, info: getTaskAttentionInfo(t) }))
+        .filter(x => x.info);
+
+      const btn = document.getElementById('headerPendingAttentionBtn');
+      const btnText = document.getElementById('headerPendingAttentionText');
+      if (btn) {
+        btn.classList.toggle('hidden', pendingItems.length === 0);
+        btn.classList.toggle('inline-flex', pendingItems.length > 0);
+      }
+      if (btnText && pendingItems.length > 0) {
+        btnText.innerText = `💬 ${pendingItems.length} 待確認`;
+      }
+
+      if (typeof document !== 'undefined') {
+        document.title = pendingItems.length > 0
+          ? `(💬 ${pendingItems.length} 待確認) Task Dashboard`
+          : 'Task Dashboard';
+      }
+
+      if (pendingItems.length !== lastDockBadgeCount) {
+        lastDockBadgeCount = pendingItems.length;
+        try {
+          if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.updateDockBadge) {
+            window.webkit.messageHandlers.updateDockBadge.postMessage({ count: pendingItems.length });
+          }
+        } catch (e) {}
+      }
+
+      const activeSignatures = new Set(pendingItems.map(x => x.info.signature));
+      for (const sig of [...notifiedAttentionSignatures]) {
+        if (!activeSignatures.has(sig)) notifiedAttentionSignatures.delete(sig);
+      }
+      for (const sig of [...dismissedAttentionSignatures]) {
+        if (!activeSignatures.has(sig)) dismissedAttentionSignatures.delete(sig);
+      }
+
+      if (!initializedAttentionBaseline) {
+        initializedAttentionBaseline = true;
+        pendingItems.forEach(item => notifiedAttentionSignatures.add(item.info.signature));
+      } else {
+        pendingItems.forEach(item => {
+          if (!notifiedAttentionSignatures.has(item.info.signature)) {
+            notifiedAttentionSignatures.add(item.info.signature);
+            notifyNativeSystemAlert(item);
+          }
+        });
+      }
+
+      const visibleToastItem = pendingItems.find(item => !dismissedAttentionSignatures.has(item.info.signature));
+      if (visibleToastItem) {
+        showAttentionToastForItem(visibleToastItem);
+      } else {
+        const box = document.getElementById('attentionToast');
+        if (box) box.classList.add('hidden');
+        currentAttentionToastTaskId = '';
+      }
+    }
+
+    function openNextPendingAttentionTask() {
+      const list = Array.isArray(tasks) ? tasks : [];
+      const first = list.find(t => Boolean(getTaskAttentionInfo(t)));
+      if (first) {
+        openModalForEdit(first.id);
+      } else {
+        showToast('目前沒有待確認的任務');
+      }
+    }
+
+    function openAttentionToastTask() {
+      if (currentAttentionToastTaskId) {
+        openModalForEdit(currentAttentionToastTaskId);
+      } else {
+        openNextPendingAttentionTask();
+      }
+    }
+
+    function dismissAttentionToast() {
+      const list = Array.isArray(tasks) ? tasks : [];
+      const target = list.find(t => t.id === currentAttentionToastTaskId);
+      const info = target ? getTaskAttentionInfo(target) : null;
+      if (info) dismissedAttentionSignatures.add(info.signature);
+      const box = document.getElementById('attentionToast');
+      if (box) box.classList.add('hidden');
+    }
+
+    function openTaskFromNativeNotification(taskId) {
+      if (taskId) {
+        openModalForEdit(taskId);
+      } else {
+        openNextPendingAttentionTask();
+      }
+    }
+
     const macTitlebarEl = document.getElementById('macTitlebar');
     if (macTitlebarEl) {
       macTitlebarEl.addEventListener('mousedown', (e) => {
@@ -253,6 +418,7 @@ import {
         renderContextualHeaderActions();
         renderKanban();
         renderMetrics();
+        if (typeof syncPendingAttentionState === 'function') syncPendingAttentionState(tasks);
         if (Array.isArray(projects)) {
           projects.forEach(p => {
             if (p && p.id && !projectBranchesMap[p.id]) {
@@ -290,20 +456,28 @@ import {
       const isCli = !!settings.enableCliAgent;
       const cmd = settings.cliCommand || 'hermes';
       const isOffline = apiFailStreak >= 2;
+      const activeSentinels = Array.isArray(settings.activeSentinels) ? settings.activeSentinels : [];
 
       const modeText = document.getElementById('headerEngineModeText');
       const offlineBadge = document.getElementById('headerEngineOfflineBadge');
       const engineBtn = document.getElementById('headerEngineBtn');
 
-      if (modeText) modeText.innerText = isCli ? 'CLI' : 'Desktop AI';
+      if (modeText) {
+        modeText.innerText = isCli
+          ? 'CLI'
+          : (activeSentinels.length > 0 ? `Desktop AI · ${activeSentinels.length} 哨兵` : 'Desktop AI');
+      }
       if (offlineBadge) {
         offlineBadge.classList.toggle('hidden', !isOffline);
         offlineBadge.classList.toggle('inline-flex', isOffline);
       }
       if (engineBtn) {
+        const sentinelDesc = activeSentinels.length > 0
+          ? `Desktop AI 哨兵 (${activeSentinels.map(s => `${s.targetAgent || 'all'}:PID ${s.pid}`).join(', ')})`
+          : 'Desktop AI 哨兵（目前無活躍哨兵）';
         engineBtn.title = isOffline
           ? '後端服務無回應，請確認伺服器是否運作 · 點擊開啟設定'
-          : `自動化開工引擎設定（目前模式：${isCli ? `CLI · ${cmd}` : 'Desktop AI 哨兵'}）`;
+          : `自動化開工引擎設定（目前模式：${isCli ? `CLI · ${cmd}` : sentinelDesc}）`;
       }
     }
 
@@ -984,9 +1158,9 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
       document.getElementById('sidebarProjectCount').innerText = `${projects.length} 個本機專案`;
 
       let html = `
-        <button type="button" onclick="filterByProject('ALL')" class="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition cursor-pointer ${currentProject === 'ALL' ? 'bg-[var(--primary)] text-[var(--primary-foreground)] font-bold' : 'bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)] font-semibold hover:border-[var(--primary)]'}">
+        <button type="button" onclick="filterByProject('ALL')" class="w-full text-left px-2.5 py-1.5 rounded-lg text-[12px] leading-snug tracking-[-0.01em] flex items-center justify-between transition cursor-pointer ${currentProject === 'ALL' ? 'bg-[var(--primary)] text-[var(--primary-foreground)] font-semibold' : 'bg-[var(--card)] text-slate-900 dark:text-slate-100 border border-[var(--border)] font-semibold hover:border-[var(--primary)]'}">
           <span>全部專案</span>
-          <span class="font-mono px-2 py-0.5 rounded-full text-[11px] ${currentProject === 'ALL' ? 'bg-black/15 text-white' : 'bg-[var(--background)] border border-[var(--border)] text-[var(--foreground)]'}">${tasks.filter(t => normalizeStatus(t.status) !== 'archived').length}</span>
+          <span class="font-mono px-1.5 py-0 rounded-full text-[10px] ${currentProject === 'ALL' ? 'bg-black/15 text-white' : 'bg-[var(--background)] border border-[var(--border)] text-[var(--foreground)]'}">${tasks.filter(t => normalizeStatus(t.status) !== 'archived').length}</span>
         </button>
       `;
 
@@ -1001,26 +1175,26 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
                            p.color === 'emerald' ? 'bg-emerald-500' :
                            p.color === 'amber' ? 'bg-amber-500' : 'bg-indigo-500';
         const deleteBtnClass = isProjOnly
-          ? 'opacity-80 group-hover/proj:opacity-100 focus:opacity-100 p-1 rounded bg-black/20 hover:bg-rose-600 text-white transition flex items-center justify-center'
-          : 'opacity-0 group-hover/proj:opacity-100 focus:opacity-100 p-1 text-[var(--muted-foreground)] hover:text-rose-500 hover:bg-rose-500/10 rounded transition flex items-center justify-center';
+          ? 'hidden group-hover/proj:flex focus:flex p-0.5 rounded bg-black/20 hover:bg-rose-600 text-white transition items-center justify-center'
+          : 'hidden group-hover/proj:flex focus:flex p-0.5 text-[var(--muted-foreground)] hover:text-rose-500 hover:bg-rose-500/10 rounded transition items-center justify-center';
         const expandBtnClass = isProjOnly
           ? 'p-0.5 rounded hover:bg-black/20 text-white/90 hover:text-white transition flex items-center justify-center flex-shrink-0'
           : 'p-0.5 rounded hover:bg-[var(--card)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition flex items-center justify-center flex-shrink-0';
 
         html += `
-          <div class="p-2 rounded-xl bg-[var(--card)] border border-[var(--border)] space-y-1">
-            <div onclick="filterByProject('${p.id}')" class="group/proj px-2 py-1.5 rounded-lg flex items-center justify-between cursor-pointer transition ${isProjOnly ? 'bg-[var(--primary)] text-[var(--primary-foreground)] font-bold' : 'hover:bg-[var(--background)] text-[var(--foreground)] font-bold'}">
-              <div class="flex items-center gap-1.5 truncate mr-2">
+          <div class="p-1 rounded-lg bg-[var(--card)] border border-[var(--border)] space-y-0.5">
+            <div onclick="filterByProject('${p.id}')" class="group/proj px-1.5 py-1 rounded-md flex items-center justify-between cursor-pointer transition ${isProjOnly ? 'bg-[var(--primary)] text-[var(--primary-foreground)] font-semibold' : 'hover:bg-[var(--background)] text-slate-900 dark:text-slate-100 font-semibold'}">
+              <div class="flex items-center gap-1.5 min-w-0 flex-1 mr-1">
                 <button type="button" onclick="toggleProjectExpand('${p.id}', event)" aria-expanded="${isExpanded}" title="${isExpanded ? '收合分支列表' : '展開分支列表'}" class="${expandBtnClass}">
-                  <i data-lucide="${isExpanded ? 'chevron-down' : 'chevron-right'}" class="w-3.5 h-3.5 pointer-events-none"></i>
+                  <i data-lucide="${isExpanded ? 'chevron-down' : 'chevron-right'}" class="w-3 h-3 pointer-events-none"></i>
                 </button>
-                <span class="w-2 h-2 rounded-full ${colorClass} flex-shrink-0"></span>
-                <span class="text-xs truncate">${escapeHtml(p.name)}</span>
+                <span class="w-1.5 h-1.5 rounded-full ${colorClass} flex-shrink-0"></span>
+                <span class="text-[12px] font-semibold leading-snug tracking-[-0.01em] truncate">${escapeHtml(p.name)}</span>
               </div>
-              <div class="flex items-center gap-1 flex-shrink-0">
-                <span class="font-mono text-xs px-1.5 py-0.5 rounded ${isProjOnly ? 'bg-black/15 text-white' : 'bg-[var(--background)] text-[var(--foreground)]'}">${taskCount}</span>
+              <div class="flex items-center gap-0.5 flex-shrink-0">
+                <span class="font-mono text-[10px] px-1 py-0 rounded ${isProjOnly ? 'bg-black/15 text-white' : 'bg-[var(--background)] text-[var(--muted-foreground)]'}">${taskCount}</span>
                 <button onclick="deleteProject('${p.id}', ${idx}, event)" title="取消追蹤此專案" class="${deleteBtnClass}">
-                  <i data-lucide="trash-2" class="w-3 h-3 pointer-events-none"></i>
+                  <i data-lucide="trash-2" class="w-2.5 h-2.5 pointer-events-none"></i>
                 </button>
               </div>
             </div>
@@ -1577,6 +1751,25 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
         console.log('[SSE] task-update:', data.taskId, data.status);
         loadData(); // 即時刷新任務列表
       });
+      evtSource.addEventListener('task-question', (e) => {
+        let data = {};
+        try { data = JSON.parse(e.data); } catch (_) {}
+        console.log('[SSE] task-question:', data.taskId, data.count);
+        const item = {
+          task: { id: data.taskId, title: data.title || '' },
+          info: {
+            needsAttention: true,
+            kind: 'question',
+            signature: `${data.taskId}:sse:${data.count || 1}:${data.firstQuestion || ''}`,
+            title: `💬 [${data.taskId}] 有 ${data.count || 1} 項問題待確認`,
+            summary: `${data.title || ''} — ${data.firstQuestion || '請點擊立即回答'}`
+          }
+        };
+        notifiedAttentionSignatures.add(item.info.signature);
+        showAttentionToastForItem(item);
+        notifyNativeSystemAlert(item);
+        loadData(true);
+      });
       evtSource.addEventListener('task-complete', (e) => {
         const data = JSON.parse(e.data);
         console.log('[SSE] task-complete:', data.taskId);
@@ -1683,7 +1876,11 @@ export {
   toggleBranchGroupView,
   openCreateBranchPopover,
   closeCreateBranchPopover,
-  submitNewBranch
+  submitNewBranch,
+  openNextPendingAttentionTask,
+  openAttentionToastTask,
+  dismissAttentionToast,
+  openTaskFromNativeNotification
 };
 
 if (typeof window !== "undefined") {
@@ -1757,4 +1954,8 @@ if (typeof window !== "undefined") {
   window.openCreateBranchPopover = openCreateBranchPopover;
   window.closeCreateBranchPopover = closeCreateBranchPopover;
   window.submitNewBranch = submitNewBranch;
+  window.openNextPendingAttentionTask = openNextPendingAttentionTask;
+  window.openAttentionToastTask = openAttentionToastTask;
+  window.dismissAttentionToast = dismissAttentionToast;
+  window.openTaskFromNativeNotification = openTaskFromNativeNotification;
 }

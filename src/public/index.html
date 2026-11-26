@@ -94,44 +94,44 @@
     <div id="sidebarBackdrop" onclick="closeSidebar()" class="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-40 hidden lg:hidden transition-opacity"></div>
 
     <!-- Left Sidebar: Project × Branch Tree -->
-    <aside id="sidebar" class="fixed top-0 md:top-8 lg:top-0 bottom-0 left-0 z-50 lg:z-20 w-72 lg:w-64 xl:w-72 lg:static lg:translate-x-0 bg-[var(--sidebar)] border-r border-[var(--border)] flex flex-col flex-shrink-0 transition-transform duration-300 transform -translate-x-full shadow-2xl lg:shadow-none select-none">
+    <aside id="sidebar" class="fixed top-0 md:top-8 lg:top-0 bottom-0 left-0 z-50 lg:z-20 w-56 lg:w-48 xl:w-52 lg:static lg:translate-x-0 bg-[var(--sidebar)] border-r border-[var(--border)] flex flex-col flex-shrink-0 transition-transform duration-300 transform -translate-x-full shadow-2xl lg:shadow-none select-none">
       
       <!-- Sidebar Header -->
-      <div class="px-3.5 py-3 border-b border-[var(--border)] flex items-center justify-between gap-2">
-        <div id="sidebarBrand" class="flex items-center gap-2 overflow-hidden">
-          <span class="text-xs font-bold text-[var(--muted-foreground)] tracking-tight truncate">專案與分支</span>
+      <div class="px-2.5 py-2 border-b border-[var(--border)] flex items-center justify-between gap-1.5">
+        <div id="sidebarBrand" class="flex items-center gap-1.5 overflow-hidden">
+          <span class="text-[11px] font-bold text-[var(--muted-foreground)] tracking-tight truncate">專案與分支</span>
         </div>
-        <div class="flex items-center gap-1.5 flex-shrink-0">
-          <button id="btnOpenAddProject" onclick="openAddProjectModal(event)" title="加入本機專案資料夾或從 Git URL Clone" class="text-[11px] font-semibold px-2 py-1 rounded-lg bg-[var(--card)] border border-[var(--border)] text-[var(--foreground)] hover:border-[var(--primary)] transition cursor-pointer">
+        <div class="flex items-center gap-1 flex-shrink-0">
+          <button id="btnOpenAddProject" onclick="openAddProjectModal(event)" title="加入本機專案資料夾或從 Git URL Clone" class="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-[var(--card)] border border-[var(--border)] text-[var(--foreground)] hover:border-[var(--primary)] transition cursor-pointer">
             ＋ 加入專案
           </button>
           <button onclick="closeSidebar()" title="關閉專案選單" class="lg:hidden text-[var(--muted-foreground)] hover:text-[var(--foreground)] p-1 rounded-lg hover:bg-[var(--card)] transition">
-            <i data-lucide="x" class="w-4 h-4"></i>
+            <i data-lucide="x" class="w-3.5 h-3.5"></i>
           </button>
         </div>
       </div>
 
       <!-- Sidebar Search & Action -->
-      <div id="sidebarSearchBox" class="px-3 py-2 border-b border-[var(--border)] space-y-2">
+      <div id="sidebarSearchBox" class="px-2 py-1.5 border-b border-[var(--border)]">
         <div class="relative">
-          <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"></i>
-          <input type="text" id="projectSearchInput" placeholder="搜尋專案..." class="w-full bg-[var(--card)] border border-[var(--border)] rounded-lg pl-8 pr-2.5 py-1.5 text-xs text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)] transition">
+          <i data-lucide="search" class="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"></i>
+          <input type="text" id="projectSearchInput" placeholder="搜尋專案..." class="w-full bg-[var(--card)] border border-[var(--border)] rounded-md pl-7 pr-2 py-1 text-[11px] text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)] transition">
         </div>
       </div>
 
       <!-- Project × Branch List -->
-      <div class="flex-1 overflow-y-auto custom-scrollbar p-2.5 space-y-2.5" id="projectSidebarList">
+      <div class="flex-1 overflow-y-auto custom-scrollbar p-1.5 space-y-1" id="projectSidebarList">
       </div>
 
       <!-- Plain-Language Tips Card (Compact) -->
-      <div class="mx-2.5 mb-1.5 px-2.5 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)] text-[11px] text-[var(--muted-foreground)] leading-snug">
+      <div class="mx-1.5 mb-1 px-2 py-1.5 rounded-lg bg-[var(--card)] border border-[var(--border)] text-[10px] text-[var(--muted-foreground)] leading-snug">
         <span class="font-semibold text-[var(--foreground)]">提示：</span>● 為目前所在分支；選「獨立工作區」可多卡同時跑互不影響
       </div>
 
       <!-- Sidebar Footer -->
-      <div id="sidebarFooter" class="px-3 py-2 border-t border-[var(--border)] bg-[var(--sidebar)] flex items-center justify-between text-[11px] text-[var(--muted-foreground)]">
+      <div id="sidebarFooter" class="px-2.5 py-1.5 border-t border-[var(--border)] bg-[var(--sidebar)] flex items-center justify-between text-[10px] text-[var(--muted-foreground)]">
         <span class="flex items-center gap-1.5">
-          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
           <span id="sidebarProjectCount"> 載入中...</span>
         </span>
       </div>
@@ -165,6 +165,11 @@
 
         <!-- Quick Actions & Settings Modal Button -->
         <div class="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+          <!-- 待確認事項快捷提示膠囊 (有待確認問答或執行計劃時顯示) -->
+          <button type="button" id="headerPendingAttentionBtn" onclick="openNextPendingAttentionTask()" class="hidden h-7 sm:h-8 items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] sm:text-xs font-bold px-2.5 rounded-lg shadow transition flex-shrink-0 cursor-pointer animate-pulse" title="點擊立即開啟待確認事項">
+            <i data-lucide="message-circle-question" class="w-3.5 h-3.5 flex-shrink-0"></i>
+            <span id="headerPendingAttentionText" class="whitespace-nowrap">💬 1 待確認</span>
+          </button>
           <!-- 開工引擎 Popover / 下拉選單按鈕 -->
           <div class="relative inline-block text-left z-50" id="engineDropdownContainer">
             <button id="headerEngineBtn" onclick="toggleEnginePopover(event)" title="自動化開工引擎設定" class="h-7 sm:h-8 flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] sm:text-xs font-semibold px-2 sm:px-2.5 rounded-lg border border-indigo-500/50 shadow transition flex-shrink-0 cursor-pointer">
@@ -352,7 +357,7 @@
     <section id="branchSwimlanesContainer" class="hidden flex-1 overflow-y-auto px-4 md:px-6 pb-3 pt-1 mb-2 space-y-3.5 custom-scrollbar"></section>
 
     <!-- Main Kanban Board (四階段無框線色塊凹槽設計，桌面端四欄自適應等分不截斷) -->
-    <main id="kanbanMainBoard" class="flex-1 overflow-x-auto overflow-y-hidden kanban-board-scrollbar px-4 md:px-5 pb-3 pt-1 mb-2 flex items-stretch gap-3 min-h-0 w-full">
+    <main id="kanbanMainBoard" class="flex-1 overflow-x-auto overflow-y-hidden kanban-board-scrollbar px-3 md:px-4 pb-3 pt-1 mb-2 flex items-stretch gap-2.5 min-h-0 w-full">
       
       <!-- 1. Todo Column (含單一主色新增任務按鈕) -->
       <div id="col-wrapper-todo" class="flex-1 min-w-[230px] lg:min-w-0 w-auto flex flex-col td-surface-well rounded-2xl overflow-hidden">
@@ -738,6 +743,40 @@
                 </details>
               </div>
 
+              <!-- 執行中需確認事項問答區 (Interactive Clarification Gate) -->
+              <div id="formClarificationBox" class="hidden td-surface-panel border-l-[3px] border-l-amber-500 rounded-xl p-3.5 space-y-3">
+                <div class="flex items-center justify-between gap-2 flex-wrap">
+                  <label class="text-sm font-bold text-amber-900 dark:text-amber-300 flex items-center gap-2 min-w-0">
+                    <i data-lucide="message-circle-question" class="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0"></i>
+                    <span class="truncate">需確認事項 (Pending Clarifications)</span>
+                  </label>
+                  <div class="flex items-center gap-2 flex-shrink-0">
+                    <button type="button" id="btnApplyRecommendedAnswers" onclick="applyRecommendedClarificationAnswers()" class="hidden text-[10px] font-semibold px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-800 dark:text-amber-200 border border-amber-500/30 transition cursor-pointer whitespace-nowrap">
+                      ⚡ 套用推薦選項
+                    </button>
+                    <span id="clarificationCountBadge" class="text-[10px] font-mono px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-800 dark:text-amber-300 font-semibold whitespace-nowrap flex-shrink-0">
+                      待回答
+                    </span>
+                  </div>
+                </div>
+                <p class="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                  Agent 執行至此處需要您確認下列事項。點選選項或填寫補充說明後，按下方「送出確認並繼續執行」即會自動寫入決策並喚醒續跑。
+                </p>
+                <div id="clarificationQuestionsList" class="space-y-3"></div>
+              </div>
+
+              <!-- 歷次問答確認紀錄 (可折疊檢視) -->
+              <details id="clarificationHistoryBox" class="hidden td-surface-panel rounded-xl p-3 text-xs">
+                <summary class="cursor-pointer select-none font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2">
+                  <span class="flex items-center gap-1.5">
+                    <i data-lucide="history" class="w-3.5 h-3.5 text-slate-500"></i>
+                    <span>歷次確認問答紀錄</span>
+                  </span>
+                  <span id="clarificationHistoryCount" class="text-[10px] font-mono text-slate-500 dark:text-slate-400"></span>
+                </summary>
+                <div id="clarificationHistoryList" class="mt-2.5 space-y-2"></div>
+              </details>
+
               <!-- 完整執行計劃 (Execution Plan - 需確認機制) -->
               <div id="formExecutionPlanBox" class="hidden td-surface-panel border-l-[3px] border-l-amber-500 rounded-xl p-3.5 space-y-2.5">
                 <div class="flex items-center justify-between gap-2 flex-wrap">
@@ -979,6 +1018,10 @@
             </button>
             <button type="button" id="btnRejectTask" onclick="rejectTaskWithFeedback()" class="hidden bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow transition flex items-center gap-1">
               <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> 請 AI 再修改
+            </button>
+            <button type="button" id="btnSubmitClarification" onclick="submitClarificationAnswers()" class="hidden bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-md shadow-amber-500/25 transition flex items-center gap-1.5" title="送出問答確認結果並立即喚醒 Agent 繼續執行">
+              <i data-lucide="check-circle-2" class="w-4 h-4"></i>
+              <span id="btnSubmitClarificationText">送出確認並繼續執行</span>
             </button>
             <button type="button" id="btnConfirmAndExecute" onclick="confirmAndExecuteTask()" class="hidden bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg shadow-md shadow-amber-500/25 transition flex items-center gap-1.5" title="確認執行計劃並立即啟動任務執行">
               <i id="btnConfirmAndExecuteIcon" data-lucide="play-circle" class="w-4 h-4"></i>
@@ -1519,6 +1562,25 @@
           <span id="actionConfirmSubmitText"> 確認執行</span>
         </button>
       </div>
+    </div>
+  </div>
+
+  <!-- Persistent Attention Toast (Pending Clarifications / Plan Confirmation) -->
+  <div id="attentionToast" class="fixed bottom-16 right-6 z-[65] hidden max-w-sm bg-amber-50 dark:bg-slate-900 border-2 border-amber-500 rounded-2xl shadow-2xl p-3.5 text-xs text-slate-800 dark:text-slate-100 space-y-2">
+    <div class="flex items-start justify-between gap-2">
+      <div class="flex items-center gap-1.5 font-bold text-amber-800 dark:text-amber-300 min-w-0">
+        <i data-lucide="bell-ring" class="w-4 h-4 text-amber-500 flex-shrink-0"></i>
+        <span id="attentionToastTitle" class="truncate">任務需要您的確認</span>
+      </div>
+      <button type="button" onclick="dismissAttentionToast()" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-0.5 rounded transition cursor-pointer flex-shrink-0" title="暫時關閉提示">
+        <i data-lucide="x" class="w-3.5 h-3.5"></i>
+      </button>
+    </div>
+    <p id="attentionToastBody" class="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-2"></p>
+    <div class="flex items-center justify-end gap-2 pt-0.5">
+      <button type="button" onclick="openAttentionToastTask()" class="bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold px-3 py-1 rounded-lg shadow transition cursor-pointer">
+        立即確認作答 →
+      </button>
     </div>
   </div>
 

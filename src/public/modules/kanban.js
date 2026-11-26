@@ -225,13 +225,25 @@ import {
           const projSkills = (t.projectSkills && Array.isArray(t.projectSkills)) ? t.projectSkills : (proj && Array.isArray(proj.skills) ? proj.skills : []);
           const hasGrillMe = projSkills.some(s => (s.id === 'grill-me' || s.label === 'grill-me'));
           const isPendingConfirm = (t.status === 'in_progress' && t.requiresConfirmation);
+          const pendingQuestionsList = Array.isArray(t.pendingQuestions) ? t.pendingQuestions : [];
+          const hasPendingQuestions = (t.status === 'in_progress' && (t.awaitingInput === true || pendingQuestionsList.length > 0));
+          const isAttentionCard = hasPendingQuestions || (t.status === 'in_progress' && t.requiresConfirmation && t.executionPlan && t.executionPlan.trim());
+          const branchDisplay = (t.targetBranch || t.baseBranch || '').trim();
 
           return `
-            <div data-id="${t.id}" tabindex="0" role="button" aria-label="${escapeHtml(t.title)}" onclick="openModalForEdit('${t.id}')" onkeydown="handleCardKeyDown(event, '${t.id}')" class="kanban-card p-3 rounded-xl bg-[var(--card)] border border-[var(--border)] hover:border-[var(--primary)] shadow-xs transition-all cursor-pointer group space-y-2 relative focus:outline-none">
+            <div data-id="${t.id}" tabindex="0" role="button" aria-label="${escapeHtml(t.title)}" onclick="openModalForEdit('${t.id}')" onkeydown="handleCardKeyDown(event, '${t.id}')" class="kanban-card p-3 rounded-xl bg-[var(--card)] border border-[var(--border)] ${isAttentionCard ? 'border-l-[3px] border-l-amber-500' : ''} hover:border-[var(--primary)] shadow-xs transition-all cursor-pointer group space-y-2 relative focus:outline-none">
+              <!-- Zone 1: 精簡標頭 (優先級 / 專案 / 僅關鍵阻塞與待確認徽章 + Hover 動作) -->
               <div class="flex items-start justify-between gap-1.5">
                 <div class="flex items-center gap-1.5 flex-wrap min-w-0">
                   <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded ${priorityColor} font-mono whitespace-nowrap flex-shrink-0">${t.priority || 'P1'}</span>
-                  ${(t.status === "in_progress" && t.requiresConfirmation && t.executionPlan && t.executionPlan.trim()) ? (hasGrillMe ? `
+                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-200 font-mono truncate max-w-[115px] whitespace-nowrap" title="${escapeHtml(projName)}">
+                    ${escapeHtml(projName)}
+                  </span>
+                  ${hasPendingQuestions ? `
+                    <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100/90 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 font-mono flex items-center gap-0.5 whitespace-nowrap flex-shrink-0" title="此任務有需確認的問答事項，點擊彈窗回答">
+                      💬 待確認 (${pendingQuestionsList.length || 1})
+                    </span>
+                  ` : (t.status === "in_progress" && t.requiresConfirmation && t.executionPlan && t.executionPlan.trim()) ? (hasGrillMe ? `
                     <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-orange-100/90 dark:bg-orange-950/60 text-orange-800 dark:text-orange-300 font-mono flex items-center gap-0.5 whitespace-nowrap flex-shrink-0" title="此專案具備 Grill-Me 邊界確認機制，點擊彈窗審閱與處理">
                       🔥 Grill-Me 待確認
                     </span>
@@ -244,9 +256,6 @@ import {
                       待擬定計劃
                     </span>
                   ` : ''}
-                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-200 font-mono truncate max-w-[115px] whitespace-nowrap" title="${escapeHtml(projName)}">
-                     ${escapeHtml(projName)}
-                  </span>
                   ${isNeedsHuman ? `
                     <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100/90 dark:bg-rose-950/70 text-rose-800 dark:text-rose-300 font-mono flex items-center gap-0.5 whitespace-nowrap flex-shrink-0" title="單卡連續失敗或退回達 ${t.fixRoundCount || 2} 輪，已熔斷暫停自動喚醒，請由人類接手">
                       🛑 需人類接手
@@ -256,139 +265,89 @@ import {
                     <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 dark:bg-rose-950/70 dark:text-rose-300 font-mono whitespace-nowrap flex-shrink-0" title="${escapeHtml((t.riskReasons || []).join('; ') || '單向門高風險：不可逆或跨模組重大變更')}">
                       🚨 單向門
                     </span>
-                  ` : (t.riskDoor === 'two-way' ? `
-                    <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 font-mono whitespace-nowrap flex-shrink-0" title="雙向門可逆變更：局部元件或低風險異動">
-                      🚪 雙向門
-                    </span>
-                  ` : '')}
+                  ` : ''}
                 </div>
-                <div class="flex items-center gap-1 flex-shrink-0">
+                <div class="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                   ${t.status !== 'backlog' ? `
-                  <button onclick="promptTaskDeleteOrAbandon('${t.id}', 'abandon', event)" title="放棄任務 (可選還原 Git 變更)" class="opacity-0 group-hover:opacity-80 hover:!opacity-100 text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+                  <button onclick="promptTaskDeleteOrAbandon('${t.id}', 'abandon', event)" title="放棄任務 (可選還原 Git 變更)" class="text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition">
                     <i data-lucide="ban" class="w-3 h-3"></i>
                   </button>
                   ` : ''}
-                  <button onclick="copyPrompt('${t.id}', event)" title="複製 AI 指令" class="opacity-70 group-hover:opacity-100 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+                  <button onclick="copyPrompt('${t.id}', event)" title="複製 AI 指令" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition">
                     <i data-lucide="copy" class="w-3 h-3"></i>
                   </button>
                 </div>
               </div>
 
-              <h4 class="text-xs font-semibold text-slate-900 dark:text-slate-100 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition leading-snug">
+              <!-- Zone 2: 任務核心標題 (最多兩行，移除雜訊描述與標籤雲) -->
+              <h4 class="text-xs font-semibold text-slate-900 dark:text-slate-100 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition leading-snug line-clamp-2">
                 ${escapeHtml(t.title)}
               </h4>
 
-              ${t.description ? `<p class="text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2 leading-relaxed">${escapeHtml(t.description)}</p>` : ''}
-
-              ${(t.targetBranch || t.baseBranch) ? `
-                <div class="flex items-center gap-1.5 pt-0.5">
-                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200/80 dark:border-indigo-800/70 text-[10px] font-mono text-indigo-700 dark:text-indigo-300 max-w-full truncate" title="目標分支: ${escapeHtml(t.targetBranch || t.baseBranch)}">
-                    <span>⎇</span>
-                    <span class="truncate">${escapeHtml(t.targetBranch || t.baseBranch)}</span>
-                  </span>
-                </div>
-              ` : ''}
-
-              ${isPendingConfirm ? `
-                <!-- 待確認內容與邊界質詢摘要卡片 (支援 Grill-Me 專案) -->
-                <div class="p-2 rounded-lg shadow-xs ${hasGrillMe ? 'bg-orange-50/90 dark:bg-orange-950/35 text-orange-950 dark:text-orange-200' : 'bg-amber-50/90 dark:bg-amber-950/35 text-amber-950 dark:text-amber-200'} space-y-1 text-[11px]">
-                  <div class="flex items-center justify-between gap-1.5 font-semibold text-[10px]">
-                    <span class="flex items-center gap-1 min-w-0 truncate ${hasGrillMe ? 'text-orange-700 dark:text-orange-400' : 'text-amber-800 dark:text-amber-300'}">
-                      <i data-lucide="${hasGrillMe ? 'flame' : 'clipboard-check'}" class="w-3 h-3 flex-shrink-0 ${hasGrillMe ? 'text-orange-500' : 'text-amber-600'}"></i>
-                      <span class="truncate">${hasGrillMe ? 'Grill-Me 邊界質詢內容' : '需確認執行內容'}</span>
-                    </span>
-                    <span class="text-[9px] px-1.5 py-0.5 rounded font-mono font-normal whitespace-nowrap flex-shrink-0 ${hasGrillMe ? 'bg-orange-100 dark:bg-orange-900/50 text-orange-800 dark:text-orange-300' : 'bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300'}">點擊審閱計劃</span>
-                  </div>
-                  <p class="text-[10px] text-slate-600 dark:text-slate-300 line-clamp-2 leading-relaxed font-mono">
-                    ${escapeHtml(t.executionPlan ? normalizeLogText(t.executionPlan).replace(/^#+\s+/gm, '').trim() : (hasGrillMe ? '此專案具備 Grill-Me 機制，等待邊界確認與執行計劃...' : '等待擬定執行計劃...'))}
-                  </p>
-                </div>
-              ` : ''}
-
-              ${isInProgress ? `
-                <div class="space-y-1.5 pt-0.5">
-                  <!-- AI 輪巡中 / CLI 執行中 / 排隊等待中 + 當前工作切片 (無框線色塊分層) -->
-                  <div class="td-surface-panel rounded-lg p-2 space-y-1.5 text-[10px] text-slate-700 dark:text-slate-200">
-                    <div class="flex items-center justify-between gap-1.5">
-                      <span class="flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap min-w-0 truncate">
-                        <span class="w-2 h-2 rounded-full ${t.queueState && t.queueState.blockedByTaskId ? 'bg-amber-500' : 'bg-sky-500'} flex-shrink-0"></span>
-                        <span class="truncate">${(t.queueState && t.queueState.blockedByTaskId) ? '排隊等待中' : (settings.enableCliAgent ? ` CLI (${settings.cliCommand || 'hermes'}) 執行中` : ` AI 輪巡中`)}</span>
-                      </span>
-                      <div class="flex items-center gap-1 flex-shrink-0">
-                        ${(t.queueState && t.queueState.blockedByTaskId) ? `
-                          <span class="text-[9px] font-semibold text-amber-800 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/60 px-1.5 py-0.5 rounded-full border border-amber-300/70 dark:border-amber-700/60 flex items-center gap-0.5 whitespace-nowrap flex-shrink-0" title="前一張任務提交後會自動接手開工">
-                            ⏳ 等待 ${escapeHtml(t.queueState.blockedByTaskId)} 完成中
-                          </span>
-                        ` : ''}
-                        ${t.liveStatus?.isStalled ? `
-                          <span class="text-[9px] font-mono font-semibold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/60 px-1.5 py-0.5 rounded flex items-center gap-0.5 whitespace-nowrap flex-shrink-0" title="超過 10 分鐘無新 worklog/進度更新，請檢視執行狀況">
-                            ⚠️ 切片推進緩慢
-                          </span>
-                        ` : ''}
-                        ${settings.enableCliAgent ? `
-                        <span class="text-[9px] font-mono text-slate-600 dark:text-slate-300 bg-slate-200/80 dark:bg-slate-800 px-1.5 py-0.5 rounded whitespace-nowrap flex-shrink-0">
-                           ${formatDuration(t.liveStatus?.elapsedSeconds || 0)}
-                        </span>
-                        ` : ''}
-                        ${(() => {
-                          const prog = getTaskSliceProgress(t);
-                          if (!prog) return '';
-                          return `
-                            <span class="text-[9px] font-mono font-semibold text-sky-700 dark:text-sky-300 bg-sky-100 dark:bg-sky-950/60 px-1.5 py-0.5 rounded border border-sky-200 dark:border-sky-800/60 whitespace-nowrap flex-shrink-0" title="切片進度: 第 ${prog.currentNum} 切片 / 共 ${prog.total} 切片 (${prog.completed} 已完成)">
-                              切片 ${prog.currentNum}/${prog.total}
-                            </span>
-                          `;
-                        })()}
-                      </div>
-                    </div>
-
-                    ${(t.sliceInfo?.currentSliceGoal || t.sliceInfo?.currentStep || (t.status === 'in_progress' && (t.description || t.title))) ? `
-                      <div class="text-[10px] space-y-1 pt-0.5">
-                        <div class="flex items-center gap-1 text-slate-600 dark:text-slate-300 truncate" title="${escapeHtml((t.sliceInfo?.currentSliceGoal && t.sliceInfo.currentSliceGoal !== 'N/A') ? t.sliceInfo.currentSliceGoal : (t.sliceInfo?.currentStep || t.description || t.title || ''))}">
-                          <i data-lucide="target" class="w-3 h-3 text-slate-400 flex-shrink-0"></i>
-                          <span class="truncate">${escapeHtml((t.sliceInfo?.currentSliceGoal && t.sliceInfo.currentSliceGoal !== 'N/A') ? t.sliceInfo.currentSliceGoal : (t.sliceInfo?.currentStep || t.description || t.title || ''))}</span>
-                        </div>
-                        ${(() => {
-                          const prog = getTaskSliceProgress(t);
-                          if (!prog || prog.total === 0) return '';
-                          const percent = Math.round((prog.completed / prog.total) * 100);
-                          return `
-                            <div class="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1 overflow-hidden" title="完成率: ${percent}% (${prog.completed}/${prog.total})">
-                              <div class="bg-sky-600 dark:bg-sky-400 h-1 rounded-full transition-all duration-300" style="width: ${percent}%"></div>
-                            </div>
-                          `;
-                        })()}
-                      </div>
-                    ` : ''}
-                  </div>
-
-                  ${t.liveStatus?.currentAction ? `
-                    <div class="bg-slate-900 dark:bg-slate-950 text-amber-200 rounded-md px-2 py-1 font-mono text-[10px] flex items-center gap-1.5 overflow-hidden shadow-xs" title="${escapeHtml(t.liveStatus.currentAction)}">
-                      <span class="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0"></span>
-                      <span class="truncate font-sans text-amber-200">
-                        ${escapeHtml(t.liveStatus.currentAction)}
-                      </span>
-                    </div>
-                  ` : ''}
-
-                  ${t.liveStatus?.liveModifiedFiles && t.liveStatus.liveModifiedFiles.length > 0 ? `
-                    <div class="flex items-center gap-1 text-[10px] text-slate-600 dark:text-slate-300 font-mono td-surface-panel px-2 py-1 rounded-md">
-                      <i data-lucide="file-edit" class="w-3 h-3 text-slate-500 flex-shrink-0"></i>
-                      <span class="truncate"> 即時異動 ${t.liveStatus.liveModifiedFiles.length} 個檔案</span>
-                    </div>
-                  ` : ''}
-                </div>
-              ` : ''}
-
-              <!-- 依賴任務徽章 (點擊可直接打開關聯任務) -->
-              ${t.dependencies && t.dependencies.length > 0 ? `
+              <!-- Zone 3: 單一精簡階段狀態條 -->
+              ${(!isInProgress && t.dependencies && t.dependencies.length > 0) ? `
                 <div class="flex flex-wrap gap-1">
                   ${t.dependencies.map(dep => `
-                    <span onclick="event.stopPropagation(); openModalForEdit('${dep}')" class="text-[9px] bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-200 px-1.5 py-0.5 rounded font-mono hover:underline whitespace-nowrap flex-shrink-0 cursor-pointer" title="點擊檢視前置任務 ${dep}"> 依賴 ${escapeHtml(dep)}
-                    </span>
+                    <span onclick="event.stopPropagation(); openModalForEdit('${dep}')" class="text-[9px] bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-200 px-1.5 py-0.5 rounded font-mono hover:underline whitespace-nowrap flex-shrink-0 cursor-pointer" title="點擊檢視前置任務 ${dep}">依賴 ${escapeHtml(dep)}</span>
                   `).join('')}
                 </div>
               ` : ''}
+
+              ${isInProgress ? (() => {
+                if (hasPendingQuestions) {
+                  const firstQ = pendingQuestionsList[0] ? pendingQuestionsList[0].question : '有待確認事項需要您拍板';
+                  return `
+                    <div class="rounded-lg p-2 bg-amber-50/90 dark:bg-amber-950/35 text-[10px] text-amber-900 dark:text-amber-200 space-y-1">
+                      <div class="flex items-center justify-between gap-1.5 font-semibold">
+                        <span class="flex items-center gap-1.5 min-w-0 truncate">
+                          <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse flex-shrink-0"></span>
+                          <span class="truncate">⏸ 等待您確認內容 (${pendingQuestionsList.length || 1} 題)</span>
+                        </span>
+                      </div>
+                      <p class="text-[10px] text-amber-800/90 dark:text-amber-300/90 truncate" title="${escapeHtml(firstQ)}">${escapeHtml(firstQ)}</p>
+                    </div>
+                  `;
+                }
+                if (isPendingConfirm) {
+                  const hasPlanReady = Boolean(t.executionPlan && t.executionPlan.trim());
+                  return `
+                    <div class="rounded-lg px-2 py-1.5 ${hasPlanReady ? (hasGrillMe ? 'bg-orange-50/90 dark:bg-orange-950/35 text-orange-900 dark:text-orange-200' : 'bg-amber-50/90 dark:bg-amber-950/35 text-amber-900 dark:text-amber-200') : 'td-surface-panel text-slate-700 dark:text-slate-200'} text-[10px] flex items-center justify-between gap-1.5">
+                      <span class="flex items-center gap-1.5 font-semibold truncate">
+                        <span class="w-2 h-2 rounded-full ${hasPlanReady ? 'bg-amber-500' : 'bg-sky-500'} flex-shrink-0"></span>
+                        <span class="truncate">${hasPlanReady ? (hasGrillMe ? '🔥 邊界計劃已就緒 · 點擊審閱' : '📋 執行計劃已就緒 · 點擊審閱') : '⏳ 等待擬定執行計劃...'}</span>
+                      </span>
+                    </div>
+                  `;
+                }
+                const prog = getTaskSliceProgress(t);
+                const percent = (prog && prog.total > 0) ? Math.round((prog.completed / prog.total) * 100) : 0;
+                const statusText = (t.queueState && t.queueState.blockedByTaskId)
+                  ? `排隊等待 ${escapeHtml(t.queueState.blockedByTaskId)}`
+                  : (settings.enableCliAgent ? `CLI (${escapeHtml(settings.cliCommand || 'hermes')}) 執行中` : 'AI 輪巡中');
+                return `
+                  <div class="td-surface-panel rounded-lg px-2 py-1.5 space-y-1 text-[10px] text-slate-700 dark:text-slate-200">
+                    <div class="flex items-center justify-between gap-1.5">
+                      <span class="flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap min-w-0 truncate">
+                        <span class="w-2 h-2 rounded-full ${t.queueState && t.queueState.blockedByTaskId ? 'bg-amber-500' : 'bg-sky-500'} flex-shrink-0"></span>
+                        <span class="truncate">${statusText}</span>
+                      </span>
+                      <div class="flex items-center gap-1 flex-shrink-0">
+                        ${t.liveStatus?.isStalled ? `
+                          <span class="text-[9px] font-mono font-semibold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/60 px-1.5 py-0.5 rounded whitespace-nowrap flex-shrink-0" title="超過 10 分鐘無新 worklog/進度更新，請檢視執行狀況">⚠️ 切片推進緩慢</span>
+                        ` : ''}
+                        ${prog ? `
+                          <span class="text-[9px] font-mono font-semibold text-sky-700 dark:text-sky-300 bg-sky-100 dark:bg-sky-950/60 px-1.5 py-0.5 rounded whitespace-nowrap flex-shrink-0">切片 ${prog.currentNum}/${prog.total}</span>
+                        ` : ''}
+                      </div>
+                    </div>
+                    ${(prog && prog.total > 0) ? `
+                      <div class="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1 overflow-hidden">
+                        <div class="bg-sky-600 dark:bg-sky-400 h-1 rounded-full transition-all duration-300" style="width: ${percent}%"></div>
+                      </div>
+                    ` : ''}
+                  </div>
+                `;
+              })() : ''}
 
               ${isReviewStatus ? `
                 <div class="bg-amber-50/90 dark:bg-amber-950/35 rounded-lg p-1.5 flex items-center justify-between gap-1.5 text-[10px] text-amber-900 dark:text-amber-200 shadow-xs">
@@ -402,9 +361,9 @@ import {
                 </div>
               ` : ''}
 
-              ${t.status === 'done' ? (() => {
+              ${isDoneStatus ? (() => {
                 const landingSha = t.gitLanding && t.gitLanding.commitSha ? String(t.gitLanding.commitSha).slice(0, 7) : '';
-                const landedBranch = (t.gitLanding && t.gitLanding.landedBranch) || t.targetBranch || t.baseBranch || '';
+                const landedBranch = (t.gitLanding && t.gitLanding.landedBranch) || branchDisplay;
                 const pushedRemote = Boolean(t.gitLanding && t.gitLanding.pushedRemote);
                 const prUrl = (t.gitLanding && t.gitLanding.prUrl) || t.prUrl || '';
                 const defaultBranch = (projectBranchesMap && projectBranchesMap[t.project] && projectBranchesMap[t.project].defaultBranch) || 'main';
@@ -427,8 +386,7 @@ import {
                   <div class="td-surface-panel rounded-lg p-1.5 flex flex-wrap items-center justify-between gap-1.5 text-[10px] text-slate-700 dark:text-slate-200">
                     <span class="flex items-center gap-1 font-medium text-emerald-700 dark:text-emerald-400 min-w-0 truncate">
                       <i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-600 dark:text-emerald-400 flex-shrink-0"></i>
-                      <span class="truncate">${landingSha ? `✓ 已提交 ${escapeHtml(landingSha)}` : '已完成'}</span>
-                      ${landedBranch ? `<span class="px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-mono text-[9px] truncate">⎇ ${escapeHtml(landedBranch)}</span>` : ''}
+                      <span class="truncate">${landingSha ? `✓ ${escapeHtml(landingSha)}` : '已完成'}</span>
                       ${pushedRemote ? `<span class="px-1 py-0.5 rounded bg-sky-500/15 text-sky-700 dark:text-sky-300 font-medium text-[9px] whitespace-nowrap flex-shrink-0">已推送</span>` : ''}
                     </span>
                     <div class="flex items-center gap-1 flex-shrink-0">
@@ -441,17 +399,7 @@ import {
                 `;
               })() : ''}
 
-              ${t.tags && t.tags.length > 0 ? `
-                <div class="flex flex-wrap gap-1 pt-0.5">
-                  ${t.tags.map(tag => {
-                    const tagClass = tag === 'feat' ? 'bg-slate-100 dark:bg-slate-700/80 text-sky-700 dark:text-sky-300 font-medium' :
-                                     tag === 'fix' ? 'bg-slate-100 dark:bg-slate-700/80 text-rose-600 dark:text-rose-400 font-medium' :
-                                     'bg-slate-100/90 dark:bg-slate-700/70 text-slate-600 dark:text-slate-300';
-                    return `<span class="text-[9px] px-1.5 py-0.5 rounded whitespace-nowrap flex-shrink-0 ${tagClass}">#${escapeHtml(tag)}</span>`;
-                  }).join('')}
-                </div>
-              ` : ''}
-
+              <!-- Zone 4: 極簡頁尾 (執行者 · 分支 + 操作導引) -->
               <div class="pt-1.5 border-t border-transparent flex items-center justify-between gap-1.5 text-[10px] text-slate-500 dark:text-slate-400">
                 <div class="flex items-center gap-1.5 min-w-0">
                   <span class="flex items-center gap-1 whitespace-nowrap">
@@ -466,14 +414,11 @@ import {
                       <span>${escapeHtml(t.assignee)}</span>
                     `}
                   </span>
-                  ${t.conversationId ? `
-                    <span onclick="copySessionId('${escapeHtml(t.conversationId)}', event)" class="font-mono text-[9px] text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/80 hover:bg-slate-200 dark:hover:bg-slate-600 px-1.5 py-0.5 rounded transition cursor-pointer flex items-center gap-0.5 whitespace-nowrap flex-shrink-0" title="點擊複製 Hermes Session ID: ${escapeHtml(t.conversationId)}">
-                      <i data-lucide="hash" class="w-2.5 h-2.5 text-slate-400 flex-shrink-0"></i>
-                      <span>${escapeHtml(t.conversationId.length > 14 ? t.conversationId.slice(-8) : t.conversationId)}</span>
-                    </span>
+                  ${branchDisplay ? `
+                    <span class="font-mono text-[9px] text-slate-400 dark:text-slate-500 truncate max-w-[110px]" title="目標分支: ${escapeHtml(branchDisplay)}">· ⎇ ${escapeHtml(branchDisplay)}</span>
                   ` : ''}
                 </div>
-                <span class="text-slate-600 dark:text-slate-300 font-medium group-hover:text-sky-600 dark:group-hover:text-sky-400 transition whitespace-nowrap flex-shrink-0">${isReviewStatus ? '審閱驗收 →' : isPendingConfirm ? (t.executionPlan && t.executionPlan.trim() ? '審閱計劃 →' : '擬定計劃 →') : '開啟詳情'}</span>
+                <span class="font-medium transition whitespace-nowrap flex-shrink-0 ${hasPendingQuestions ? 'text-amber-600 dark:text-amber-400 font-semibold' : 'text-slate-600 dark:text-slate-300 group-hover:text-sky-600 dark:group-hover:text-sky-400'}">${hasPendingQuestions ? '點擊作答 →' : isReviewStatus ? '審閱驗收 →' : (isPendingConfirm && t.executionPlan && t.executionPlan.trim()) ? '審閱計劃 →' : '<span class="opacity-0 group-hover:opacity-100 transition">詳情 →</span>'}</span>
               </div>
             </div>
           `;

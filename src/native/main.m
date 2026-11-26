@@ -1,8 +1,9 @@
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
+#import <UserNotifications/UserNotifications.h>
 #import <unistd.h>
 
-@interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler>
+@interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, UNUserNotificationCenterDelegate>
 @property (strong, nonatomic) NSWindow *window;
 @property (strong, nonatomic) WKWebView *webView;
 @property (strong, nonatomic) NSTask *serverTask;
@@ -273,7 +274,107 @@ static BOOL isWorkingNodeBinary(NSString *path) {
                 [[NSWorkspace sharedWorkspace] openURL:url];
             }
         }
+    } else if ([message.name isEqualToString:@"updateDockBadge"]) {
+        NSInteger count = 0;
+        if ([message.body isKindOfClass:[NSDictionary class]]) {
+            count = [message.body[@"count"] integerValue];
+        } else if ([message.body isKindOfClass:[NSNumber class]]) {
+            count = [message.body integerValue];
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSDockTile *tile = [NSApp dockTile];
+            [tile setBadgeLabel:(count > 0 ? [NSString stringWithFormat:@"%ld", (long)count] : nil)];
+            [tile display];
+        });
+    } else if ([message.name isEqualToString:@"notifyUserAttention"]) {
+        NSString *taskId = @"";
+        NSString *title = @"任務需要您的確認";
+        NSString *body = @"請點擊開啟 Task Dashboard 確認內容";
+        if ([message.body isKindOfClass:[NSDictionary class]]) {
+            if ([message.body[@"taskId"] isKindOfClass:[NSString class]]) taskId = message.body[@"taskId"];
+            if ([message.body[@"title"] isKindOfClass:[NSString class]] && [message.body[@"title"] length] > 0) title = message.body[@"title"];
+            if ([message.body[@"body"] isKindOfClass:[NSString class]] && [message.body[@"body"] length] > 0) body = message.body[@"body"];
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (![NSApp isActive]) {
+                [NSApp requestUserAttention:NSInformationalRequest];
+            }
+            [self postLocalNotificationWithTaskId:taskId title:title body:body];
+        });
     }
+}
+
+- (BOOL)canUseUserNotifications {
+    NSString *bundleId = [[NSBundle mainBundle] bundleIdentifier];
+    return (bundleId != nil && bundleId.length > 0);
+}
+
+- (void)setupUserNotifications {
+    if (![self canUseUserNotifications]) return;
+    @try {
+        UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
+        center.delegate = self;
+        [center requestAuthorizationWithOptions:(UNAuthorizationOptionAlert | UNAuthorizationOptionSound | UNAuthorizationOptionBadge)
+                              completionHandler:^(BOOL granted, NSError * _Nullable error) {
+            if (error) {
+                NSLog(@"[TaskDashboard] 通知權限請求錯誤: %@", error.localizedDescription);
+            }
+        }];
+    } @catch (NSException *exception) {
+        NSLog(@"[TaskDashboard] 初始化通知中心失敗: %@", exception.reason);
+    }
+}
+
+- (void)postLocalNotificationWithTaskId:(NSString *)taskId title:(NSString *)title body:(NSString *)body {
+    if (![self canUseUserNotifications]) return;
+    @try {
+        UNMutableNotificationContent *content = [[UNMutableNotificationContent alloc] init];
+        content.title = title ?: @"任務需要您的確認";
+        content.body = body ?: @"請開啟 Task Dashboard 確認內容";
+        content.sound = [UNNotificationSound defaultSound];
+        content.userInfo = @{ @"taskId": taskId ?: @"" };
+
+        NSString *identifier = [NSString stringWithFormat:@"td-attention-%@-%llu",
+                                (taskId.length > 0 ? taskId : @"task"),
+                                (unsigned long long)([[NSDate date] timeIntervalSince1970] * 1000)];
+        UNNotificationRequest *request = [UNNotificationRequest requestWithIdentifier:identifier content:content trigger:nil];
+        [[UNUserNotificationCenter currentNotificationCenter] addNotificationRequest:request withCompletionHandler:^(NSError * _Nullable error) {
+            if (error) {
+                NSLog(@"[TaskDashboard] 發送系統通知失敗: %@", error.localizedDescription);
+            }
+        }];
+    } @catch (NSException *exception) {
+        NSLog(@"[TaskDashboard] 系統通知發送異常: %@", exception.reason);
+    }
+}
+
+- (void)userNotificationCenter:(UNUserNotificationCenter *)center
+       willPresentNotification:(UNNotification *)notification
+         withCompletionHandler:(void (^)(UNNotificationPresentationOptions options))completionHandler {
+    if (@available(macOS 11.0, *)) {
+        completionHandler(UNNotificationPresentationOptionBanner | UNNotificationPresentationOptionList | UNNotificationPresentationOptionSound);
+    } else {
+        completionHandler(UNNotificationPresentationOptionSound);
+    }
+}
+
+- (void)userNotificationCenter:(UNUserNotificationCenter *)center
+didReceiveNotificationResponse:(UNNotificationResponse *)response
+         withCompletionHandler:(void (^)(void))completionHandler {
+    NSString *taskId = @"";
+    NSDictionary *userInfo = response.notification.request.content.userInfo;
+    if ([userInfo isKindOfClass:[NSDictionary class]] && [userInfo[@"taskId"] isKindOfClass:[NSString class]]) {
+        taskId = userInfo[@"taskId"];
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [NSApp activateIgnoringOtherApps:YES];
+        [self.window makeKeyAndOrderFront:nil];
+        NSString *escaped = [[taskId stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"]
+                             stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"];
+        NSString *js = [NSString stringWithFormat:@"if (window.openTaskFromNativeNotification) window.openTaskFromNativeNotification('%@');", escaped];
+        [self.webView evaluateJavaScript:js completionHandler:nil];
+        completionHandler();
+    });
 }
 
 // 支援外部連結與 target="_blank" 呼叫系統預設瀏覽器開啟 (解決 Proxy Server 驗證連結無反應問題)
@@ -387,6 +488,7 @@ static BOOL isWorkingNodeBinary(NSString *path) {
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     [self setupMainMenu];
+    [self setupUserNotifications];
     [self startServerIfNeeded];
 
     NSRect frame = NSMakeRect(0, 0, 1340, 880);
@@ -415,6 +517,8 @@ static BOOL isWorkingNodeBinary(NSString *path) {
     [userContentController addScriptMessageHandler:self name:@"zoomWindow"];
     [userContentController addScriptMessageHandler:self name:@"restartServer"];
     [userContentController addScriptMessageHandler:self name:@"openExternalUrl"];
+    [userContentController addScriptMessageHandler:self name:@"updateDockBadge"];
+    [userContentController addScriptMessageHandler:self name:@"notifyUserAttention"];
 
     WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
     config.userContentController = userContentController;

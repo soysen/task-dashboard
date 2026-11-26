@@ -125,7 +125,7 @@ ${subagentNotice}
 
 【Task Dashboard 3-Phase Gate 平台規範】：
 1. Pre-Flight: 檢閱專案架構文檔並執行 ${harnessCmd}；有 Feedback 優先滿足；若任務勾選需確認後再執行且未具備執行計劃，必須先產出完整執行計劃回寫 executionPlan 供確認；大檔 (>500 行) 禁整檔全覽，一律以 grep-n 定位切片 30-50 行避免 Loop。
-2. Implementation: 遵循目錄規範最小範圍實作並補齊測試，嚴禁跨專案副作用。
+2. Implementation: 遵循目錄規範最小範圍實作並補齊測試，嚴禁跨專案副作用；若中途遇規格模糊或需確認決策，嚴禁僅於對話框等待，請呼叫 PUT /api/tasks/${task.id} 提交 pendingQuestions (附 options/recommended) 並待命。
 3. Review Promotion: 驗證通過後收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })；撰寫標準結構化『任務執行報告 (Task Execution Report)』並恪遵 Chat-Report Symmetry 對齊原則；呼叫 API (PUT /api/tasks/${task.id}) 或回寫 tasks.json 推進至 review (feedback 歸入 description 並清空)。`;
       copyToClipboard(prompt, `已複製【${projName}】Harness 3-Phase 派工指令！`);
     }

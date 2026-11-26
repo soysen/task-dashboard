@@ -67,10 +67,11 @@ function loadGitNexusDetector() {
 const { formatGitNexusGuidance } = loadGitNexusDetector();
 const DEFAULT_APP_SUPPORT_DIR = process.env.TASK_DASHBOARD_DATA_DIR || path.join(USER_HOME, 'Library/Application Support/TaskDashboard');
 
-// 解析命令列參數 (例如 node watch-task-gate.js --agent=antigravity --tier=micro,standard 或 --conversationId=conv_123)
+// 解析命令列參數 (例如 node watch-task-gate.js --agent=antigravity --tier=micro,standard 或 --conversationId=conv_123 --replace)
 let targetAgent = '';
 let targetTiers = [];
 let claimerId = process.env.CONVERSATION_ID || '';
+let replaceExisting = false;
 process.argv.slice(2).forEach(arg => {
   if (arg.startsWith('--agent=')) {
     targetAgent = arg.slice(8).trim().toLowerCase();
@@ -83,10 +84,13 @@ process.argv.slice(2).forEach(arg => {
     claimerId = arg.split('=')[1].trim();
   } else if (arg.startsWith('--claimer=')) {
     claimerId = arg.split('=')[1].trim();
+  } else if (arg === '--replace' || arg === '--force') {
+    replaceExisting = true;
   }
 });
 if (!claimerId) {
-  claimerId = `${targetAgent || 'sentinel'}-${process.pid}`;
+  // 使用帶 TTL 的租約識別碼（不以短命哨兵自身 PID 結尾，避免哨兵 exit(0) 喚醒 AI 後立即被誤判為 dead PID 而搶單）
+  claimerId = `${targetAgent || 'sentinel'}:lease-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
 // 1. 動態解析真實資料庫目錄 (Single Source of Truth)
@@ -187,7 +191,12 @@ function hasAllowedFilesOverlap(taskA, taskB) {
   return false;
 }
 
+function hasPendingQuestions(task) {
+  return Boolean(task && (task.awaitingInput === true || (Array.isArray(task.pendingQuestions) && task.pendingQuestions.length > 0)));
+}
+
 function isPendingUserConfirmation(task) {
+  if (hasPendingQuestions(task)) return true;
   return Boolean(task && task.requiresConfirmation && task.executionPlan && String(task.executionPlan).trim().length > 0);
 }
 
@@ -361,17 +370,99 @@ function findActionableTask() {
   }
 }
 
+function sleepSyncMs(ms) {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch (e) {}
+}
+
+function getSentinelLockPath() {
+  const scopeKey = ((targetAgent || 'all') + (targetTiers.length ? `-${targetTiers.join('_')}` : '')).replace(/[^a-z0-9_-]/gi, '_');
+  return path.join(getDataDir(), `sentinel-${scopeKey}.lock`);
+}
+
+function acquireSentinelSingletonLock({ replace = replaceExisting } = {}) {
+  const dataDir = getDataDir();
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+  const lockPath = getSentinelLockPath();
+  const existing = readJsonSafe(lockPath, null);
+  if (existing && existing.pid && Number(existing.pid) !== process.pid && isPidAlive(existing.pid)) {
+    if (!replace) {
+      console.log(`[SENTINEL_ALREADY_ACTIVE] 偵測到同範圍哨兵已在背景守候中 (PID: ${existing.pid}, Agent: ${existing.targetAgent || '通用'})，自動略過本次重複啟動以避免搶單衝突（如需接管請加上 --replace）。`);
+      return { acquired: false, existingPid: Number(existing.pid), lockPath };
+    }
+    try {
+      process.kill(Number(existing.pid), 'SIGTERM');
+    } catch (e) {}
+    sleepSyncMs(80);
+  }
+  fs.writeFileSync(lockPath, JSON.stringify({
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+    targetAgent: targetAgent || 'all',
+    tiers: targetTiers,
+    claimerId
+  }, null, 2), 'utf8');
+  return { acquired: true, lockPath };
+}
+
+function releaseSentinelSingletonLock() {
+  try {
+    const lockPath = getSentinelLockPath();
+    if (!fs.existsSync(lockPath)) return;
+    const data = readJsonSafe(lockPath, null);
+    if (data && Number(data.pid) === process.pid) {
+      fs.unlinkSync(lockPath);
+    }
+  } catch (e) {}
+}
+
+function withAtomicClaimLock(dataDir, fn) {
+  const claimLockFile = path.join(dataDir, 'tasks.claim.lock');
+  let fd = null;
+  for (let attempt = 0; attempt < 25; attempt++) {
+    try {
+      fd = fs.openSync(claimLockFile, 'wx');
+      break;
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+      try {
+        const st = fs.statSync(claimLockFile);
+        if (Date.now() - st.mtimeMs > 10000) {
+          fs.unlinkSync(claimLockFile);
+          continue;
+        }
+      } catch (e) {}
+      sleepSyncMs(15);
+    }
+  }
+  if (fd === null) return false;
+  try {
+    return fn();
+  } finally {
+    try { fs.closeSync(fd); } catch (e) {}
+    try { fs.unlinkSync(claimLockFile); } catch (e) {}
+  }
+}
+
 let watcher = null;
 function cleanupAndExit(code = 0) {
   if (watcher) {
     try { watcher.close(); } catch (e) {}
     watcher = null;
   }
+  releaseSentinelSingletonLock();
   process.exit(code);
 }
 
 process.on('SIGINT', () => cleanupAndExit(0));
-process.on('SIGTERM', () => cleanupAndExit(0));
+process.on('SIGTERM', () => {
+  console.log('[SENTINEL_SUPERSEDED] 收到結束信號，哨兵安全退場。');
+  cleanupAndExit(0);
+});
+process.on('exit', () => releaseSentinelSingletonLock());
 
 // --- 主流程 ---
 
@@ -504,7 +595,7 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
   const scopeParts = [];
   if (allowedList.length > 0) scopeParts.push(`允許: ${allowedList.join(', ')}`);
   scopeParts.push(`outOfScope: ${outList.length > 0 ? outList.join(', ') : '未授權跨模組/跨專案檔案'}`);
-  const scopeLine = `• 邊界與 STOP AND ASK: ${scopeParts.join(' | ')}；觸及 outOfScope、規格衝突或連續失敗立即停下詢問人類。`;
+  const scopeLine = `• 邊界與 STOP AND ASK: ${scopeParts.join(' | ')}；遇規格疑問或觸及 outOfScope 嚴禁僅在 Chat 停等，須 PUT http://localhost:3030/api/tasks/${task.id} 寫入 pendingQuestions (含 options/recommended) 並重啟背景哨兵待命。`;
 
   const deliveryText = isPendingPlanCreation
     ? `PUT http://localhost:3030/api/tasks/${task.id} 回寫 executionPlan (維持 in_progress 待確認)，勿實作或推進 review；回寫後隨即重啟背景哨兵待命等待使用者確認。`
@@ -616,13 +707,23 @@ function ensureWorktreeForSentinelTask(task) {
 }
 
 function claimTaskAndLogEvent(task) {
+  if (!task || !task.id) return false;
   try {
     const dataDir = getDataDir();
     const tasksFile = path.join(dataDir, 'tasks.json');
-    if (!fs.existsSync(tasksFile)) return;
-    const tasks = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
-    const t = tasks.find(item => item && item.id === task.id);
-    if (t) {
+    if (!fs.existsSync(tasksFile)) return false;
+
+    return withAtomicClaimLock(dataDir, () => {
+      const tasks = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+      const t = tasks.find(item => item && item.id === task.id);
+      if (!t) return false;
+
+      if (!t.requestCommitGen) {
+        if (t.status !== 'in_progress') return false;
+        if (isClaimAlive(t, claimerId)) return false;
+        if (isPendingUserConfirmation(t) || isTaskCircuitBroken(t)) return false;
+      }
+
       t.claimedBy = claimerId;
       t.claimedAt = new Date().toISOString();
       const wtInfo = ensureWorktreeForSentinelTask(t);
@@ -644,8 +745,11 @@ function claimTaskAndLogEvent(task) {
         claimedAt: t.claimedAt
       };
       fs.appendFileSync(eventsFile, JSON.stringify(entry) + '\n', 'utf8');
-    }
-  } catch (e) {}
+      return true;
+    });
+  } catch (e) {
+    return false;
+  }
 }
 
 module.exports = {
@@ -655,14 +759,23 @@ module.exports = {
   hasAllowedFilesOverlap,
   hasRepoConflict,
   ensureWorktreeForSentinelTask,
-  isTaskCircuitBroken
+  isTaskCircuitBroken,
+  hasPendingQuestions,
+  isClaimAlive,
+  acquireSentinelSingletonLock,
+  releaseSentinelSingletonLock,
+  claimTaskAndLogEvent
 };
 
 if (require.main === module) {
+  const lockStatus = acquireSentinelSingletonLock();
+  if (!lockStatus.acquired) {
+    process.exit(0);
+  }
+
   // 1. 若當前本來就已有進行中或請求 Commit 訊息之任務，立即退出喚醒開工
   const immediateTask = findActionableTask();
-  if (immediateTask) {
-    claimTaskAndLogEvent(immediateTask);
+  if (immediateTask && claimTaskAndLogEvent(immediateTask)) {
     console.log(formatWakeupBrief(immediateTask, 'WAKEUP_IMMEDIATE'));
     cleanupAndExit(0);
   }
@@ -687,8 +800,7 @@ if (require.main === module) {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
           const task = findActionableTask();
-          if (task) {
-            claimTaskAndLogEvent(task);
+          if (task && claimTaskAndLogEvent(task)) {
             console.log(formatWakeupBrief(task, 'WAKEUP_TRIGGERED'));
             cleanupAndExit(0);
           }

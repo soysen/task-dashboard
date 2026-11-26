@@ -366,6 +366,215 @@ async function run() {
     assert(pendingPlanBrief.includes('重啟背景哨兵待命'), '待擬定執行計劃簡報必須提醒回寫後重啟背景哨兵待命');
     assert(pendingPlanBrief.split('\n').length <= 15, `待擬定執行計劃簡報仍須 <= 15 行，實際: ${pendingPlanBrief.split('\n').length}`);
     console.log('  ✅ [Confirmation Gate] 待確認計劃階段哨兵重啟指示驗證通過\n');
+
+    // Step 9: 驗證執行中互動問答門禁 (Interactive Clarification Gate)
+    console.log('Step 9: 驗證執行中互動問答門禁 (pendingQuestions → 哨兵靜默 + 阻擋 review → POST /answer → 自動喚醒)...');
+    const qCreateRes = await httpRequest({
+      hostname: '127.0.0.1',
+      port: PORT,
+      path: '/api/tasks',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    }, {
+      title: '驗證執行中問答確認流程',
+      description: '初始任務需求描述',
+      project: 'task-dashboard',
+      status: 'in_progress',
+      assignedAgent: 'test-flow-agent',
+      assignee: 'test-flow-agent'
+    });
+    assert.equal(qCreateRes.status, 201, '建立問答測試任務失敗');
+    const qTaskId = qCreateRes.data.id;
+
+    // 模擬 Agent 執行中途回寫 pendingQuestions（1 題單選含推薦、1 題複選）
+    const putQuestionRes = await httpRequest({
+      hostname: '127.0.0.1',
+      port: PORT,
+      path: `/api/tasks/${qTaskId}`,
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' }
+    }, {
+      status: 'in_progress',
+      claimedBy: 'antigravity-88888',
+      pendingQuestions: [
+        {
+          id: 'q1',
+          question: '空欄位輸出格式應如何處理？',
+          type: 'single',
+          recommended: 'opt_null',
+          options: [
+            { id: 'opt_null', label: '補 null 保留欄位', description: '保持欄位對齊' },
+            { id: 'opt_skip', label: '略過該欄位' }
+          ]
+        },
+        {
+          id: 'q2',
+          question: '需要同步通知哪些通道？',
+          type: 'multi',
+          options: [
+            { id: 'opt_dock', label: 'Dock 角標' },
+            { id: 'opt_toast', label: '看板常駐提示' }
+          ]
+        }
+      ]
+    });
+    assert.equal(putQuestionRes.status, 200);
+    assert.equal(putQuestionRes.data.awaitingInput, true, '寫入 pendingQuestions 後 awaitingInput 必須為 true');
+    assert.equal(putQuestionRes.data.pendingQuestions.length, 2);
+
+    // 驗證哨兵待答期間不會搶單喚醒
+    process.env.TASK_DASHBOARD_DATA_DIR = tmpDataDir;
+    assert.equal(findActionableTask(), null, '待使用者回答 pendingQuestions 期間，哨兵必須靜默不喚醒');
+
+    // 驗證未回答前禁止推進 review
+    const blockedReviewRes = await httpRequest({
+      hostname: '127.0.0.1',
+      port: PORT,
+      path: `/api/tasks/${qTaskId}`,
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' }
+    }, {
+      status: 'review',
+      executionLog: '## 1. 任務目標\n- test\n## 2. 解決方案\n- test\n## 3. 品質驗證\n- cmd: `npm test` exit 0'
+    });
+    assert.equal(blockedReviewRes.status, 400, '尚有未回答 pendingQuestions 時不得推進 review');
+
+    // 驗證缺少必填答案時 POST /answer 回傳 400
+    const missingAnsRes = await httpRequest({
+      hostname: '127.0.0.1',
+      port: PORT,
+      path: `/api/tasks/${qTaskId}/answer`,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    }, {
+      answers: [{ id: 'q1', selectedOptionIds: ['opt_null'] }]
+    });
+    assert.equal(missingAnsRes.status, 400, '缺少必填題答案時必須回傳 400 驗證失敗');
+
+    // 驗證完整作答後清空 pendingQuestions、寫入最新需求覆蓋與 history、釋放鎖定並喚醒哨兵
+    const answerRes = await httpRequest({
+      hostname: '127.0.0.1',
+      port: PORT,
+      path: `/api/tasks/${qTaskId}/answer`,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    }, {
+      answers: [
+        { id: 'q1', selectedOptionIds: ['opt_null'], customText: '並附上單元測試' },
+        { id: 'q2', selectedOptionIds: ['opt_dock', 'opt_toast'] }
+      ]
+    });
+    assert.equal(answerRes.status, 200, `POST /answer 失敗: ${answerRes.status}`);
+    assert.equal(answerRes.data.awaitingInput, false, '作答完成後 awaitingInput 必須重置為 false');
+    assert.equal(answerRes.data.pendingQuestions.length, 0, '作答完成後 pendingQuestions 必須清空');
+    assert.equal(answerRes.data.claimedBy, null, '作答完成後必須解除認領鎖定');
+    assert.equal(answerRes.data.clarificationHistory.length, 1, '必須歸檔一筆 clarificationHistory');
+    assert(answerRes.data.description.includes('--- 【執行中問答確認 / 最新需求覆蓋】 ---'), '必須寫入最新需求覆蓋區塊');
+    assert(answerRes.data.description.includes('補 null 保留欄位'), '必須寫入選中選項標籤');
+    assert(answerRes.data.description.includes('並附上單元測試'), '必須寫入使用者補充說明');
+
+    const qWakeupRun = spawnSync('node', [gateScriptPath, '--agent=test-flow-agent'], { encoding: 'utf8', timeout: 5000, env });
+    assert.equal(qWakeupRun.status, 0, `問答確認後哨兵必須立即喚醒 (exit 0)，實際: ${qWakeupRun.status}`);
+    assert(qWakeupRun.stdout.includes(qTaskId), `哨兵喚醒輸出應包含 ${qTaskId}`);
+    console.log('  ✅ [Step 9 - Clarification Gate] 問答門禁、驗證阻擋、決策回寫與哨兵喚醒驗證通過\n');
+
+    // Step 10: 驗證哨兵三層防重複與原子搶單保護
+    console.log('Step 10: 驗證哨兵單例鎖 (--replace)、租約鎖定存續與併發原子認領鎖...');
+    const { isClaimAlive } = require('./watch-task-gate');
+    const qTasksAfterWakeup = (await httpRequest({ hostname: '127.0.0.1', port: PORT, path: '/api/tasks', method: 'GET' })).data || [];
+    const claimedQTask = qTasksAfterWakeup.find(t => t.id === qTaskId);
+    assert(claimedQTask && String(claimedQTask.claimedBy || '').includes(':lease-'), `哨兵喚醒後 claimedBy 應採用 lease 識別碼，實際: ${claimedQTask?.claimedBy}`);
+    assert.equal(isClaimAlive(claimedQTask), true, '哨兵退出 (exit 0) 後 lease 鎖定於 15 分鐘內必須維持有效，禁止其他哨兵誤判 dead PID 搶單');
+
+    // 結案 qTaskId 以便測試閒置背景哨兵
+    await httpRequest({
+      hostname: '127.0.0.1',
+      port: PORT,
+      path: `/api/tasks/${qTaskId}`,
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' }
+    }, { ...claimedQTask, status: 'done', executionLog: '## 1. 任務目標\n- test\n## 2. 解決方案\n- test\n## 3. 品質驗證\n- cmd: `npm test` exit 0' });
+
+    const waitForOutput = (proc, pattern, timeoutMs = 4000) => new Promise((resolve, reject) => {
+      let buf = '';
+      const timer = setTimeout(() => reject(new Error(`Timeout waiting for ${pattern}, got: ${buf}`)), timeoutMs);
+      const onData = chunk => {
+        buf += chunk.toString();
+        if (buf.includes(pattern)) {
+          clearTimeout(timer);
+          proc.stdout.off('data', onData);
+          resolve(buf);
+        }
+      };
+      proc.stdout.on('data', onData);
+    });
+
+    const spawnedProcs = [];
+    try {
+      // 10.1 啟動哨兵 #1 進入守候
+      const s1 = spawn('node', [gateScriptPath, '--agent=dup-guard-test'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+      spawnedProcs.push(s1);
+      await waitForOutput(s1, '[WATCHER_ACTIVE]');
+
+      // 10.2 重複啟動同範圍哨兵 #2（未帶 --replace）：必須直接提示已運行並退出，不得干擾 #1
+      const dupRun = spawnSync('node', [gateScriptPath, '--agent=dup-guard-test'], { encoding: 'utf8', timeout: 4000, env });
+      assert.equal(dupRun.status, 0);
+      assert(dupRun.stdout.includes('[SENTINEL_ALREADY_ACTIVE]'), `重複啟動哨兵必須輸出 [SENTINEL_ALREADY_ACTIVE]，實際: ${dupRun.stdout}`);
+      assert.equal(s1.exitCode, null, '原哨兵 #1 必須仍在運行中');
+
+      // 10.3 啟動哨兵 #3 帶 --replace：必須優雅取代 #1（#1 印出 [SENTINEL_SUPERSEDED] 退場，無 WAKEUP）
+      let s1Out = '';
+      s1.stdout.on('data', d => { s1Out += d.toString(); });
+      const s1Exited = new Promise(res => s1.once('exit', code => res(code)));
+      const s3 = spawn('node', [gateScriptPath, '--agent=dup-guard-test', '--replace'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+      spawnedProcs.push(s3);
+      await waitForOutput(s3, '[WATCHER_ACTIVE]');
+      const s1Code = await s1Exited;
+      assert.equal(s1Code, 0, '被取代的哨兵 #1 應以 exit 0 退場');
+      assert(s1Out.includes('[SENTINEL_SUPERSEDED]') && !s1Out.includes('WAKEUP_'), `被取代哨兵 #1 應輸出 [SENTINEL_SUPERSEDED]，實際: ${s1Out}`);
+
+      // 10.4 啟動不同 agent 的哨兵 #4，並建立一張通用 (all) in_progress 任務測試 OS 級原子搶單鎖：僅能喚醒其中 1 支
+      const s4 = spawn('node', [gateScriptPath, '--agent=second-agent'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+      spawnedProcs.push(s4);
+      await waitForOutput(s4, '[WATCHER_ACTIVE]');
+
+      let s3Out = '';
+      let s4Out = '';
+      s3.stdout.on('data', d => { s3Out += d.toString(); });
+      s4.stdout.on('data', d => { s4Out += d.toString(); });
+
+      const raceTaskRes = await httpRequest({
+        hostname: '127.0.0.1',
+        port: PORT,
+        path: '/api/tasks',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      }, {
+        title: '併發原子搶單驗證任務',
+        project: 'task-dashboard',
+        status: 'in_progress',
+        assignedAgent: 'all',
+        assignee: 'all'
+      });
+      assert.equal(raceTaskRes.status, 201);
+      const raceTaskId = raceTaskRes.data.id;
+
+      // 等待其中 1 支喚醒並給另一支 400ms 觀察期
+      await Promise.race([
+        new Promise(res => s3.once('exit', res)),
+        new Promise(res => s4.once('exit', res))
+      ]);
+      await new Promise(r => setTimeout(r, 400));
+
+      const s3Woke = s3Out.includes('WAKEUP_TRIGGERED') && s3Out.includes(raceTaskId);
+      const s4Woke = s4Out.includes('WAKEUP_TRIGGERED') && s4Out.includes(raceTaskId);
+      assert(s3Woke !== s4Woke, `兩支哨兵不可同時喚醒同一張任務 (s3Woke=${s3Woke}, s4Woke=${s4Woke})`);
+      console.log('  ✅ [Step 10 - Sentinel Dedup] 單例防重、--replace 優雅接管、Lease 續存與原子搶單鎖驗證通過\n');
+    } finally {
+      for (const p of spawnedProcs) {
+        try { if (p && p.exitCode === null) p.kill('SIGKILL'); } catch (e) {}
+      }
+    }
   } finally {
     process.env.TASK_DASHBOARD_DATA_DIR = prevDataDirEnv;
     fs.rmSync(s1DataDir, { recursive: true, force: true });

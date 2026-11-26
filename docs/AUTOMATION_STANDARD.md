@@ -140,6 +140,9 @@ flowchart TD
      - 開工首要任務為**擬定完整執行計劃**（包含執行步驟、架構評估、驗證方式）。
      - 將執行計劃寫入 `task.executionPlan`。
      - **嚴禁在未填寫執行計劃前跳過規劃**；任務在計劃填妥後方會正式進入「待確認」狀態，並供使用者點擊「確認並執行」。回寫 `executionPlan` 後，Desktop AI 哨兵應立即在背景重啟 `watch-task-gate.js` 待命（待確認期間哨兵不會重複認領），待使用者確認點選後自動喚醒進入 Phase 2 代碼實作。
+7. **執行中互動問答門禁 (Interactive Clarification Gate)**：
+   - 若任務在 `in_progress` 執行中途遇到規格模糊、邊界取捨或 `outOfScope` 確認需求，**嚴禁僅在 Chat 停等**，必須呼叫 `PUT http://localhost:3030/api/tasks/<task_id>` 寫入結構化 `pendingQuestions`（支援 `single` / `multi` / `text` 題型、`options` 與 `recommended` 推薦項），維持 `status: "in_progress"` 並立即重啟背景哨兵待命。
+   - 待答期間（`awaitingInput: true`）哨兵保持靜默且禁止推進至 `review`；使用者於 Dashboard 彈窗作答後經 `POST /api/tasks/<task_id>/answer` 寫入 `--- 【執行中問答確認 / 最新需求覆蓋】 ---` 並自動喚醒接續實作。
 
 ### Phase 2: Rule-Compliant Implementation (合規實作)
 1. 嚴格遵守該專案的目錄架構、狀態流轉規則與切片計畫。

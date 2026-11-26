@@ -2118,6 +2118,226 @@ const {
 })();
 ' "$TEST_PORT"
 
+echo "  [8.9/9] 測試 Worktree 未動過自動回退主目錄提交、Pull/Sync-Base 衝突還原與 /open-editor 安全邊界 ..."
+TEST_PORT=$TEST_PORT node -e '
+const assert = require("assert");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const { execFileSync } = require("child_process");
+
+(async () => {
+  const base = "http://127.0.0.1:" + (process.env.TEST_PORT || "3039");
+  const tempRepo = fs.mkdtempSync(path.join(os.tmpdir(), "td-sync-repo-"));
+  const originBare = fs.mkdtempSync(path.join(os.tmpdir(), "td-sync-origin-"));
+  const peerRepo = fs.mkdtempSync(path.join(os.tmpdir(), "td-sync-peer-"));
+  const projId = "test-sync-proj-" + Date.now();
+  const createdTaskIds = [];
+
+  try {
+    execFileSync("git", ["init", "--bare", originBare], { stdio: "ignore" });
+    execFileSync("git", ["-C", tempRepo, "init", "-b", "main"], { stdio: "ignore" });
+    execFileSync("git", ["-C", tempRepo, "config", "user.email", "test@example.com"], { stdio: "ignore" });
+    execFileSync("git", ["-C", tempRepo, "config", "user.name", "Test Runner"], { stdio: "ignore" });
+    fs.writeFileSync(path.join(tempRepo, "README.md"), "# Init\n", "utf8");
+    fs.writeFileSync(path.join(tempRepo, "shared.txt"), "base line\n", "utf8");
+    execFileSync("git", ["-C", tempRepo, "add", "."], { stdio: "ignore" });
+    execFileSync("git", ["-C", tempRepo, "commit", "-m", "init"], { stdio: "ignore" });
+    execFileSync("git", ["-C", tempRepo, "remote", "add", "origin", originBare], { stdio: "ignore" });
+    execFileSync("git", ["-C", tempRepo, "push", "-u", "origin", "main"], { stdio: "ignore" });
+
+    const regRes = await fetch(`${base}/api/projects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: projId, name: "Sync & Fallback Repo", path: tempRepo })
+    });
+    assert(regRes.status === 200 || regRes.status === 201);
+
+    // A. Worktree 未動過 + 主資料夾有任務變更 -> /drift-check 與 /land 自動回退提交並清理空 worktree
+    const createRes = await fetch(`${base}/api/tasks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Fallback to in-place commit",
+        project: projId,
+        status: "todo",
+        workspaceMode: "worktree",
+        targetBranch: "main"
+      })
+    });
+    assert.equal(createRes.status, 201);
+    const createdTask = await createRes.json();
+    createdTaskIds.push(createdTask.id);
+
+    const startRes = await fetch(`${base}/api/tasks/${encodeURIComponent(createdTask.id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "in_progress" })
+    });
+    assert.equal(startRes.status, 200);
+    const startedTask = await startRes.json();
+    assert(startedTask.worktreePath && fs.existsSync(startedTask.worktreePath), "開工應先建立 worktree");
+
+    // 刻意不改 worktree，直接改主資料夾
+    fs.writeFileSync(path.join(tempRepo, "task_edit_in_main.txt"), "edited directly in main\n", "utf8");
+
+    const driftRes = await fetch(`${base}/api/tasks/${encodeURIComponent(createdTask.id)}/drift-check`);
+    assert.equal(driftRes.status, 200);
+    const driftData = await driftRes.json();
+    assert.equal(driftData.status, "main_workspace_has_task_changes", "Worktree 未動過時不可誤報 dirty_main_workspace");
+    assert.equal(driftData.worktreeUntouchedMainDirty, true);
+    assert.equal(Boolean(driftData.dirtyMainWorkspace), false);
+    assert.equal(driftData.hasConflict, false);
+
+    const reviewRes = await fetch(`${base}/api/tasks/${encodeURIComponent(createdTask.id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "review", forceReview: true })
+    });
+    assert.equal(reviewRes.status, 200);
+
+    const landRes = await fetch(`${base}/api/tasks/${encodeURIComponent(createdTask.id)}/land`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subject: "feat: fallback commit from main", archiveImmediately: false })
+    });
+    assert.equal(landRes.status, 200, "Worktree 未動過時 /land 應自動回退主目錄提交並回傳 200");
+    const landData = await landRes.json();
+    assert.equal(landData.success, true);
+    assert.equal(landData.isCommitted, true);
+    assert(!fs.existsSync(startedTask.worktreePath), "回退主目錄提交後應清理空 worktree");
+    assert.equal(execFileSync("git", ["-C", tempRepo, "status", "--porcelain"], { encoding: "utf8" }).trim(), "");
+    const committedFiles = execFileSync("git", ["-C", tempRepo, "show", "--name-only", "--pretty=format:", "HEAD"], { encoding: "utf8" });
+    assert(committedFiles.includes("task_edit_in_main.txt"), "主目錄修改應已正式 commit");
+
+    const tasksAfterLand = await (await fetch(`${base}/api/tasks`)).json();
+    const updatedAfterLand = tasksAfterLand.find(t => t.id === createdTask.id);
+    assert.equal(updatedAfterLand.workspaceMode, "in_place");
+    assert.equal(updatedAfterLand.worktreePath, null);
+
+    // 同步遠端 main 以便後續分叉測試
+    execFileSync("git", ["-C", tempRepo, "push", "origin", "main"], { stdio: "ignore" });
+
+    // B. Push non-fast-forward、Pull rebase 衝突自動 abort、Sync-Base 成功與衝突還原
+    execFileSync("git", ["clone", originBare, peerRepo], { stdio: "ignore" });
+    execFileSync("git", ["-C", peerRepo, "config", "user.email", "peer@example.com"], { stdio: "ignore" });
+    execFileSync("git", ["-C", peerRepo, "config", "user.name", "Peer"], { stdio: "ignore" });
+    fs.writeFileSync(path.join(peerRepo, "shared.txt"), "peer conflicting line\n", "utf8");
+    execFileSync("git", ["-C", peerRepo, "add", "shared.txt"], { stdio: "ignore" });
+    execFileSync("git", ["-C", peerRepo, "commit", "-m", "peer update"], { stdio: "ignore" });
+    execFileSync("git", ["-C", peerRepo, "push", "origin", "main"], { stdio: "ignore" });
+
+    fs.writeFileSync(path.join(tempRepo, "shared.txt"), "local conflicting line\n", "utf8");
+    execFileSync("git", ["-C", tempRepo, "add", "shared.txt"], { stdio: "ignore" });
+    execFileSync("git", ["-C", tempRepo, "commit", "-m", "local diverge"], { stdio: "ignore" });
+
+    const pushRejectRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/branches/push`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ branch: "main" })
+    });
+    assert.equal(pushRejectRes.status, 409, "分叉 push 應回傳 409");
+    const pushRejectData = await pushRejectRes.json();
+    assert.equal(pushRejectData.nonFastForward, true);
+
+    const pullConflictRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/branches/pull`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ branch: "main", mode: "pull", rebase: true })
+    });
+    assert.equal(pullConflictRes.status, 409, "Pull rebase 衝突應回傳 409");
+    const pullConflictData = await pullConflictRes.json();
+    assert.equal(pullConflictData.conflict, true);
+    assert(Array.isArray(pullConflictData.conflictingFiles) && pullConflictData.conflictingFiles.includes("shared.txt"));
+    assert.equal(execFileSync("git", ["-C", tempRepo, "status", "--porcelain"], { encoding: "utf8" }).trim(), "", "Pull 衝突後工作區必須自動 --abort 保持乾淨");
+    assert(!fs.existsSync(path.join(tempRepo, ".git", "rebase-merge")), "不應殘留 rebase-merge 目錄");
+
+    // 測試 sync-base (無衝突 merge 與有衝突自動 abort)
+    execFileSync("git", ["-C", tempRepo, "reset", "--hard", "origin/main"], { stdio: "ignore" });
+    execFileSync("git", ["-C", tempRepo, "checkout", "-b", "feat/clean-sync"], { stdio: "ignore" });
+    fs.writeFileSync(path.join(tempRepo, "feat_only.txt"), "feature\n", "utf8");
+    execFileSync("git", ["-C", tempRepo, "add", "feat_only.txt"], { stdio: "ignore" });
+    execFileSync("git", ["-C", tempRepo, "commit", "-m", "feat only"], { stdio: "ignore" });
+
+    execFileSync("git", ["-C", tempRepo, "checkout", "-b", "feat/conflict-sync", "origin/main"], { stdio: "ignore" });
+    fs.writeFileSync(path.join(tempRepo, "base_only.txt"), "feature version\n", "utf8");
+    execFileSync("git", ["-C", tempRepo, "add", "base_only.txt"], { stdio: "ignore" });
+    execFileSync("git", ["-C", tempRepo, "commit", "-m", "feat conflict"], { stdio: "ignore" });
+
+    fs.writeFileSync(path.join(peerRepo, "base_only.txt"), "main version\n", "utf8");
+    execFileSync("git", ["-C", peerRepo, "add", "base_only.txt"], { stdio: "ignore" });
+    execFileSync("git", ["-C", peerRepo, "commit", "-m", "main base update"], { stdio: "ignore" });
+    execFileSync("git", ["-C", peerRepo, "push", "origin", "main"], { stdio: "ignore" });
+
+    const syncOkRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/branches/sync-base`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ branch: "feat/clean-sync", baseBranch: "main", strategy: "merge" })
+    });
+    assert.equal(syncOkRes.status, 200, "無衝突 sync-base 應回傳 200");
+    const syncOkData = await syncOkRes.json();
+    assert.equal(syncOkData.success, true);
+
+    const syncConflictRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/branches/sync-base`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ branch: "feat/conflict-sync", baseBranch: "main", strategy: "merge" })
+    });
+    assert.equal(syncConflictRes.status, 409, "有衝突 sync-base 應回傳 409");
+    const syncConflictData = await syncConflictRes.json();
+    assert.equal(syncConflictData.conflict, true);
+    assert(syncConflictData.conflictingFiles.includes("base_only.txt"));
+    assert.equal(execFileSync("git", ["-C", tempRepo, "status", "--porcelain"], { encoding: "utf8" }).trim(), "", "sync-base 衝突後必須自動 abort 保持乾淨");
+    assert(!fs.existsSync(path.join(tempRepo, ".git", "MERGE_HEAD")), "不應殘留 MERGE_HEAD");
+
+    // C. /open-editor Dry-Run 與路徑安全邊界檢查
+    const openAgyRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/open-editor`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ editor: "antigravity", dryRun: true })
+    });
+    assert.equal(openAgyRes.status, 200);
+    const openAgyData = await openAgyRes.json();
+    assert.equal(openAgyData.success, true);
+    assert.equal(openAgyData.dryRun, true);
+
+    const openVscRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/open-editor`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ editor: "vscode", dryRun: true })
+    });
+    assert.equal(openVscRes.status, 200);
+    assert.equal((await openVscRes.json()).dryRun, true);
+
+    const badPathRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/open-editor`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ editor: "antigravity", targetPath: "/etc", dryRun: true })
+    });
+    assert.equal(badPathRes.status, 400);
+    const badPathData = await badPathRes.json();
+    assert.equal(badPathData.success, false);
+    assert.equal(badPathData.status, "invalid_target_path");
+
+    console.log("    ✅ Worktree 未動過自動回退、Pull/Sync-Base 衝突安全還原與 /open-editor 安全邊界驗證通過");
+  } finally {
+    for (const tid of createdTaskIds) {
+      try { await fetch(`${base}/api/tasks/${encodeURIComponent(tid)}`, { method: "DELETE" }); } catch (_) {}
+    }
+    try {
+      await fetch(`${base}/api/projects/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: projId })
+      });
+    } catch (_) {}
+    try { fs.rmSync(tempRepo, { recursive: true, force: true }); } catch (_) {}
+    try { fs.rmSync(originBare, { recursive: true, force: true }); } catch (_) {}
+    try { fs.rmSync(peerRepo, { recursive: true, force: true }); } catch (_) {}
+  }
+})();
+' "$TEST_PORT"
+
 echo "  [9/9] 測試 前端核心互動邏輯與狀態防線 ..."
 node "$PROJECT_DIR/scripts/test_ui_behavior.js"
 node "$PROJECT_DIR/scripts/test_confirmation_ux.js"

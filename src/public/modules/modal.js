@@ -187,6 +187,9 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
     // Modal 邏輯 (支援 新增單欄 與 編輯雙欄)
     function openModal(initialData = {}) {
       setCurrentModalEditingTask(null);
+      clarificationDraftAnswers = {};
+      renderedClarificationSignature = '';
+      if (typeof renderClarificationQuestions === 'function') renderClarificationQuestions(null, true);
       document.getElementById('taskForm').reset();
       document.getElementById('formTaskId').value = '';
       document.getElementById('formConversationId').value = '';
@@ -219,7 +222,8 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       const activeBranch = (typeof currentBranch !== 'undefined') ? currentBranch : 'ALL';
       const defaultBranch = initialData.targetBranch !== undefined ? initialData.targetBranch : (activeBranch !== 'ALL' ? activeBranch : undefined);
       setFormProject(defaultProj, { targetBranch: defaultBranch });
-      if (typeof selectWorkspaceMode === 'function') selectWorkspaceMode(initialData.workspaceMode || 'worktree');
+      const defaultWorkspaceMode = initialData.workspaceMode || (settings.enableCliAgent ? 'worktree' : 'in_place');
+      if (typeof selectWorkspaceMode === 'function') selectWorkspaceMode(defaultWorkspaceMode);
       if (typeof toggleQuickBranchBox === 'function') toggleQuickBranchBox(false);
 
       document.getElementById('formAssignee').value = initialData.assignee || (settings.enableCliAgent ? 'CLI' : 'Antigravity');
@@ -440,11 +444,211 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       }
     }
 
+    let clarificationDraftAnswers = {};
+    let renderedClarificationSignature = '';
+
+    function getNormalizedPendingQuestions(task) {
+      if (!task || !Array.isArray(task.pendingQuestions)) return [];
+      return task.pendingQuestions.filter(q => q && String(q.question || '').trim());
+    }
+
+    function renderClarificationHistory(task) {
+      const historyBox = document.getElementById('clarificationHistoryBox');
+      const historyList = document.getElementById('clarificationHistoryList');
+      const historyCount = document.getElementById('clarificationHistoryCount');
+      if (!historyBox || !historyList) return;
+
+      const history = Array.isArray(task?.clarificationHistory) ? task.clarificationHistory : [];
+      if (history.length === 0) {
+        historyBox.classList.add('hidden');
+        historyList.innerHTML = '';
+        return;
+      }
+
+      historyBox.classList.remove('hidden');
+      if (historyCount) historyCount.innerText = `${history.length} 輪紀錄`;
+      historyList.innerHTML = history.slice().reverse().map((round, rIdx) => {
+        const items = Array.isArray(round.items) ? round.items : [];
+        const timeStr = round.answeredAt ? new Date(round.answeredAt).toLocaleString('zh-TW', { hour12: false }) : '';
+        return `
+          <div class="p-2.5 rounded-lg bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700/80 space-y-1.5">
+            <div class="flex items-center justify-between text-[10px] font-mono text-slate-500 dark:text-slate-400">
+              <span>第 ${history.length - rIdx} 輪確認</span>
+              <span>${escapeHtml(timeStr)}</span>
+            </div>
+            ${items.map((it, idx) => `
+              <div class="text-[11px] space-y-0.5">
+                <div class="font-semibold text-slate-800 dark:text-slate-200">Q${idx + 1}. ${escapeHtml(it.question || '')}</div>
+                <div class="text-emerald-700 dark:text-emerald-300 pl-2">↳ ${escapeHtml(it.summary || '')}</div>
+              </div>
+            `).join('')}
+            ${round.extraFeedback ? `<div class="text-[11px] text-slate-600 dark:text-slate-300 pl-2">補充指示：${escapeHtml(round.extraFeedback)}</div>` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderClarificationQuestions(task, forceReset = false) {
+      const box = document.getElementById('formClarificationBox');
+      const listEl = document.getElementById('clarificationQuestionsList');
+      const countBadge = document.getElementById('clarificationCountBadge');
+      const applyRecBtn = document.getElementById('btnApplyRecommendedAnswers');
+      if (!box || !listEl) return;
+
+      renderClarificationHistory(task);
+
+      const questions = (task && task.status === 'in_progress') ? getNormalizedPendingQuestions(task) : [];
+      if (questions.length === 0) {
+        box.classList.add('hidden');
+        listEl.innerHTML = '';
+        renderedClarificationSignature = '';
+        if (forceReset) clarificationDraftAnswers = {};
+        return;
+      }
+
+      const signature = `${task.id}:${JSON.stringify(questions)}`;
+      const signatureChanged = signature !== renderedClarificationSignature;
+      if (!forceReset && !signatureChanged && listEl.children.length > 0) {
+        return;
+      }
+
+      if (forceReset || signatureChanged) {
+        renderedClarificationSignature = signature;
+        const nextDraft = {};
+        questions.forEach((q, idx) => {
+          const qId = String(q.id || `q${idx + 1}`);
+          const prev = (!forceReset && clarificationDraftAnswers[qId]) ? clarificationDraftAnswers[qId] : null;
+          if (prev) {
+            nextDraft[qId] = prev;
+          } else {
+            const recIds = [];
+            if (q.recommended) {
+              recIds.push(q.recommended);
+            } else if (Array.isArray(q.options)) {
+              const recOpt = q.options.find(o => o && o.recommended);
+              if (recOpt) recIds.push(recOpt.id);
+            }
+            nextDraft[qId] = { selectedOptionIds: recIds, customText: '' };
+          }
+        });
+        clarificationDraftAnswers = nextDraft;
+      }
+
+      box.classList.remove('hidden');
+      if (countBadge) countBadge.innerText = `待回答 ${questions.length} 題`;
+      const hasAnyRecommended = questions.some(q => Boolean(q.recommended || (Array.isArray(q.options) && q.options.some(o => o && o.recommended))));
+      if (applyRecBtn) {
+        applyRecBtn.classList.toggle('hidden', !hasAnyRecommended);
+      }
+
+      listEl.innerHTML = questions.map((q, idx) => {
+        const qId = String(q.id || `q${idx + 1}`);
+        const draft = clarificationDraftAnswers[qId] || { selectedOptionIds: [], customText: '' };
+        const isMulti = q.type === 'multi';
+        const options = Array.isArray(q.options) ? q.options : [];
+        const typeLabel = q.type === 'text' ? '簡答題' : (isMulti ? '可複選' : '單選題');
+
+        const optionsHtml = options.map(opt => {
+          const isSelected = Array.isArray(draft.selectedOptionIds) && draft.selectedOptionIds.includes(opt.id);
+          const isRec = Boolean(opt.recommended || (q.recommended && q.recommended === opt.id));
+          return `
+            <button type="button" onclick="onClarificationOptionSelect('${escapeHtml(qId)}', '${escapeHtml(opt.id)}', ${isMulti ? 'true' : 'false'})" class="w-full text-left p-2.5 rounded-lg border transition flex items-start gap-2.5 cursor-pointer ${isSelected ? 'bg-amber-500/15 border-amber-500 text-slate-900 dark:text-white shadow-xs' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:border-amber-400 text-slate-800 dark:text-slate-200'}">
+              <span class="mt-0.5 w-4 h-4 ${isMulti ? 'rounded' : 'rounded-full'} border flex items-center justify-center flex-shrink-0 text-[10px] font-bold ${isSelected ? 'bg-amber-500 border-amber-500 text-white' : 'border-slate-400 dark:border-slate-500 text-transparent'}">
+                ${isSelected ? '✓' : ''}
+              </span>
+              <span class="flex-1 min-w-0 space-y-0.5">
+                <span class="flex items-center gap-1.5 flex-wrap text-xs font-semibold">
+                  <span>${escapeHtml(opt.label)}</span>
+                  ${isRec ? '<span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">⭐ AI 推薦</span>' : ''}
+                </span>
+                ${opt.description ? `<span class="block text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">${escapeHtml(opt.description)}</span>` : ''}
+              </span>
+            </button>
+          `;
+        }).join('');
+
+        const customPlaceholder = q.type === 'text'
+          ? '請輸入您的確認回覆或具體決定...'
+          : '補充說明或其他自訂決策（選填）...';
+
+        return `
+          <div class="p-3 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700/80 space-y-2.5">
+            <div class="flex items-start justify-between gap-2">
+              <div class="space-y-0.5 min-w-0">
+                <div class="text-xs font-bold text-slate-900 dark:text-white leading-snug">
+                  <span class="text-amber-600 dark:text-amber-400 font-mono mr-1">Q${idx + 1}.</span>${escapeHtml(q.question)}
+                </div>
+                ${q.context ? `<p class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">${escapeHtml(q.context)}</p>` : ''}
+              </div>
+              <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 whitespace-nowrap flex-shrink-0">${typeLabel}</span>
+            </div>
+            ${options.length > 0 ? `<div class="space-y-1.5">${optionsHtml}</div>` : ''}
+            ${q.allowCustom !== false ? `
+              <div>
+                <input type="text" value="${escapeHtml(draft.customText || '')}" oninput="onClarificationCustomInput('${escapeHtml(qId)}', this.value)" placeholder="${customPlaceholder}" class="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-amber-500 transition">
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }).join('');
+
+      if (signatureChanged && typeof updateModalButtonState === 'function') {
+        updateModalButtonState();
+      }
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function onClarificationOptionSelect(qId, optId, isMulti) {
+      const current = clarificationDraftAnswers[qId] || { selectedOptionIds: [], customText: '' };
+      let nextIds = Array.isArray(current.selectedOptionIds) ? [...current.selectedOptionIds] : [];
+      if (isMulti) {
+        if (nextIds.includes(optId)) {
+          nextIds = nextIds.filter(id => id !== optId);
+        } else {
+          nextIds.push(optId);
+        }
+      } else {
+        nextIds = [optId];
+      }
+      clarificationDraftAnswers[qId] = { ...current, selectedOptionIds: nextIds };
+      const task = currentModalEditingTask || tasks.find(t => t.id === document.getElementById('formTaskId')?.value);
+      renderedClarificationSignature = '';
+      renderClarificationQuestions(task, false);
+    }
+
+    function onClarificationCustomInput(qId, value) {
+      const current = clarificationDraftAnswers[qId] || { selectedOptionIds: [], customText: '' };
+      clarificationDraftAnswers[qId] = { ...current, customText: String(value || '') };
+    }
+
+    function applyRecommendedClarificationAnswers() {
+      const task = currentModalEditingTask || tasks.find(t => t.id === document.getElementById('formTaskId')?.value);
+      const questions = getNormalizedPendingQuestions(task);
+      if (questions.length === 0) return;
+
+      questions.forEach((q, idx) => {
+        const qId = String(q.id || `q${idx + 1}`);
+        const prev = clarificationDraftAnswers[qId] || { selectedOptionIds: [], customText: '' };
+        let recId = q.recommended || '';
+        if (!recId && Array.isArray(q.options)) {
+          const recOpt = q.options.find(o => o && o.recommended);
+          if (recOpt) recId = recOpt.id;
+        }
+        if (recId) {
+          clarificationDraftAnswers[qId] = { ...prev, selectedOptionIds: [recId] };
+        }
+      });
+      renderedClarificationSignature = '';
+      renderClarificationQuestions(task, false);
+      showToast('已套用所有題目的 AI 推薦選項！');
+    }
+
     function updateModalLiveInProgressView(task) {
       if (!task || task.status !== 'in_progress') return;
       const currentTaskIdInForm = document.getElementById('formTaskId')?.value;
       if (!currentTaskIdInForm || currentTaskIdInForm !== task.id) return;
 
+      renderClarificationQuestions(task, false);
       renderModalSliceInfo(task);
 
       const modFilesList = document.getElementById('formModifiedFilesList');
@@ -493,7 +697,9 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       if (!task) return false;
       if (task.status !== 'todo') return true;
       const safeNormalize = (typeof normalizeLogText === 'function') ? normalizeLogText : (v => typeof v === 'string' ? v : (v ? JSON.stringify(v) : ''));
-      return !!(safeNormalize(task.executionLog).trim() || safeNormalize(task.feedback).trim() || safeNormalize(task.executionPlan).trim());
+      const hasClarifications = (Array.isArray(task.pendingQuestions) && task.pendingQuestions.length > 0) ||
+        (Array.isArray(task.clarificationHistory) && task.clarificationHistory.length > 0);
+      return !!(safeNormalize(task.executionLog).trim() || safeNormalize(task.feedback).trim() || safeNormalize(task.executionPlan).trim() || hasClarifications);
     }
 
     async function openModalForEdit(id, options = {}) {
@@ -628,6 +834,7 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       if (typeof renderExecutionPlan === 'function') renderExecutionPlan(normalizedPlan, task);
       if (typeof switchPlanViewTab === 'function') switchPlanViewTab('visual');
       toggleFormRequiresConfirmation(!!task.requiresConfirmation);
+      renderClarificationQuestions(task, true);
 
       // 設定 Select2 標籤
       setSelect2Tags(task.tags || []);
@@ -754,7 +961,8 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       } else {
         const reviewDot = document.getElementById('modalTabReviewStatusDot');
         if (reviewDot) {
-          const needsReviewAttention = task.status === 'review' || (task.status === 'in_progress' && !!task.requiresConfirmation && !!normalizeLogText(task.executionPlan).trim());
+          const hasQuestionsAttention = task.status === 'in_progress' && (task.awaitingInput === true || getNormalizedPendingQuestions(task).length > 0);
+          const needsReviewAttention = task.status === 'review' || hasQuestionsAttention || (task.status === 'in_progress' && !!task.requiresConfirmation && !!normalizeLogText(task.executionPlan).trim());
           reviewDot.classList.toggle('hidden', !needsReviewAttention);
         }
         switchModalWorkspaceTab('review');
@@ -833,9 +1041,10 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
 
       // 嚴格規定：
       // 1. 待審核 (review) 或已完成 (done) 畫面中僅保留執行紀錄與測試 log，工作切片只在進行中任務顯示
-      // 2. 若任務處於「待確認」狀態（requiresConfirmation && status === in_progress），此時尚未確認執行計劃，隱藏工作切片，聚焦於執行計劃的審閱與確認
+      // 2. 若任務處於「待確認」或「待問答確認」狀態，隱藏工作切片，聚焦於待確認事項
       const isPendingConfirm = !!task.requiresConfirmation && task.status === 'in_progress';
-      if (!task || task.status !== 'in_progress' || isPendingConfirm) {
+      const hasPendingQuestions = task.status === 'in_progress' && (task.awaitingInput === true || getNormalizedPendingQuestions(task).length > 0);
+      if (!task || task.status !== 'in_progress' || isPendingConfirm || hasPendingQuestions) {
         box.classList.add('hidden');
         return;
       }
@@ -1116,12 +1325,22 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       }
 
       const btnConfirmAndExecute = document.getElementById('btnConfirmAndExecute');
+      const btnSubmitClarification = document.getElementById('btnSubmitClarification');
       const modalConfirmBadge = document.getElementById('modalConfirmationBadge');
       const reqConfirmWrapper = document.getElementById('formRequiresConfirmationWrapper');
       const isReqConfirmChecked = !!document.getElementById('formRequiresConfirmation')?.checked;
       const currentExecPlan = (document.getElementById('formExecutionPlan')?.value || '').trim();
       const hasExecutionPlan = currentExecPlan.length > 0;
       const isPendingConfirmation = isReqConfirmChecked && status === 'in_progress' && !!taskId && hasExecutionPlan;
+      const activeTaskForClarification = (typeof currentModalEditingTask !== 'undefined' && currentModalEditingTask && currentModalEditingTask.id === taskId)
+        ? currentModalEditingTask
+        : (Array.isArray(tasks) ? (tasks.find(t => t.id === taskId) || null) : null);
+      const hasPendingQuestions = Boolean(
+        status === 'in_progress' &&
+        taskId &&
+        activeTaskForClarification &&
+        (activeTaskForClarification.awaitingInput === true || (Array.isArray(activeTaskForClarification.pendingQuestions) && activeTaskForClarification.pendingQuestions.some(q => q && String(q.question || '').trim())))
+      );
 
       // 規範：新增任務 (!taskId) 或「待處理」狀態 (status === 'todo') 的任務，顯示「需確認後再執行」的 checkbox；其餘非待處理既有任務隱藏
       if (reqConfirmWrapper) {
@@ -1202,9 +1421,11 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
       }
 
       if (modalConfirmBadge) {
-        if (isPendingConfirmation) {
+        if (isPendingConfirmation || hasPendingQuestions) {
           modalConfirmBadge.classList.remove('hidden');
           modalConfirmBadge.classList.add('flex');
+          const badgeSpan = typeof modalConfirmBadge.querySelector === 'function' ? modalConfirmBadge.querySelector('span') : null;
+          if (badgeSpan) badgeSpan.innerText = hasPendingQuestions ? '待確認問答' : '待確認';
         } else {
           modalConfirmBadge.classList.add('hidden');
           modalConfirmBadge.classList.remove('flex');
@@ -1221,8 +1442,12 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
         planLabelIcon.setAttribute('class', hasGrillMeSkill ? 'w-3.5 h-3.5 text-orange-500' : 'w-3.5 h-3.5 text-amber-500');
       }
 
+      if (btnSubmitClarification) {
+        btnSubmitClarification.classList.toggle('hidden', !hasPendingQuestions);
+      }
+
       if (btnConfirmAndExecute) {
-        if (isPendingConfirmation) {
+        if (isPendingConfirmation && !hasPendingQuestions) {
           btnConfirmAndExecute.classList.remove('hidden');
           const btnIcon = document.getElementById('btnConfirmAndExecuteIcon');
           const btnText = document.getElementById('btnConfirmAndExecuteText');
@@ -1527,6 +1752,80 @@ import { initReviewLandPanel } from "./reviewLandStudio.js";
         } catch (err) {
           console.error('Failed to confirm and execute task:', err);
           showToast(`確認執行失敗: ${err.message}`);
+        }
+      });
+
+      [btnSubmit].filter(Boolean).forEach(b => { b.disabled = false; b.classList.remove('opacity-50', 'pointer-events-none'); });
+    }
+
+    async function submitClarificationAnswers(event) {
+      const id = document.getElementById('formTaskId')?.value;
+      if (!id) return;
+      const task = currentModalEditingTask && currentModalEditingTask.id === id
+        ? currentModalEditingTask
+        : tasks.find(t => t.id === id);
+      if (!task) return;
+
+      const questions = getNormalizedPendingQuestions(task);
+      for (let i = 0; i < questions.length; i++) {
+        const q = questions[i];
+        const qId = String(q.id || `q${i + 1}`);
+        const draft = clarificationDraftAnswers[qId] || { selectedOptionIds: [], customText: '' };
+        const hasChoice = Array.isArray(draft.selectedOptionIds) && draft.selectedOptionIds.length > 0;
+        const hasCustom = q.allowCustom !== false && String(draft.customText || '').trim().length > 0;
+        if (q.required !== false && ((q.type === 'text' && !hasCustom) || (q.type !== 'text' && !hasChoice && !hasCustom))) {
+          showToast(`請先選擇或填寫 Q${i + 1}：${q.question}`);
+          return;
+        }
+      }
+
+      const btnClarify = document.getElementById('btnSubmitClarification');
+      if (btnClarify?.disabled) return;
+      const btnSubmit = document.getElementById('btnSubmitTask');
+      [btnSubmit].filter(Boolean).forEach(b => { b.disabled = true; b.classList.add('opacity-50', 'pointer-events-none'); });
+
+      await withButtonLoading(btnClarify, '送出中...', async () => {
+        try {
+          const answersPayload = questions.map((q, i) => {
+            const qId = String(q.id || `q${i + 1}`);
+            const draft = clarificationDraftAnswers[qId] || { selectedOptionIds: [], customText: '' };
+            return {
+              id: qId,
+              selectedOptionIds: Array.isArray(draft.selectedOptionIds) ? draft.selectedOptionIds : [],
+              customText: String(draft.customText || '').trim()
+            };
+          });
+          const formFeedback = (document.getElementById('formFeedback')?.value || '').trim();
+          const currentPlan = (document.getElementById('formExecutionPlan')?.value || '').trim();
+
+          const res = await fetch(`/api/tasks/${encodeURIComponent(id)}/answer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              answers: answersPayload,
+              feedback: formFeedback,
+              confirmExecution: true,
+              executionPlan: currentPlan
+            })
+          });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error || `伺服器回應 ${res.status}`);
+          }
+          const updatedTask = await res.json();
+          const idx = tasks.findIndex(t => t.id === id);
+          if (idx !== -1) tasks[idx] = updatedTask;
+
+          clarificationDraftAnswers = {};
+          renderedClarificationSignature = '';
+          closeModal();
+          renderKanban();
+          renderMetrics();
+          showToast(`已送出任務 ${id} 的確認結果，喚醒 Agent 繼續執行！`);
+          await loadData();
+        } catch (err) {
+          console.error('Failed to submit clarification answers:', err);
+          showToast(`送出確認失敗: ${err.message}`);
         }
       });
 
@@ -2228,6 +2527,11 @@ export {
   saveTask,
   toggleFormRequiresConfirmation,
   confirmAndExecuteTask,
+  renderClarificationQuestions,
+  onClarificationOptionSelect,
+  onClarificationCustomInput,
+  applyRecommendedClarificationAnswers,
+  submitClarificationAnswers,
   approveTaskAsDone,
   rejectTaskWithFeedback,
   submitTaskForReview,
@@ -2305,6 +2609,11 @@ if (typeof window !== "undefined") {
   window.saveTask = saveTask;
   window.toggleFormRequiresConfirmation = toggleFormRequiresConfirmation;
   window.confirmAndExecuteTask = confirmAndExecuteTask;
+  window.renderClarificationQuestions = renderClarificationQuestions;
+  window.onClarificationOptionSelect = onClarificationOptionSelect;
+  window.onClarificationCustomInput = onClarificationCustomInput;
+  window.applyRecommendedClarificationAnswers = applyRecommendedClarificationAnswers;
+  window.submitClarificationAnswers = submitClarificationAnswers;
   window.approveTaskAsDone = approveTaskAsDone;
   window.rejectTaskWithFeedback = rejectTaskWithFeedback;
   window.submitTaskForReview = submitTaskForReview;

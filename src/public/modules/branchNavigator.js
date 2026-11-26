@@ -8,6 +8,7 @@ const loadingBranchProjects = new Set();
 const loadingRemoteStatusKeys = new Set();
 let branchRemoteStatusMap = {};
 let popoverTargetProjectId = "";
+let _gitSyncModalState = null;
 
 async function loadBranchRemoteStatus(projectId, branchName, forceRefresh = false) {
   if (!projectId || projectId === "ALL" || !branchName || branchName === "ALL" || typeof fetch !== "function") {
@@ -106,37 +107,37 @@ function renderProjectBranchTree(project) {
         }
       });
     }
-    return `<div class="pt-1 border-t border-slate-200/80 dark:border-slate-700/70 text-[11px] text-slate-400 px-1 py-0.5">載入分支中...</div>`;
+    return `<div class="pt-0.5 border-t border-slate-200/80 dark:border-slate-700/70 text-[10px] text-slate-400 px-1 py-0.5">載入分支中...</div>`;
   }
 
   if (!data.isGitRepo) {
-    return `<div class="pt-1 border-t border-slate-200/80 dark:border-slate-700/70 text-[10px] text-slate-400 px-1 py-0.5">非 Git 資料夾</div>`;
+    return `<div class="pt-0.5 border-t border-slate-200/80 dark:border-slate-700/70 text-[10px] text-slate-400 px-1 py-0.5">非 Git 資料夾</div>`;
   }
 
   const branches = Array.isArray(data.branches) ? data.branches : [];
   const defaultFrom = escapeAttrJs(data.defaultBranch || data.currentCheckoutBranch || "main");
   const projTasks = (tasks || []).filter(t => t.project === project.id && t.status !== "archived");
 
-  let html = `<div class="space-y-0.5 pt-1 border-t border-[var(--border)]">`;
+  let html = `<div class="ml-2 pl-1.5 pt-0.5 space-y-0.5 border-l border-[var(--border)]">`;
   branches.forEach(b => {
     const isActive = currentProject === project.id && currentBranch === b.name;
     const safeBranchAttr = escapeAttrJs(b.name);
     const bCount = projTasks.filter(t => (t.targetBranch || t.baseBranch || data.defaultBranch || "") === b.name).length;
     const isDirtyHead = Boolean(b.isCurrentCheckout && data.isMainWorkspaceDirty);
     html += `
-      <button type="button" onclick="selectProjectAndBranch('${safeProjAttr}', '${safeBranchAttr}', event)" class="w-full text-left pl-3 pr-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between gap-1.5 transition cursor-pointer ${isActive ? "bg-[var(--primary)] text-[var(--primary-foreground)] font-bold" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--background)]"}">
-        <span class="font-mono truncate flex items-center gap-1.5 min-w-0">
+      <button type="button" onclick="selectProjectAndBranch('${safeProjAttr}', '${safeBranchAttr}', event)" class="w-full text-left pl-1.5 pr-1.5 py-0.5 rounded-md text-[10.5px] leading-snug flex items-center justify-between gap-1 transition cursor-pointer ${isActive ? "bg-[var(--primary)] text-[var(--primary-foreground)] font-semibold" : "font-normal text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--background)]"}">
+        <span class="font-mono truncate flex items-center gap-1 min-w-0">
           <span>${b.isCurrentCheckout ? "●" : "⎇"}</span>
           <span class="truncate">${escapeHtml(b.name)}</span>
-          ${isDirtyHead ? `<span class="px-1 rounded border text-[10px] font-sans flex-shrink-0 ${isActive ? "border-amber-200 text-amber-100" : "border-[var(--warning)] text-[var(--warning)]"}">未提交</span>` : ""}
+          ${isDirtyHead ? `<span class="px-1 rounded border text-[9px] font-sans flex-shrink-0 ${isActive ? "border-amber-200 text-amber-100" : "border-[var(--warning)] text-[var(--warning)]"}">未提交</span>` : ""}
         </span>
-        <span class="font-mono text-xs flex-shrink-0">${bCount}</span>
+        <span class="font-mono text-[10px] flex-shrink-0">${bCount}</span>
       </button>
     `;
   });
   html += `
     <div class="pt-0.5 flex justify-end">
-      <button type="button" onclick="openCreateBranchPopover('${safeProjAttr}', '${defaultFrom}', event)" class="text-[11px] font-semibold px-1.5 py-0.5 rounded text-[var(--link)] hover:underline transition cursor-pointer">
+      <button type="button" onclick="openCreateBranchPopover('${safeProjAttr}', '${defaultFrom}', event)" class="text-[10px] font-medium px-1 py-0.5 rounded text-[var(--link)] hover:underline transition cursor-pointer">
         ＋ 新建分支
       </button>
     </div>
@@ -246,6 +247,12 @@ function renderContextualHeaderActions() {
         actionButtons.push(
           `<button type="button" onclick="pullCurrentBranch('${safeProjAttr}', '${safeBranchAttr}', event)" title="從遠端 Fetch 並拉取分支 ${escapeHtml(currentBranch)} 最新進度" class="${pullCls}">${escapeHtml(pullLabel)}</button>`
         );
+
+        if (isNonDefaultBranch) {
+          actionButtons.push(
+            `<button type="button" onclick="openSyncBaseModal('${safeProjAttr}', '${safeBranchAttr}', '${safeDefaultAttr}', event)" title="將 ${escapeHtml(defaultBranch)} 最新進度同步合併至此分支 (支援 Merge / Rebase)" class="h-7 sm:h-8 inline-flex items-center gap-1 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] sm:text-xs font-semibold px-2.5 rounded-lg border border-slate-300/70 dark:border-slate-700 transition cursor-pointer whitespace-nowrap">同步 ${escapeHtml(defaultBranch)}</button>`
+          );
+        }
 
         const pushLabel = remoteInfo && remoteInfo.ahead > 0
           ? `推送 ↑${remoteInfo.ahead}`
@@ -511,7 +518,18 @@ async function submitMergeBranch(projectId, sourceBranch, targetBranch) {
     if (typeof window !== "undefined") await window.loadData?.();
   } catch (err) {
     if (errEl) {
-      errEl.innerText = err.message || "合併分支失敗";
+      const safeProjAttr = escapeAttrJs(projectId);
+      const errMsg = err.message || "合併分支失敗";
+      const showIdeBtns = /衝突|未提交|conflict|dirty/i.test(errMsg);
+      errEl.innerHTML = `
+        <div>${escapeHtml(errMsg)}</div>
+        ${showIdeBtns ? `
+          <div class="mt-2 pt-2 border-t border-rose-200/70 dark:border-rose-800/70 flex flex-wrap items-center gap-1.5 font-sans">
+            <button type="button" onclick="openProjectInEditor('${safeProjAttr}', 'antigravity', event)" class="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-semibold cursor-pointer">在 Antigravity 開啟</button>
+            <button type="button" onclick="openProjectInEditor('${safeProjAttr}', 'vscode', event)" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-semibold cursor-pointer">在 VS Code 開啟</button>
+          </div>
+        ` : ""}
+      `;
       errEl.classList.remove("hidden");
     }
     showToast(`合併失敗：${err.message}`);
@@ -520,6 +538,228 @@ async function submitMergeBranch(projectId, sourceBranch, targetBranch) {
       btn.disabled = false;
       btn.innerText = `確認合併回 ${targetBranch}`;
     }
+  }
+}
+
+async function openProjectInEditor(projectId, editor = "antigravity", event, options = {}) {
+  if (event && typeof event.stopPropagation === "function") event.stopPropagation();
+  if (!projectId || projectId === "ALL") return null;
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/open-editor`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        editor,
+        ...(options?.taskId ? { taskId: options.taskId } : {}),
+        ...(options?.openWorktree === true ? { openWorktree: true } : {})
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.success === false) {
+      throw new Error(data.error || `無法開啟 ${editor} (HTTP ${res.status})`);
+    }
+    const labelMap = {
+      antigravity: "Antigravity IDE",
+      vscode: "VS Code",
+      finder: "Finder",
+      terminal: "Terminal"
+    };
+    showToast(`已在 ${labelMap[editor] || editor} 開啟專案`);
+    return data;
+  } catch (err) {
+    showToast(`開啟失敗：${err.message || "未知錯誤"}`);
+    return null;
+  }
+}
+
+function closeGitSyncModal() {
+  if (typeof document === "undefined") return;
+  const el = document.getElementById("gitSyncConflictModal");
+  if (el) el.remove();
+  _gitSyncModalState = null;
+  renderContextualHeaderActions();
+}
+
+function openEditorFromGitSyncModal(editor, event) {
+  if (!_gitSyncModalState?.projectId) return;
+  openProjectInEditor(_gitSyncModalState.projectId, editor, event);
+}
+
+function openGitSyncModal(config = {}) {
+  if (typeof document === "undefined") return;
+  closeGitSyncModal();
+  _gitSyncModalState = {
+    mode: config.mode === "conflict" ? "conflict" : "choose_sync",
+    syncKind: config.syncKind || "pull",
+    projectId: config.projectId || "",
+    branchName: config.branchName || "",
+    baseBranch: config.baseBranch || "main",
+    afterSync: config.afterSync || "",
+    taskId: config.taskId || ""
+  };
+
+  const isConflict = _gitSyncModalState.mode === "conflict";
+  const files = Array.isArray(config.files) ? config.files : [];
+  const modalTitle = config.title || (
+    isConflict
+      ? "偵測到合併衝突或未提交變更"
+      : (_gitSyncModalState.syncKind === "sync_base"
+        ? `同步 ${_gitSyncModalState.baseBranch} 至 ${_gitSyncModalState.branchName}`
+        : `分支 ${_gitSyncModalState.branchName} 與遠端分叉`)
+  );
+
+  let bodyHtml = "";
+  let footerHtml = "";
+
+  if (isConflict) {
+    const fileListHtml = files.length > 0
+      ? `<div class="space-y-1">
+          <div class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">涉及檔案（${files.length}）：</div>
+          <div class="max-h-28 overflow-y-auto rounded-lg bg-slate-100 dark:bg-slate-800/80 p-2 font-mono text-[11px] text-rose-700 dark:text-rose-300 space-y-0.5">
+            ${files.map(f => `<div class="truncate">${escapeHtml(f)}</div>`).join("")}
+          </div>
+        </div>`
+      : "";
+    bodyHtml = `
+      <pre class="whitespace-pre-wrap break-words font-mono text-[11px] rounded-lg p-2.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 text-rose-800 dark:text-rose-200 max-h-32 overflow-y-auto">${escapeHtml(config.message || "Git 操作發生衝突，已自動安全還原工作區。")}</pre>
+      ${fileListHtml}
+      <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+        Task Dashboard 不直接修改衝突檔案。建議一鍵跳轉至 Antigravity IDE 或 VS Code 使用視覺化 Merge 編輯器解完衝突並 commit 後，再回到看板推送。
+      </p>
+    `;
+    footerHtml = `
+      <button type="button" onclick="closeGitSyncModal()" class="px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-xs font-medium cursor-pointer">關閉</button>
+      <button type="button" onclick="openEditorFromGitSyncModal('vscode', event)" class="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold cursor-pointer">在 VS Code 開啟</button>
+      <button type="button" onclick="openEditorFromGitSyncModal('antigravity', event)" class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-sm cursor-pointer">在 Antigravity 開啟</button>
+    `;
+  } else {
+    const introText = config.message || (
+      _gitSyncModalState.afterSync === "push"
+        ? `遠端 origin/${escapeHtml(_gitSyncModalState.branchName)} 已有新進度，需先將遠端變更同步進本地後再自動推送。`
+        : (_gitSyncModalState.syncKind === "sync_base"
+          ? `即將把 ⎇ ${escapeHtml(_gitSyncModalState.baseBranch)}（優先取遠端最新）同步至功能分支 ⎇ ${escapeHtml(_gitSyncModalState.branchName)}。`
+          : `分支 ⎇ ${escapeHtml(_gitSyncModalState.branchName)} 與遠端分支已分叉，無法直接 Fast-Forward，請選擇同步策略：`)
+    );
+    bodyHtml = `
+      <p class="text-slate-600 dark:text-slate-300 leading-relaxed">${introText}</p>
+      <div class="rounded-lg bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 p-2.5 text-[11px] text-slate-600 dark:text-slate-300 space-y-1">
+        <div><span class="font-semibold text-emerald-700 dark:text-emerald-400">• 合併同步 (git merge，推薦)：</span>保留雙方紀錄並建立合併節點，最直覺安全。</div>
+        <div><span class="font-semibold text-sky-700 dark:text-sky-400">• 變基同步 (git rebase)：</span>把本地修改重新接到最新進度後面，歷史呈一條直線。</div>
+      </div>
+    `;
+    footerHtml = `
+      <button type="button" onclick="closeGitSyncModal()" class="px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-xs font-medium cursor-pointer">取消</button>
+      <button type="button" data-sync-btn="rebase" onclick="runGitSyncModalAction('rebase')" class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold cursor-pointer">變基同步 (Rebase)</button>
+      <button type="button" data-sync-btn="merge" onclick="runGitSyncModalAction('merge')" class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm cursor-pointer">合併同步 (Merge，推薦)</button>
+    `;
+  }
+
+  const modalEl = document.createElement("div");
+  modalEl.id = "gitSyncConflictModal";
+  modalEl.className = "fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4";
+  modalEl.innerHTML = `
+    <div class="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100">
+      <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+        <h3 class="text-sm font-bold flex items-center gap-1.5">
+          <i data-lucide="${isConflict ? "alert-triangle" : "git-merge"}" class="w-4 h-4 ${isConflict ? "text-rose-500" : "text-sky-500"}"></i>
+          <span>${escapeHtml(modalTitle)}</span>
+        </h3>
+        <button type="button" onclick="closeGitSyncModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg leading-none cursor-pointer">×</button>
+      </div>
+      <div class="p-4 space-y-3 text-xs">${bodyHtml}</div>
+      <div class="px-4 py-3 bg-slate-50 dark:bg-slate-900/90 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-end gap-2">
+        ${footerHtml}
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modalEl);
+  if (window.lucide) window.lucide.createIcons();
+}
+
+async function runGitSyncModalAction(strategy = "merge") {
+  const state = _gitSyncModalState;
+  if (!state || !state.projectId || !state.branchName) return;
+  const btns = document.querySelectorAll("#gitSyncConflictModal [data-sync-btn]");
+  btns.forEach(b => {
+    b.disabled = true;
+    b.classList.add("opacity-60");
+  });
+
+  if (state.syncKind === "sync_base") {
+    const ok = await syncCurrentBranchWithBase(
+      state.projectId,
+      state.branchName,
+      state.baseBranch,
+      strategy,
+      state.afterSync
+    );
+    if (ok) closeGitSyncModal();
+    return;
+  }
+
+  const ok = await pullCurrentBranch(state.projectId, state.branchName, null, {
+    rebase: strategy === "rebase",
+    merge: strategy !== "rebase",
+    afterSync: state.afterSync
+  });
+  if (ok) closeGitSyncModal();
+}
+
+function openSyncBaseModal(projectId, branchName, baseBranch, event) {
+  if (event && typeof event.stopPropagation === "function") event.stopPropagation();
+  if (!projectId || !branchName) return;
+  openGitSyncModal({
+    mode: "choose_sync",
+    syncKind: "sync_base",
+    projectId,
+    branchName,
+    baseBranch: baseBranch || "main"
+  });
+}
+
+async function syncCurrentBranchWithBase(projectId, branchName, baseBranch, strategy = "merge", afterSync = "") {
+  if (!projectId || !branchName) return false;
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/branches/sync-base`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ branch: branchName, baseBranch, strategy })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.success === false) {
+      if (data.conflict || data.status === "conflict" || data.status === "dirty_workspace") {
+        openGitSyncModal({
+          mode: "conflict",
+          projectId,
+          branchName,
+          baseBranch,
+          message: data.error || `同步 ${baseBranch} 發生衝突`,
+          files: data.conflictingFiles || data.dirtyFiles || []
+        });
+        return false;
+      }
+      throw new Error(data.error || `同步失敗 (HTTP ${res.status})`);
+    }
+    if (data.remoteStatus) {
+      branchRemoteStatusMap[`${projectId}::${branchName}`] = data.remoteStatus;
+    }
+    if (data.branchInfo) {
+      setProjectBranchesMap({ ...projectBranchesMap, [projectId]: data.branchInfo });
+    } else {
+      await loadProjectBranches(projectId, true);
+    }
+    showToast(data.alreadyUpToDate ? `${branchName} 已是最新，無需同步` : `已將 ${data.syncRef || baseBranch} 同步至 ${branchName} ✓`);
+    if (typeof window !== "undefined") {
+      await window.loadData?.();
+    }
+    renderContextualHeaderActions();
+    if (afterSync === "push") {
+      await pushCurrentBranch(projectId, branchName, null);
+    }
+    return true;
+  } catch (err) {
+    showToast(`同步失敗：${err.message || "未知錯誤"}`);
+    return false;
   }
 }
 
@@ -540,6 +780,18 @@ async function pushCurrentBranch(projectId, branchName, event, options = {}) {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.success === false) {
+      if (data.nonFastForward) {
+        openGitSyncModal({
+          mode: "choose_sync",
+          syncKind: "pull",
+          projectId,
+          branchName,
+          taskId,
+          afterSync: "push",
+          title: "遠端有新進度，需先同步再推送"
+        });
+        return;
+      }
       throw new Error(data.error || `推送失敗 (HTTP ${res.status})`);
     }
     if (data.remoteStatus) {
@@ -784,31 +1036,43 @@ async function submitCreatePr(projectId, sourceBranch, taskId = "") {
 
 async function pullCurrentBranch(projectId, branchName, event, options = {}) {
   if (event && typeof event.stopPropagation === "function") event.stopPropagation();
-  if (!projectId || !branchName) return;
+  if (!projectId || !branchName) return false;
   const btn = event?.currentTarget || null;
   const origHtml = btn ? btn.innerHTML : "";
   const rebase = options.rebase === true;
+  const merge = options.merge === true;
+  const afterSync = options.afterSync || "";
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = rebase ? "Rebase 中..." : "拉取中...";
+    btn.innerHTML = rebase ? "Rebase 中..." : (merge ? "合併中..." : "拉取中...");
   }
   try {
     const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/branches/pull`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ branch: branchName, mode: "pull", rebase })
+      body: JSON.stringify({ branch: branchName, mode: "pull", rebase, merge })
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.success) {
-      if (data.canRetryWithRebase && !rebase && typeof window !== "undefined" && typeof window.confirm === "function") {
-        const shouldRebase = window.confirm(`分支 ${branchName} 與遠端分叉，無法直接 Fast-Forward。\n是否改用 git pull --rebase 同步遠端最新進度？`);
-        if (shouldRebase) {
-          if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = origHtml;
-          }
-          return await pullCurrentBranch(projectId, branchName, null, { rebase: true });
-        }
+      if (data.canRetryWithRebase && !rebase && !merge) {
+        openGitSyncModal({
+          mode: "choose_sync",
+          syncKind: "pull",
+          projectId,
+          branchName,
+          afterSync
+        });
+        return false;
+      }
+      if (data.conflict || data.status === "conflict" || data.status === "dirty_workspace") {
+        openGitSyncModal({
+          mode: "conflict",
+          projectId,
+          branchName,
+          message: data.error || `拉取 ${branchName} 發生衝突`,
+          files: data.conflictingFiles || data.dirtyFiles || []
+        });
+        return false;
       }
       throw new Error(data.error || `拉取失敗 (HTTP ${res.status})`);
     }
@@ -825,8 +1089,13 @@ async function pullCurrentBranch(projectId, branchName, event, options = {}) {
       await window.loadData?.();
     }
     renderContextualHeaderActions();
+    if (afterSync === "push") {
+      await pushCurrentBranch(projectId, branchName, null);
+    }
+    return true;
   } catch (err) {
     showToast(`拉取失敗：${err.message || "未知錯誤"}`);
+    return false;
   } finally {
     if (btn) {
       btn.disabled = false;
@@ -901,7 +1170,14 @@ export {
   openCreatePrModal,
   openCreatePrForTask,
   closeCreatePrModal,
-  submitCreatePr
+  submitCreatePr,
+  openProjectInEditor,
+  openGitSyncModal,
+  closeGitSyncModal,
+  openEditorFromGitSyncModal,
+  runGitSyncModalAction,
+  openSyncBaseModal,
+  syncCurrentBranchWithBase
 };
 
 if (typeof window !== "undefined") {
@@ -925,4 +1201,11 @@ if (typeof window !== "undefined") {
   window.openCreatePrForTask = openCreatePrForTask;
   window.closeCreatePrModal = closeCreatePrModal;
   window.submitCreatePr = submitCreatePr;
+  window.openProjectInEditor = openProjectInEditor;
+  window.openGitSyncModal = openGitSyncModal;
+  window.closeGitSyncModal = closeGitSyncModal;
+  window.openEditorFromGitSyncModal = openEditorFromGitSyncModal;
+  window.runGitSyncModalAction = runGitSyncModalAction;
+  window.openSyncBaseModal = openSyncBaseModal;
+  window.syncCurrentBranchWithBase = syncCurrentBranchWithBase;
 }

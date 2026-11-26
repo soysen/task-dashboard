@@ -14,7 +14,7 @@ mkdir -p "$APP_DIR/Contents/Resources"
 
 # 1. 編譯 Cocoa / WebKit 原生執行檔
 echo "🔨 編譯 Objective-C 原生外殼..."
-clang -fobjc-arc -framework Cocoa -framework WebKit \
+clang -fobjc-arc -framework Cocoa -framework WebKit -framework UserNotifications \
       -o "$APP_DIR/Contents/MacOS/TaskDashboard" \
       "$PROJECT_DIR/src/native/main.m"
 
@@ -58,6 +58,9 @@ cat << 'PLIST_EOF' > "$APP_DIR/Contents/Info.plist"
 </dict>
 </plist>
 PLIST_EOF
+
+# Ad-hoc 簽章以啟用 macOS UserNotifications 與穩定的 App Bundle 識別
+codesign --force --deep --sign - "$APP_DIR"
 
 echo "✅ 打包完成！獨立 App 路徑: $APP_DIR"
 

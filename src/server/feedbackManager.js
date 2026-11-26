@@ -697,6 +697,186 @@ function determineTaskTier(task) {
   return 'standard';
 }
 
+/**
+ * 正規化任務中待確認問答清單 (pendingQuestions)
+ * @param {Array} raw
+ * @returns {Array<Object>}
+ */
+function normalizePendingQuestions(raw) {
+  if (!Array.isArray(raw)) return [];
+  const recRegex = /\s*(?:\(Recommended\)|（推薦）|\[推薦\])\s*$/i;
+  const result = [];
+
+  raw.forEach((entry, idx) => {
+    const q = (typeof entry === 'string') ? { question: entry, type: 'text' } : entry;
+    if (!q || typeof q !== 'object') return;
+    const question = String(q.question || q.title || q.prompt || '').trim();
+    if (!question) return;
+
+    const id = String(q.id || `q${idx + 1}`).trim() || `q${idx + 1}`;
+    const context = String(q.context || q.description || q.reason || '').trim();
+    const rawRec = String(q.recommended || '').trim();
+    const options = [];
+    let resolvedRec = '';
+
+    if (Array.isArray(q.options)) {
+      q.options.forEach((opt, oIdx) => {
+        const optIdDefault = `opt_${oIdx + 1}`;
+        if (typeof opt === 'string') {
+          const hasRecMarker = recRegex.test(opt);
+          const cleaned = opt.replace(recRegex, '').trim();
+          if (!cleaned) return;
+          const isRec = hasRecMarker || Boolean(rawRec && (rawRec === opt || rawRec === cleaned || rawRec === optIdDefault));
+          if (isRec && !resolvedRec) resolvedRec = optIdDefault;
+          options.push({
+            id: optIdDefault,
+            label: cleaned,
+            description: '',
+            recommended: isRec
+          });
+        } else if (opt && typeof opt === 'object') {
+          const optId = String(opt.id || opt.value || optIdDefault).trim() || optIdDefault;
+          const rawLabel = String(opt.label || opt.title || opt.text || opt.value || '').trim();
+          const hasRecMarker = recRegex.test(rawLabel);
+          const cleanedLabel = rawLabel.replace(recRegex, '').trim();
+          if (!cleanedLabel) return;
+          const desc = String(opt.description || opt.desc || opt.hint || '').trim();
+          const isRec = Boolean(opt.recommended || hasRecMarker || (rawRec && (rawRec === optId || rawRec === cleanedLabel || rawRec === rawLabel)));
+          if (isRec && !resolvedRec) resolvedRec = optId;
+          options.push({
+            id: optId,
+            label: cleanedLabel,
+            description: desc,
+            recommended: isRec
+          });
+        }
+      });
+    }
+
+    const isMulti = q.type === 'multi' || q.multiSelect === true || q.is_multi_select === true;
+    const type = isMulti ? 'multi' : (q.type === 'text' || options.length === 0 ? 'text' : 'single');
+
+    result.push({
+      id,
+      question,
+      context,
+      type,
+      recommended: type === 'text' ? '' : resolvedRec,
+      allowCustom: q.allowCustom !== false,
+      required: q.required !== false,
+      options
+    });
+  });
+
+  return result;
+}
+
+/**
+ * 驗證並格式化使用者針對 pendingQuestions 的回覆為最新需求覆蓋決策區塊
+ * @param {Array<Object>} questions
+ * @param {Array|Object} rawAnswers
+ * @param {string} [extraFeedback='']
+ * @param {string} [timeStr='']
+ * @returns {Object}
+ */
+function formatClarificationDecisionBlock(questions, rawAnswers, extraFeedback = '', timeStr = '') {
+  const normalizedQuestions = normalizePendingQuestions(questions);
+  const answerMap = new Map();
+
+  if (Array.isArray(rawAnswers)) {
+    rawAnswers.forEach(item => {
+      if (item && typeof item === 'object' && item.id) {
+        answerMap.set(String(item.id).trim(), item);
+      }
+    });
+  } else if (rawAnswers && typeof rawAnswers === 'object') {
+    Object.entries(rawAnswers).forEach(([k, v]) => {
+      if (v && typeof v === 'object') {
+        answerMap.set(String(k).trim(), v);
+      } else if (typeof v === 'string') {
+        answerMap.set(String(k).trim(), { customText: v });
+      } else if (Array.isArray(v)) {
+        answerMap.set(String(k).trim(), { selectedOptionIds: v });
+      }
+    });
+  }
+
+  const items = [];
+  for (let idx = 0; idx < normalizedQuestions.length; idx++) {
+    const q = normalizedQuestions[idx];
+    const ans = answerMap.get(q.id) || {};
+    const rawIds = Array.isArray(ans.selectedOptionIds)
+      ? ans.selectedOptionIds
+      : (ans.selectedOptionId ? [ans.selectedOptionId] : []);
+    const selectedOptionIds = [...new Set(rawIds.map(v => String(v || '').trim()).filter(Boolean))];
+    const customText = String(ans.customText || ans.text || '').trim();
+
+    const matchedOptions = selectedOptionIds
+      .map(id => q.options.find(o => o.id === id))
+      .filter(Boolean);
+    const validSelectedIds = matchedOptions.map(o => o.id);
+    const selectedLabels = matchedOptions.map(o => o.label);
+
+    if (q.required !== false) {
+      if (q.type === 'text') {
+        if (!customText) return { valid: false, missingQuestion: q.question };
+      } else {
+        const hasChoice = validSelectedIds.length > 0;
+        const hasCustom = q.allowCustom && customText.length > 0;
+        if (!hasChoice && !hasCustom) {
+          return { valid: false, missingQuestion: q.question };
+        }
+      }
+    }
+
+    const summaryParts = [];
+    if (selectedLabels.length > 0) summaryParts.push(selectedLabels.join('、'));
+    if (customText) summaryParts.push(`補充說明：${customText}`);
+    const summary = summaryParts.join('；') || '（未填寫）';
+
+    items.push({
+      id: q.id,
+      index: idx + 1,
+      question: q.question,
+      selectedOptionIds: validSelectedIds,
+      selectedLabels,
+      customText,
+      summary
+    });
+  }
+
+  const cleanExtra = String(extraFeedback || '').trim();
+  const isoNow = new Date().toISOString();
+  const displayTime = timeStr || isoNow.replace('T', ' ').slice(0, 19);
+  const sectionHeader = '--- 【執行中問答確認 / 最新需求覆蓋】 ---';
+  const directive = '> ⚠️ 【最高優先級覆蓋規範】：本區塊為使用者針對執行中待確認事項之正式拍板決策。若與上方舊有需求存在矛盾或未定邊界，一律以本區塊決策為準！';
+
+  const qaLines = items.map(it => `- **[Q${it.index}] ${it.question}**\n  - 決策：${it.summary}`);
+  if (cleanExtra) {
+    const extraLines = cleanExtra.split('\n').map(l => l.trim()).filter(Boolean).map(l => `  - ${l}`).join('\n');
+    qaLines.push(`- **補充指示**：\n${extraLines}`);
+  }
+
+  const entryBlock = `[${displayTime}]\n${directive}\n${qaLines.join('\n')}`;
+  const logSummary = items.length > 0
+    ? `使用者已回答 ${items.length} 項待確認問題：\n${items.map(it => `  • Q${it.index} ${it.question} → ${it.summary}`).join('\n')}${cleanExtra ? `\n  • 補充指示：${cleanExtra}` : ''}`
+    : `使用者已補充確認指示：${cleanExtra}`;
+
+  return {
+    valid: true,
+    sectionHeader,
+    entryBlock,
+    historyEntry: {
+      answeredAt: isoNow,
+      items: items.map(({ id, question, selectedOptionIds, selectedLabels, customText, summary }) => ({
+        id, question, selectedOptionIds, selectedLabels, customText, summary
+      })),
+      extraFeedback: cleanExtra
+    },
+    logSummary
+  };
+}
+
 module.exports = {
   normalizeLogText,
   consumeTaskFeedback,
@@ -709,5 +889,7 @@ module.exports = {
   calculateRiskDoor,
   autoAssembleExecutionReport,
   determineTaskTier,
-  normalizeDisclosureList
+  normalizeDisclosureList,
+  normalizePendingQuestions,
+  formatClarificationDecisionBlock
 };
