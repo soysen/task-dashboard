@@ -1,4 +1,5 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { execFile, execFileSync } = require('child_process');
 const { promisify } = require('util');
@@ -301,6 +302,52 @@ function getBranchRemoteStatus(repoPath, branchName = '', options = {}) {
 }
 
 /**
+ * 依據遠端 URL 建立非互動式 Git 執行環境與臨時認證參數（不寫入 .git/config）
+ * @param {string} rawUrl
+ * @param {Object} [customEnv]
+ * @returns {{ env: Object, authArgs: string[], providerInfo: Object }}
+ */
+function buildRemoteAuthGitContext(rawUrl, customEnv) {
+  const providerInfo = detectRemoteProvider(rawUrl);
+  const env = buildNonInteractiveGitEnv(customEnv);
+  const authArgs = [];
+
+  if (providerInfo.provider === 'github' && /^https?:\/\//i.test(rawUrl) && !extractPatFromRemoteUrl(rawUrl)) {
+    const ghToken = resolveGitHubToken(providerInfo.owner, customEnv);
+    if (ghToken) {
+      env.TD_GH_TOKEN = ghToken;
+      authArgs.push(
+        '-c', 'credential.helper=',
+        '-c', 'credential.helper=!f() { echo username=x-access-token; echo password=$TD_GH_TOKEN; }; f'
+      );
+    }
+  } else if (providerInfo.provider === 'azure-devops' && /^https?:\/\//i.test(rawUrl) && !extractPatFromRemoteUrl(rawUrl)) {
+    const azPat = getAzureDevOpsPatFromKeychain(providerInfo.org) || (customEnv && (customEnv.AZURE_DEVOPS_PAT || customEnv.AZDO_PAT)) || '';
+    if (azPat) {
+      env.TD_AZDO_PAT = azPat;
+      authArgs.push(
+        '-c', 'credential.helper=',
+        '-c', 'credential.helper=!f() { echo username=pat; echo password=$TD_AZDO_PAT; }; f'
+      );
+    }
+  }
+
+  return { env, authArgs, providerInfo };
+}
+
+/**
+ * 從 Git URL 推導安全的預設資料夾名稱
+ * @param {string} repoUrl
+ * @returns {string}
+ */
+function deriveFolderNameFromRepoUrl(repoUrl) {
+  const raw = String(repoUrl || '').trim().replace(/[?#].*$/, '').replace(/\/+$/, '');
+  if (!raw) return '';
+  const seg = raw.split(/[/:]/).filter(Boolean).pop() || '';
+  return stripGitSuffix(safeDecode(seg)).replace(/[^a-zA-Z0-9._-]/g, '-').replace(/^\.+/, '');
+}
+
+/**
  * 推送指定本地分支至 origin 遠端並設定 upstream
  * @param {string} repoPath
  * @param {string} branchName
@@ -343,31 +390,8 @@ async function pushBranch(repoPath, branchName, options = {}) {
 
     try {
       const rawUrl = readOriginRawUrl(cleanRepo, customEnv);
-      const providerInfo = detectRemoteProvider(rawUrl);
-      const pushEnv = buildNonInteractiveGitEnv(customEnv);
-      const pushArgs = ['-C', cleanRepo];
-
-      if (providerInfo.provider === 'github' && /^https?:\/\//i.test(rawUrl) && !extractPatFromRemoteUrl(rawUrl)) {
-        const ghToken = resolveGitHubToken(providerInfo.owner, customEnv);
-        if (ghToken) {
-          pushEnv.TD_GH_TOKEN = ghToken;
-          pushArgs.push(
-            '-c', 'credential.helper=',
-            '-c', 'credential.helper=!f() { echo username=x-access-token; echo password=$TD_GH_TOKEN; }; f'
-          );
-        }
-      } else if (providerInfo.provider === 'azure-devops' && /^https?:\/\//i.test(rawUrl) && !extractPatFromRemoteUrl(rawUrl)) {
-        const azPat = getAzureDevOpsPatFromKeychain(providerInfo.org) || customEnv.AZURE_DEVOPS_PAT || customEnv.AZDO_PAT || '';
-        if (azPat) {
-          pushEnv.TD_AZDO_PAT = azPat;
-          pushArgs.push(
-            '-c', 'credential.helper=',
-            '-c', 'credential.helper=!f() { echo username=pat; echo password=$TD_AZDO_PAT; }; f'
-          );
-        }
-      }
-
-      pushArgs.push('push', '-u', 'origin', branch);
+      const { env: pushEnv, authArgs } = buildRemoteAuthGitContext(rawUrl, customEnv);
+      const pushArgs = ['-C', cleanRepo, ...authArgs, 'push', '-u', 'origin', branch];
 
       const { stdout = '', stderr = '' } = await execFileAsync(
         'git',
@@ -392,6 +416,205 @@ async function pushBranch(repoPath, branchName, options = {}) {
         error: redactUrlCredentials(err && err.message ? err.message : 'git push 失敗'),
         stdout: redactUrlCredentials(err && err.stdout ? err.stdout : ''),
         stderr: redactUrlCredentials(err && err.stderr ? err.stderr : '')
+      };
+    }
+  });
+}
+
+/**
+ * 將遠端 Git 儲存庫 Clone 至指定父目錄（自動套用 GitHub gh 多帳號與 Azure Keychain PAT，零明文落地）
+ * @param {Object} options
+ */
+async function cloneRepository(options = {}) {
+  const {
+    repoUrl: rawRepoUrl,
+    parentDir: rawParentDir,
+    folderName: rawFolderName,
+    branch: rawBranch = '',
+    customEnv = process.env
+  } = options;
+
+  const repoUrl = String(rawRepoUrl || '').trim();
+  const branch = String(rawBranch || '').trim();
+
+  if (!repoUrl) {
+    return { success: false, error: '請輸入 Git Repository URL' };
+  }
+  if (repoUrl.startsWith('-')) {
+    return { success: false, error: '無效的 Git Repository URL 格式' };
+  }
+  if (branch && branch.startsWith('-')) {
+    return { success: false, error: '無效的分支名稱' };
+  }
+
+  let parentDir = String(rawParentDir || '').trim() || path.join(os.homedir(), 'projects');
+  if (parentDir.startsWith('~')) {
+    parentDir = path.join(os.homedir(), parentDir.slice(1));
+  }
+  parentDir = path.resolve(parentDir);
+
+  const folderName = String(rawFolderName || '').trim() || deriveFolderNameFromRepoUrl(repoUrl);
+  if (!folderName || folderName.includes('/') || folderName.includes('\\') || folderName === '.' || folderName === '..') {
+    return { success: false, error: '無效的專案資料夾名稱（不可包含路徑分隔符號或 ..）' };
+  }
+
+  const targetPath = path.join(parentDir, folderName);
+  if (fs.existsSync(targetPath)) {
+    return {
+      success: false,
+      targetPath,
+      error: `目標資料夾已存在：${targetPath}，請更換資料夾名稱或改用「選擇本機資料夾」加入。`
+    };
+  }
+
+  try {
+    fs.mkdirSync(parentDir, { recursive: true });
+  } catch (mkErr) {
+    return {
+      success: false,
+      error: `無法建立目標父目錄 ${parentDir}：${mkErr.message}`
+    };
+  }
+
+  const { env: cloneEnv, authArgs, providerInfo } = buildRemoteAuthGitContext(repoUrl, customEnv);
+  const cloneArgs = [...authArgs, 'clone'];
+  if (branch) {
+    cloneArgs.push('--branch', branch);
+  }
+  cloneArgs.push('--', repoUrl, targetPath);
+
+  try {
+    const { stdout = '', stderr = '' } = await execFileAsync('git', cloneArgs, {
+      env: cloneEnv,
+      timeout: 180000
+    });
+    const output = redactUrlCredentials([stdout, stderr].filter(Boolean).join('\n').trim());
+    return {
+      success: true,
+      targetPath,
+      folderName,
+      provider: providerInfo.provider,
+      remoteUrl: providerInfo.redactedUrl,
+      output
+    };
+  } catch (err) {
+    // 若 clone 失敗殘留空目錄則安全清理
+    try {
+      if (fs.existsSync(targetPath) && fs.readdirSync(targetPath).length === 0) {
+        fs.rmdirSync(targetPath);
+      }
+    } catch (_) {}
+    const errMsg = [err && err.stderr, err && err.message].filter(Boolean).join('\n').trim() || 'git clone 執行失敗';
+    return {
+      success: false,
+      targetPath,
+      provider: providerInfo.provider,
+      error: redactUrlCredentials(errMsg)
+    };
+  }
+}
+
+/**
+ * 執行 Fetch 或 Pull 同步遠端最新進度（支援非當前 checkout 分支安全快進）
+ * @param {string} repoPath
+ * @param {string} branchName
+ * @param {Object} [options]
+ */
+async function fetchAndPullBranch(repoPath, branchName = '', options = {}) {
+  const customEnv = options.customEnv || process.env;
+  const mode = options.mode === 'fetch' ? 'fetch' : 'pull';
+  const rebase = options.rebase === true;
+  const cleanRepo = repoPath ? path.resolve(String(repoPath)) : '';
+
+  if (!isGitWorkingTree(cleanRepo, customEnv)) {
+    return { success: false, branch: '', error: '目標路徑非 Git 儲存庫' };
+  }
+
+  const currentInfo = getGitBranchInfo(cleanRepo);
+  const branch = String(branchName || currentInfo.branch || '').trim();
+  if (!branch) {
+    return { success: false, branch: '', error: '找不到要同步的分支名稱' };
+  }
+
+  return withRepoMergeLock(cleanRepo, async () => {
+    const rawUrl = readOriginRawUrl(cleanRepo, customEnv);
+    if (!rawUrl) {
+      return { success: false, branch, error: '此專案尚未設定 origin 遠端儲存庫' };
+    }
+
+    const { env: gitEnv, authArgs } = buildRemoteAuthGitContext(rawUrl, customEnv);
+    try {
+      // 1. 先執行 fetch origin --prune 取得遠端最新狀態
+      const fetchRes = await execFileAsync('git', ['-C', cleanRepo, ...authArgs, 'fetch', 'origin', '--prune'], {
+        env: gitEnv,
+        timeout: 60000
+      });
+
+      if (mode === 'fetch') {
+        clearProjectBranchCache(cleanRepo);
+        return {
+          success: true,
+          mode: 'fetch',
+          branch,
+          output: redactUrlCredentials([fetchRes.stdout, fetchRes.stderr].filter(Boolean).join('\n').trim()),
+          remoteStatus: getBranchRemoteStatus(cleanRepo, branch, { customEnv })
+        };
+      }
+
+      // 2. Pull 同步指定分支
+      const hasRemoteBranch = refExists(cleanRepo, `refs/remotes/origin/${branch}`, customEnv);
+      if (!hasRemoteBranch) {
+        clearProjectBranchCache(cleanRepo);
+        return {
+          success: true,
+          mode: 'pull',
+          branch,
+          alreadyUpToDate: true,
+          output: `遠端尚無 origin/${branch}，已完成 fetch。`,
+          remoteStatus: getBranchRemoteStatus(cleanRepo, branch, { customEnv })
+        };
+      }
+
+      const isCheckedOut = currentInfo.branch === branch;
+      let pullStdout = '';
+      let pullStderr = '';
+
+      if (isCheckedOut) {
+        const pullArgs = ['-C', cleanRepo, ...authArgs, 'pull', rebase ? '--rebase' : '--ff-only', 'origin', branch];
+        const pullRes = await execFileAsync('git', pullArgs, { env: gitEnv, timeout: 60000 });
+        pullStdout = pullRes.stdout || '';
+        pullStderr = pullRes.stderr || '';
+      } else {
+        // 非當前 checkout 分支：以無損快進方式同步 refs/heads/<branch>，不干擾目前工作區
+        const ffRes = await execFileAsync('git', ['-C', cleanRepo, ...authArgs, 'fetch', 'origin', `${branch}:${branch}`], {
+          env: gitEnv,
+          timeout: 60000
+        });
+        pullStdout = ffRes.stdout || '';
+        pullStderr = ffRes.stderr || '';
+      }
+
+      clearProjectBranchCache(cleanRepo);
+      const output = redactUrlCredentials([pullStdout, pullStderr].filter(Boolean).join('\n').trim());
+      return {
+        success: true,
+        mode: 'pull',
+        rebase,
+        branch,
+        output: output || `分支 ${branch} 已同步至遠端最新進度`,
+        remoteStatus: getBranchRemoteStatus(cleanRepo, branch, { customEnv })
+      };
+    } catch (err) {
+      clearProjectBranchCache(cleanRepo);
+      const errText = redactUrlCredentials([err && err.stderr, err && err.message].filter(Boolean).join('\n').trim() || 'git pull 失敗');
+      const canRetryWithRebase = !rebase && /non-fast-forward|Not possible to fast-forward|divergent branches/i.test(errText);
+      return {
+        success: false,
+        mode,
+        branch,
+        canRetryWithRebase,
+        error: errText,
+        remoteStatus: getBranchRemoteStatus(cleanRepo, branch, { customEnv })
       };
     }
   });
@@ -674,8 +897,11 @@ async function createPullRequest(repoPath, options = {}) {
 module.exports = {
   redactUrlCredentials,
   detectRemoteProvider,
+  deriveFolderNameFromRepoUrl,
   buildFallbackPrUrl,
   getBranchRemoteStatus,
   pushBranch,
+  cloneRepository,
+  fetchAndPullBranch,
   createPullRequest
 };

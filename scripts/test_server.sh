@@ -1005,14 +1005,14 @@ TEST_PORT=$TEST_PORT node -e '
 '
 
 echo "  [8.5/9] 測試 TASK-232 專案分支查詢/無損建分支與任務分支綁定 ..."
-TEST_DATA_DIR="$TEST_DATA_DIR" node -e '
+TEST_PORT="$TEST_PORT" TEST_DATA_DIR="$TEST_DATA_DIR" node -e '
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 
 (async () => {
-  const base = "http://127.0.0.1:3030";
+  const base = `http://127.0.0.1:${process.env.TEST_PORT || "3039"}`;
   const tmpRoot = process.env.TEST_DATA_DIR;
   const repoDir = path.join(tmpRoot, "repo-task-232");
   fs.mkdirSync(repoDir, { recursive: true });
@@ -2041,7 +2041,69 @@ const {
     assert(accData.azureDevOps.orgs.some(o => o.org === "FET-IDTT" && o.hasRepoPat === true && o.ready === true), "應偵測到 FET-IDTT 組織並標記 ready");
     assert(!JSON.stringify(accData).includes("never-leak-pat-244"), "GET /api/git/accounts 絕不可外洩明文 PAT");
 
-    console.log("    ✅ TASK-243 & TASK-244 遠端推送、PR、requirePr 策略與 Git 帳號管理驗證通過");
+    // 10. 整合測試：TASK-245 POST /api/projects/clone (從遠端 clone 至指定父目錄) 與 POST /api/projects/:id/branches/pull (同步遠端新 commit)
+    const cloneParent = fs.mkdtempSync(path.join(os.tmpdir(), "td-245-clone-parent-"));
+    let clonedProjId = "";
+    try {
+      const cloneRes = await fetch(`${base}/api/projects/clone`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repoUrl: originBare,
+          parentDir: cloneParent,
+          folderName: "cloned-demo-repo",
+          branch: "main",
+          requirePr: true
+        })
+      });
+      assert.strictEqual(cloneRes.status, 201, "POST /api/projects/clone 應回傳 201");
+      const cloneData = await cloneRes.json();
+      assert.strictEqual(cloneData.success, true);
+      assert.strictEqual(cloneData.project.requirePr, true, "clone 建立之專案應保留 requirePr: true");
+      clonedProjId = cloneData.project.id;
+      const clonedPath = cloneData.project.path;
+      assert(fs.existsSync(path.join(clonedPath, ".git")), "目標資料夾應包含 .git");
+
+      // 重複 clone 到同目錄應被 400 攔截防覆蓋
+      const dupCloneRes = await fetch(`${base}/api/projects/clone`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repoUrl: originBare, parentDir: cloneParent, folderName: "cloned-demo-repo" })
+      });
+      assert.strictEqual(dupCloneRes.status, 400, "重複目標資料夾 clone 應回傳 400");
+
+      // 在 tempRepo (切回 main 並指向 originBare) 推送一筆遠端新 commit，驗證 clonedProjId 可一鍵 pull 同步
+      execFileSync("git", ["-C", tempRepo, "remote", "set-url", "origin", originBare]);
+      execFileSync("git", ["-C", tempRepo, "checkout", "main"]);
+      fs.writeFileSync(path.join(tempRepo, "remote_ahead.txt"), "hello from remote\n");
+      execFileSync("git", ["-C", tempRepo, "add", "remote_ahead.txt"]);
+      execFileSync("git", ["-C", tempRepo, "commit", "-m", "feat: remote ahead commit"]);
+      execFileSync("git", ["-C", tempRepo, "push", "origin", "main"]);
+
+      const pullRes = await fetch(`${base}/api/projects/${encodeURIComponent(clonedProjId)}/branches/pull`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ branch: "main", mode: "pull" })
+      });
+      assert.strictEqual(pullRes.status, 200, "POST /api/projects/:id/branches/pull 應回傳 200");
+      const pullData = await pullRes.json();
+      assert.strictEqual(pullData.success, true);
+      assert.strictEqual(pullData.remoteStatus.behind, 0, "pull 後 behind 應歸零");
+      assert(fs.existsSync(path.join(clonedPath, "remote_ahead.txt")), "pull 後應同步遠端新增檔案");
+    } finally {
+      if (clonedProjId) {
+        try {
+          await fetch(`${base}/api/projects/delete`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: clonedProjId })
+          });
+        } catch (_) {}
+      }
+      try { fs.rmSync(cloneParent, { recursive: true, force: true }); } catch (_) {}
+    }
+
+    console.log("    ✅ TASK-243 ~ TASK-245 遠端推送、PR、requirePr、Git 帳號管理、Clone 與 Pull 驗證通過");
   } finally {
     try {
       await fetch(`${base}/api/projects/delete`, {

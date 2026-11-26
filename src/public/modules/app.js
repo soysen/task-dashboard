@@ -441,6 +441,7 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
           const res = await fetch('/api/projects/choose-folder', { method: 'POST' });
           const data = await res.json();
           if (data && data.success && data.project) {
+            closeAddProjectModal();
             showToast(`已成功引入專案：${data.project.name}`);
             await loadData();
             filterByProject(data.project.id);
@@ -1165,6 +1166,153 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
     }
 
 
+    function openAddProjectModal(event, defaultTab = 'clone') {
+      if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+      const modal = document.getElementById('addProjectModal');
+      if (!modal) {
+        chooseFolderNative(event);
+        return;
+      }
+      const errBox = document.getElementById('cloneProjectErrorBox');
+      if (errBox) { errBox.classList.add('hidden'); errBox.textContent = ''; }
+      const urlInput = document.getElementById('cloneRepoUrlInput');
+      const folderInput = document.getElementById('cloneFolderNameInput');
+      const branchInput = document.getElementById('cloneBranchInput');
+      const reqPrEl = document.getElementById('cloneRequirePrCheckbox');
+      if (urlInput) urlInput.value = '';
+      if (folderInput) folderInput.value = '';
+      if (branchInput) branchInput.value = '';
+      if (reqPrEl) reqPrEl.checked = false;
+      switchAddProjectTab(defaultTab);
+      updateClonePreviewFromUrl();
+      modal.classList.remove('hidden');
+      if (window.lucide) lucide.createIcons();
+      if (defaultTab === 'clone') setTimeout(() => urlInput?.focus(), 20);
+    }
+
+    function closeAddProjectModal() {
+      document.getElementById('addProjectModal')?.classList.add('hidden');
+    }
+
+    function switchAddProjectTab(tab = 'clone') {
+      const isClone = tab !== 'local';
+      const clonePane = document.getElementById('addProjClonePane');
+      const localPane = document.getElementById('addProjLocalPane');
+      const tabClone = document.getElementById('addProjTabClone');
+      const tabLocal = document.getElementById('addProjTabLocal');
+      if (clonePane) clonePane.classList.toggle('hidden', !isClone);
+      if (localPane) localPane.classList.toggle('hidden', isClone);
+      const activeCls = 'py-1.5 px-3 rounded-lg font-semibold transition cursor-pointer bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs';
+      const idleCls = 'py-1.5 px-3 rounded-lg font-semibold transition cursor-pointer text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white';
+      if (tabClone) tabClone.className = isClone ? activeCls : idleCls;
+      if (tabLocal) tabLocal.className = !isClone ? activeCls : idleCls;
+    }
+
+    function updateClonePreviewFromUrl() {
+      const url = (document.getElementById('cloneRepoUrlInput')?.value || '').trim();
+      const parentDir = (document.getElementById('cloneParentDirInput')?.value || '~/projects').trim().replace(/\/+$/, '');
+      const folderInput = document.getElementById('cloneFolderNameInput');
+      const previewEl = document.getElementById('cloneTargetPathPreview');
+      const badgeEl = document.getElementById('cloneProviderBadge');
+      const reqPrEl = document.getElementById('cloneRequirePrCheckbox');
+
+      let derivedFolder = '';
+      if (url) {
+        const cleanUrl = url.replace(/[?#].*$/, '').replace(/\/+$/, '');
+        const seg = cleanUrl.split(/[/:]/).filter(Boolean).pop() || '';
+        derivedFolder = decodeURIComponent(seg).replace(/\.git$/i, '').replace(/[^a-zA-Z0-9._-]/g, '-');
+      }
+
+      const explicitFolder = (folderInput?.value || '').trim();
+      const finalFolder = explicitFolder || derivedFolder;
+      if (folderInput && !explicitFolder && derivedFolder) {
+        folderInput.placeholder = derivedFolder;
+      }
+      if (previewEl) {
+        previewEl.textContent = finalFolder ? `${parentDir}/${finalFolder}` : `${parentDir}/`;
+      }
+
+      if (badgeEl) {
+        if (/dev\.azure\.com|visualstudio\.com/i.test(url)) {
+          badgeEl.textContent = 'Azure DevOps';
+          badgeEl.className = 'text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-sky-500/15 text-sky-700 dark:text-sky-300';
+          if (reqPrEl && !reqPrEl.dataset.userTouched) reqPrEl.checked = true;
+        } else if (/github\.com/i.test(url)) {
+          badgeEl.textContent = 'GitHub';
+          badgeEl.className = 'text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300';
+        } else if (url) {
+          badgeEl.textContent = 'Git Remote';
+          badgeEl.className = 'text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-slate-500/15 text-slate-600 dark:text-slate-300';
+        } else {
+          badgeEl.className = 'hidden text-[10px] px-1.5 py-0.5 rounded-full font-semibold';
+        }
+      }
+    }
+
+    async function chooseCloneParentDirNative(event) {
+      const btn = event ? event.currentTarget : null;
+      await withButtonLoading(btn, '選擇中...', async () => {
+        try {
+          const res = await fetch('/api/projects/choose-folder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ selectOnly: true, prompt: '請選擇要 Clone 專案的存放父目錄' })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (data && data.success && data.path) {
+            const parentInput = document.getElementById('cloneParentDirInput');
+            if (parentInput) parentInput.value = data.path;
+            updateClonePreviewFromUrl();
+          }
+        } catch (err) {
+          showToast(`選擇父目錄失敗：${err.message || '未知錯誤'}`);
+        }
+      });
+    }
+
+    async function submitCloneProject(event) {
+      if (event && typeof event.preventDefault === 'function') event.preventDefault();
+      const repoUrl = (document.getElementById('cloneRepoUrlInput')?.value || '').trim();
+      const parentDir = (document.getElementById('cloneParentDirInput')?.value || '~/projects').trim();
+      const folderName = (document.getElementById('cloneFolderNameInput')?.value || '').trim();
+      const branch = (document.getElementById('cloneBranchInput')?.value || '').trim();
+      const requirePr = Boolean(document.getElementById('cloneRequirePrCheckbox')?.checked);
+      const errBox = document.getElementById('cloneProjectErrorBox');
+      const btn = document.getElementById('btnSubmitCloneProject');
+
+      if (errBox) { errBox.classList.add('hidden'); errBox.textContent = ''; }
+      if (!repoUrl) {
+        if (errBox) { errBox.textContent = '請輸入 Git Repository URL'; errBox.classList.remove('hidden'); }
+        return;
+      }
+
+      await withButtonLoading(btn, 'Clone 中...', async () => {
+        try {
+          const res = await fetch('/api/projects/clone', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ repoUrl, parentDir, folderName, branch, requirePr })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.success) {
+            throw new Error(data.error || `Clone 失敗 (HTTP ${res.status})`);
+          }
+          closeAddProjectModal();
+          showToast(`已成功 Clone 並加入專案：${data.project?.name || folderName}`);
+          await loadData();
+          if (data.project && data.project.id) {
+            filterByProject(data.project.id);
+          }
+        } catch (err) {
+          if (errBox) {
+            errBox.textContent = err.message || 'Clone 失敗';
+            errBox.classList.remove('hidden');
+          }
+          showToast(`Clone 失敗：${err.message || '未知錯誤'}`);
+        }
+      });
+    }
+
     function openNewProjectModal() {
       document.getElementById('projectModal')?.classList.remove('hidden');
     }
@@ -1495,6 +1643,12 @@ export {
   initProjectHarnessFromUI,
   toggleProjectRequirePrFromUI,
   renderProjectBanner,
+  openAddProjectModal,
+  closeAddProjectModal,
+  switchAddProjectTab,
+  updateClonePreviewFromUrl,
+  chooseCloneParentDirNative,
+  submitCloneProject,
   openNewProjectModal,
   closeProjectModal,
   saveNewProject,
@@ -1562,6 +1716,12 @@ if (typeof window !== "undefined") {
   window.initProjectHarnessFromUI = initProjectHarnessFromUI;
   window.toggleProjectRequirePrFromUI = toggleProjectRequirePrFromUI;
   window.renderProjectBanner = renderProjectBanner;
+  window.openAddProjectModal = openAddProjectModal;
+  window.closeAddProjectModal = closeAddProjectModal;
+  window.switchAddProjectTab = switchAddProjectTab;
+  window.updateClonePreviewFromUrl = updateClonePreviewFromUrl;
+  window.chooseCloneParentDirNative = chooseCloneParentDirNative;
+  window.submitCloneProject = submitCloneProject;
   window.openNewProjectModal = openNewProjectModal;
   window.closeProjectModal = closeProjectModal;
   window.saveNewProject = saveNewProject;

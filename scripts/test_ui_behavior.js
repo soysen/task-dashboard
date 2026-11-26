@@ -1216,7 +1216,21 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
     appModuleSource.includes("evtSource.addEventListener('git-accounts-updated'"),
     'app.js 必須完整掛載 Git 帳號管理全域函式並監聽 git-accounts-updated SSE 事件'
   );
-  console.log('  ✅ TASK-243 & TASK-244 Push/PR 自動封存、requirePr 策略與 Git 帳號設定 UI 綁定驗證通過');
+  assert(
+    htmlContent.includes('id="addProjectModal"') &&
+    htmlContent.includes('id="cloneRepoUrlInput"') &&
+    htmlContent.includes('openAddProjectModal(event)'),
+    'index.html 必須包含 #addProjectModal (Git Clone 彈窗) 與 openAddProjectModal 入口'
+  );
+  assert(
+    appModuleSource.includes('window.openAddProjectModal = openAddProjectModal') &&
+    appModuleSource.includes('window.submitCloneProject = submitCloneProject') &&
+    appModuleSource.includes('window.chooseCloneParentDirNative = chooseCloneParentDirNative') &&
+    branchNavSource.includes('window.pullCurrentBranch = pullCurrentBranch') &&
+    branchNavSource.includes("pullCurrentBranch('"),
+    'app.js 與 branchNavigator.js 必須完整掛載 Git Clone 與分支拉取 (pullCurrentBranch) 全域函式'
+  );
+  console.log('  ✅ TASK-243 ~ TASK-245 Push/PR、requirePr、Git 帳號設定、Clone 與 Pull UI 綁定驗證通過');
 
   console.log('🎉 所有前端核心互動邏輯與防禦機制測試通過！\n');
 })().catch(err => {

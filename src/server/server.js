@@ -60,6 +60,8 @@ const {
 const {
   getBranchRemoteStatus,
   pushBranch,
+  cloneRepository,
+  fetchAndPullBranch,
   createPullRequest
 } = require('./services/gitRemoteService');
 const {
@@ -1513,34 +1515,113 @@ function runNativeFolderPicker(promptText, callback) {
 
   // 呼叫 macOS 原生資料夾選擇器 (選擇專案)
   if (pathname === '/api/projects/choose-folder' && req.method === 'POST') {
-    runNativeFolderPicker('請選擇要加入 Task Dashboard 的專案資料夾', (err, selectedPath) => {
-      if (!selectedPath) {
+    let body = '';
+    req.on('data', chunk => (body += chunk));
+    req.on('end', () => {
+      let opts = {};
+      try {
+        if (body.trim()) opts = JSON.parse(body);
+      } catch (_) {}
+      const selectOnly = opts.selectOnly === true;
+      const pickerPrompt = String(opts.prompt || '').trim() || (selectOnly ? '請選擇要 Clone 專案的目標父資料夾' : '請選擇要加入 Task Dashboard 的專案資料夾');
+      runNativeFolderPicker(pickerPrompt, (err, selectedPath) => {
+        if (!selectedPath) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ canceled: true }));
+          return;
+        }
+        if (selectOnly) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, path: selectedPath }));
+          return;
+        }
+        const folderName = path.basename(selectedPath);
+        const projects = readProjects();
+        let proj = projects.find(p => p.path === selectedPath || p.id === folderName);
+        if (!proj) {
+          const githubInfo = scanProjectGithubInfo(selectedPath);
+          proj = {
+            id: folderName,
+            name: folderName,
+            description: `自訂專案路徑: ${selectedPath}`,
+            path: selectedPath,
+            docs: githubInfo.docs,
+            skills: githubInfo.skills,
+            prompts: githubInfo.prompts,
+            harness: githubInfo.harness,
+            color: 'teal',
+            conversations: []
+          };
+          projects.push(proj);
+          writeProjects(projects);
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ canceled: true }));
-        return;
+        res.end(JSON.stringify({ success: true, project: proj }));
+      });
+    });
+    return;
+  }
+
+  // 從遠端 Git URL Clone 專案至指定位置並自動註冊進 Task Dashboard
+  if (pathname === '/api/projects/clone' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => (body += chunk));
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body || '{}');
+        const repoUrl = String(data.repoUrl || data.url || '').trim();
+        const parentDir = String(data.parentDir || '').trim() || PROJECTS_ROOT;
+        const folderName = String(data.folderName || '').trim();
+        const branch = String(data.branch || '').trim();
+        const requirePr = Boolean(data.requirePr);
+
+        const cloneRes = await cloneRepository({
+          repoUrl,
+          parentDir,
+          folderName,
+          branch,
+          customEnv: buildCustomEnv()
+        });
+        if (!cloneRes.success) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(cloneRes));
+          return;
+        }
+
+        const targetPath = cloneRes.targetPath;
+        const baseName = cloneRes.folderName || path.basename(targetPath);
+        const projects = readProjects();
+        let proj = projects.find(p => p.path === targetPath);
+        if (!proj) {
+          let uniqueId = baseName;
+          let seq = 2;
+          while (projects.some(p => p.id === uniqueId)) {
+            uniqueId = `${baseName}-${seq++}`;
+          }
+          const githubInfo = scanProjectGithubInfo(targetPath);
+          proj = {
+            id: uniqueId,
+            name: String(data.name || '').trim() || baseName,
+            description: `Cloned from ${cloneRes.remoteUrl || baseName}`,
+            path: targetPath,
+            docs: githubInfo.docs,
+            skills: githubInfo.skills,
+            prompts: githubInfo.prompts,
+            harness: githubInfo.harness,
+            color: 'indigo',
+            requirePr,
+            conversations: []
+          };
+          projects.push(proj);
+          writeProjects(projects);
+        }
+        gitProjectsStatusCache = { timestamp: 0, data: null };
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, project: proj, clone: cloneRes }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: (err && err.message) || 'Failed to clone repository' }));
       }
-      const folderName = path.basename(selectedPath);
-      const projects = readProjects();
-      let proj = projects.find(p => p.path === selectedPath || p.id === folderName);
-      if (!proj) {
-        const githubInfo = scanProjectGithubInfo(selectedPath);
-        proj = {
-          id: folderName,
-          name: folderName,
-          description: `自訂專案路徑: ${selectedPath}`,
-          path: selectedPath,
-          docs: githubInfo.docs,
-          skills: githubInfo.skills,
-          prompts: githubInfo.prompts,
-          harness: githubInfo.harness,
-          color: 'teal',
-          conversations: []
-        };
-        projects.push(proj);
-        writeProjects(projects);
-      }
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: true, project: proj }));
     });
     return;
   }
@@ -1814,6 +1895,55 @@ function runNativeFolderPicker(promptText, callback) {
     });
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ projectId: proj.id, ...statusInfo }));
+    return;
+  }
+
+  // 同步遠端分支最新進度 (Fetch / Pull)
+  const branchesPullMatch = req.method === 'POST' && pathname.match(/^\/api\/projects\/([^/]+)\/branches\/pull$/);
+  if (branchesPullMatch) {
+    const projId = decodeURIComponent(branchesPullMatch[1]).trim();
+    let body = '';
+    req.on('data', chunk => (body += chunk));
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body || '{}');
+        const projects = readProjects();
+        const proj = projects.find(p => p.id === projId);
+        if (!proj) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Project not found' }));
+          return;
+        }
+        const branch = String(data.branch || data.branchName || '').trim();
+        const mode = data.mode === 'fetch' ? 'fetch' : 'pull';
+        const rebase = data.rebase === true;
+        const repoPath = proj.path || path.join(PROJECTS_ROOT, proj.id);
+        const pullRes = await fetchAndPullBranch(repoPath, branch, {
+          mode,
+          rebase,
+          customEnv: buildCustomEnv()
+        });
+        if (!pullRes.success) {
+          res.writeHead(pullRes.canRetryWithRebase ? 409 : 400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ...pullRes, projectId: proj.id }));
+          return;
+        }
+        gitProjectsStatusCache = { timestamp: 0, data: null };
+        const tasks = readTasks().filter(t => t.project === proj.id && t.status !== 'archived');
+        const branchInfo = getProjectBranches(repoPath, tasks, { refresh: true });
+        broadcastSse('project-branch-pulled', {
+          projectId: proj.id,
+          branch: pullRes.branch,
+          mode,
+          remoteStatus: pullRes.remoteStatus
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ...pullRes, projectId: proj.id, branchInfo }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: (err && err.message) || 'Failed to pull branch' }));
+      }
+    });
     return;
   }
 

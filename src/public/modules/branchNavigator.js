@@ -238,6 +238,15 @@ function renderContextualHeaderActions() {
       const actionButtons = [];
 
       if (branchData?.isGitRepo && (!remoteInfo || remoteInfo.hasRemote !== false)) {
+        const behindCount = Number(remoteInfo?.behind || 0);
+        const pullLabel = behindCount > 0 ? `拉取 ↓${behindCount}` : "拉取";
+        const pullCls = behindCount > 0
+          ? "h-7 sm:h-8 inline-flex items-center gap-1 bg-sky-600 hover:bg-sky-500 text-white text-[11px] sm:text-xs font-semibold px-2.5 rounded-lg shadow-sm transition cursor-pointer whitespace-nowrap"
+          : "h-7 sm:h-8 inline-flex items-center gap-1 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] sm:text-xs font-semibold px-2.5 rounded-lg border border-slate-300/70 dark:border-slate-700 transition cursor-pointer whitespace-nowrap";
+        actionButtons.push(
+          `<button type="button" onclick="pullCurrentBranch('${safeProjAttr}', '${safeBranchAttr}', event)" title="從遠端 Fetch 並拉取分支 ${escapeHtml(currentBranch)} 最新進度" class="${pullCls}">${escapeHtml(pullLabel)}</button>`
+        );
+
         const pushLabel = remoteInfo && remoteInfo.ahead > 0
           ? `推送 ↑${remoteInfo.ahead}`
           : (remoteInfo && !remoteInfo.hasUpstream ? "推送 ↑" : "推送");
@@ -773,6 +782,60 @@ async function submitCreatePr(projectId, sourceBranch, taskId = "") {
   }
 }
 
+async function pullCurrentBranch(projectId, branchName, event, options = {}) {
+  if (event && typeof event.stopPropagation === "function") event.stopPropagation();
+  if (!projectId || !branchName) return;
+  const btn = event?.currentTarget || null;
+  const origHtml = btn ? btn.innerHTML : "";
+  const rebase = options.rebase === true;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = rebase ? "Rebase 中..." : "拉取中...";
+  }
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/branches/pull`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ branch: branchName, mode: "pull", rebase })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      if (data.canRetryWithRebase && !rebase && typeof window !== "undefined" && typeof window.confirm === "function") {
+        const shouldRebase = window.confirm(`分支 ${branchName} 與遠端分叉，無法直接 Fast-Forward。\n是否改用 git pull --rebase 同步遠端最新進度？`);
+        if (shouldRebase) {
+          if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
+          }
+          return await pullCurrentBranch(projectId, branchName, null, { rebase: true });
+        }
+      }
+      throw new Error(data.error || `拉取失敗 (HTTP ${res.status})`);
+    }
+    if (data.remoteStatus) {
+      branchRemoteStatusMap[`${projectId}::${branchName}`] = data.remoteStatus;
+    }
+    if (data.branchInfo) {
+      setProjectBranchesMap({ ...projectBranchesMap, [projectId]: data.branchInfo });
+    } else {
+      await loadProjectBranches(projectId, true);
+    }
+    showToast(`分支 ${branchName} 已同步遠端最新進度 ✓`);
+    if (typeof window !== "undefined") {
+      await window.loadData?.();
+    }
+    renderContextualHeaderActions();
+  } catch (err) {
+    showToast(`拉取失敗：${err.message || "未知錯誤"}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    }
+    renderContextualHeaderActions();
+  }
+}
+
 async function pushTaskBranchFromCard(taskId, event) {
   if (event && typeof event.stopPropagation === "function") event.stopPropagation();
   const task =
@@ -831,6 +894,7 @@ export {
   openMergeBranchModal,
   closeMergeBranchModal,
   submitMergeBranch,
+  pullCurrentBranch,
   pushCurrentBranch,
   pushTaskBranchFromCard,
   buildPrSummaryFromDoneTasks,
@@ -853,6 +917,7 @@ if (typeof window !== "undefined") {
   window.openMergeBranchModal = openMergeBranchModal;
   window.closeMergeBranchModal = closeMergeBranchModal;
   window.submitMergeBranch = submitMergeBranch;
+  window.pullCurrentBranch = pullCurrentBranch;
   window.pushCurrentBranch = pushCurrentBranch;
   window.pushTaskBranchFromCard = pushTaskBranchFromCard;
   window.buildPrSummaryFromDoneTasks = buildPrSummaryFromDoneTasks;
