@@ -44,6 +44,7 @@ function readSettings() {
     cliCommand: 'agy',
     defaultProject: 'task-dashboard',
     autoTriggerOnInProgress: true,
+    plainLanguageWithTerms: true,
     dataDirectoryPath: '',
     fontSize: 'small',
     cliTimeoutMinutes: 20,

@@ -839,6 +839,9 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
   const confirmationGuidance = isPendingPlanCreation
     ? '• 【需確認後執行門禁 (Confirmation Gate)】: 本任務勾選「需確認後再執行」（requiresConfirmation: true），目前處於待擬定計劃階段！首要任務僅為需求分析與擬定具體完整的 executionPlan 回寫至 tasks.json（維持 status: in_progress），嚴禁未獲使用者授權前直接進行代碼實作或推進 review！請於回覆中提示使用者於儀表板審閱並點選「確認並執行」。\n'
     : '';
+  const styleGuidance = settings.plainLanguageWithTerms !== false
+    ? '• 【說明輸出風格】：所有說明（執行計劃、交付報告、回覆）皆以白話解釋搭配專有名詞進行。\n'
+    : '';
 
   const promptText = '【任務開工】[' + task.id + '] ' + task.title + '\n' +
     '• 專案: ' + task.project + ' (' + projPath + ') | 驗證: ' + harnessCmd + '\n' +
@@ -850,6 +853,7 @@ function executeTaskWithCliAgent(taskId, options = {}, callback = null) {
     gitnexusGuidance +
     subagentGuidance +
     confirmationGuidance +
+    styleGuidance +
     '1. Pre-Flight: 優先滿足 Feedback，檢閱規範並執行前置驗證（' + harnessCmd + '）；若任務勾選需確認後再執行且未具備執行計劃，必須先產出完整執行計劃回寫 executionPlan 供確認；若需求包含【最新需求覆蓋】，其內容具備最高優先權，衝突處一律覆蓋舊有描述；面對 > 500 行大檔嚴禁整檔閱讀，必須以 grep-n 先定位後切片 30-50 行，檢索上限 2 次避免 Loop。\n' +
     '2. Implementation: 遵循專案架構最小範圍實作並補齊測試，嚴禁跨專案副作用；若執行中途遇到規格模糊或需拍板事項，嚴禁僅在對話框乾等，請呼叫 PUT http://localhost:3030/api/tasks/' + task.id + ' 寫入 pendingQuestions（含題目、選項與 recommended 推薦項，維持 in_progress），等待使用者於儀表板點選確認後接續。\n' +
     '3. Review Promotion: 驗證通過且完成 Pre-Commit 預檢（若專案具備 .git/hooks/pre-commit 必須先執行通過），收集全量 diff，依核心主軸產出 commitMessage ({ subject, body })，推進至 review 並清空 feedback。\n' +

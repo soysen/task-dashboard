@@ -249,9 +249,24 @@ async function run() {
   assert(standardBrief.includes('flash Subagent'), 'standard 任務應提示使用單一 flash Subagent');
   assert(!standardBrief.includes('pro 審核'), 'standard 任務不應要求 pro 雙階審核');
   assert(standardBrief.includes('Handoff Contract'), 'standard 任務輸出應包含 Handoff Contract 指示');
+  assert(standardBrief.includes('白話解釋搭配專有名詞'), '預設啟用 plainLanguageWithTerms 時哨兵應含白話解釋搭配專有名詞指示');
   assert(standardBrief.includes('/api/tasks/'), 'standard 任務輸出應包含 API 交付路徑 /api/tasks/');
   assert(standardBrief.includes('/AUTOMATION_STANDARD.md'), 'standard 任務輸出應包含標準文件絕對路徑 /AUTOMATION_STANDARD.md');
   assert(standardBrief.split('\n').length <= 15, `standard 哨兵輸出必須 ≤ 15 行，實際: ${standardBrief.split('\n').length}`);
+
+  // 驗證 settings.plainLanguageWithTerms = false 時不注入該提示
+  const tmpStyleDir = fs.mkdtempSync(path.join(os.tmpdir(), 'td-style-off-'));
+  const prevStyleEnv = process.env.TASK_DASHBOARD_DATA_DIR;
+  try {
+    process.env.TASK_DASHBOARD_DATA_DIR = tmpStyleDir;
+    fs.writeFileSync(path.join(tmpStyleDir, 'settings.json'), JSON.stringify({ plainLanguageWithTerms: false }), 'utf8');
+    const plainOffBrief = formatWakeupBrief(standardTaskDefault, 'WAKEUP_IMMEDIATE');
+    assert(!plainOffBrief.includes('白話解釋搭配專有名詞'), '關閉 plainLanguageWithTerms 時哨兵不應注入該指示');
+  } finally {
+    if (prevStyleEnv === undefined) delete process.env.TASK_DASHBOARD_DATA_DIR;
+    else process.env.TASK_DASHBOARD_DATA_DIR = prevStyleEnv;
+    fs.rmSync(tmpStyleDir, { recursive: true, force: true });
+  }
   console.log(`  ✅ [Case 2 - standard] 通過：判定精確且配置 Planner→Executor 實作 (行數: ${standardBrief.split('\n').length} ≤ 15)`);
 
   // 案例 3: heavy 任務（顯式指定、heavy tags 或重構關鍵字）

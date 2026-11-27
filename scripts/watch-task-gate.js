@@ -581,9 +581,13 @@ function formatWakeupBrief(task, triggerType = 'WAKEUP_TRIGGERED') {
     verifySkillsText = `\n• 【專案驗證 Skills & Harness】: ${verifyParts.join(' | ')}`;
   }
 
+  const sentinelSettings = readJsonSafe(path.join(dataDir, 'settings.json'), {});
+  const usePlainTerms = sentinelSettings.plainLanguageWithTerms !== false;
+  const styleHint = usePlainTerms ? '說明風格：白話解釋搭配專有名詞；' : '';
+
   const ruleText = tier === 'micro'
-    ? `• 執行規範: 依 ${STANDARD_DOC} 3-Phase Gate，以 grep-n 切片最小實作，Phase 3 須過 Pre-Commit 與 harness。`
-    : `• 執行規範: 依 ${STANDARD_DOC} 3-Phase Gate（0 讀碼第 1 步 exit_plan_mode 交棒內建執行、>500 行 grep-n 切片、Phase 3 須過 Pre-Commit 與 harness）。`;
+    ? `• 執行規範: ${styleHint}依 ${STANDARD_DOC} 3-Phase Gate，以 grep-n 切片最小實作，Phase 3 須過 Pre-Commit 與 harness。`
+    : `• 執行規範: ${styleHint}依 ${STANDARD_DOC} 3-Phase Gate（0 讀碼第 1 步 exit_plan_mode 交棒內建執行、>500 行 grep-n 切片、Phase 3 須過 Pre-Commit 與 harness）。`;
 
   const isPendingPlanCreation = Boolean(task.requiresConfirmation && (!task.executionPlan || !task.executionPlan.trim()));
   const confirmationText = isPendingPlanCreation

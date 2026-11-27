@@ -106,9 +106,11 @@ function setLandErrorBox(message, options = {}) {
     return;
   }
 
-  const { taskId = "", projectId = "", requiresConfirmation = false, showSwitchWorktree = false, showOpenEditor = false } = options;
+  const { taskId = "", projectId = "", requiresConfirmation = false, showSwitchWorktree = false, showOpenEditor = false, openWorktree = false } = options;
   const safeTaskAttr = escapeHtml(taskId);
   const safeProjAttr = escapeHtml(projectId);
+  const openInWorktree = Boolean(openWorktree && safeTaskAttr);
+  const editorOptsExpr = openInWorktree ? `, { taskId: '${safeTaskAttr}', openWorktree: true }` : "";
   box.classList.remove("hidden");
   box.innerHTML = `
     <div class="flex items-start justify-between gap-3 text-xs text-rose-800 dark:text-rose-200">
@@ -129,11 +131,11 @@ function setLandErrorBox(message, options = {}) {
               </button>
             ` : ""}
             ${showOpenEditor && safeProjAttr ? `
-              <button type="button" onclick="window.openProjectInEditor?.('${safeProjAttr}', 'antigravity', event)" class="px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-semibold transition cursor-pointer">
-                在 Antigravity 開啟
+              <button type="button" onclick="window.openProjectInEditor?.('${safeProjAttr}', 'antigravity', event${editorOptsExpr})" class="px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-semibold transition cursor-pointer">
+                ${openInWorktree ? "在 Antigravity 開啟隔離區" : "在 Antigravity 開啟"}
               </button>
-              <button type="button" onclick="window.openProjectInEditor?.('${safeProjAttr}', 'vscode', event)" class="px-2.5 py-1 rounded-md bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-semibold transition cursor-pointer">
-                在 VS Code 開啟
+              <button type="button" onclick="window.openProjectInEditor?.('${safeProjAttr}', 'vscode', event${editorOptsExpr})" class="px-2.5 py-1 rounded-md bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-semibold transition cursor-pointer">
+                ${openInWorktree ? "在 VS Code 開啟隔離區" : "在 VS Code 開啟"}
               </button>
             ` : ""}
           </div>
@@ -189,6 +191,8 @@ function renderDriftStatusBadge(driftData, taskId) {
     `;
   } else if (hasConflict) {
     const safeTaskAttr = escapeHtml(taskId || "");
+    const openWtInBadge = Boolean(alreadyWorktree && !isDirtyMain && safeTaskAttr);
+    const badgeEditorOpts = openWtInBadge ? `, { taskId: '${safeTaskAttr}', openWorktree: true }` : "";
     const conflictLabel = isDirtyMain
       ? `主工作區有未提交變更${dirtyPreview}，請先清理後再提交`
       : "有未提交檔案或衝突，無法直接寫入";
@@ -202,11 +206,11 @@ function renderDriftStatusBadge(driftData, taskId) {
         </button>
       ` : ""}
       ${safeProjAttr ? `
-        <button type="button" onclick="window.openProjectInEditor?.('${safeProjAttr}', 'antigravity', event)" class="px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-semibold transition cursor-pointer">
-          Antigravity 開啟
+        <button type="button" onclick="window.openProjectInEditor?.('${safeProjAttr}', 'antigravity', event${badgeEditorOpts})" class="px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-semibold transition cursor-pointer">
+          ${openWtInBadge ? "Antigravity 開啟隔離區" : "Antigravity 開啟"}
         </button>
-        <button type="button" onclick="window.openProjectInEditor?.('${safeProjAttr}', 'vscode', event)" class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-semibold transition cursor-pointer">
-          VS Code 開啟
+        <button type="button" onclick="window.openProjectInEditor?.('${safeProjAttr}', 'vscode', event${badgeEditorOpts})" class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-semibold transition cursor-pointer">
+          ${openWtInBadge ? "VS Code 開啟隔離區" : "VS Code 開啟"}
         </button>
       ` : ""}
     `;
@@ -434,20 +438,24 @@ async function landTaskChanges(event, extraOptions = {}) {
             data.status === "conflict")
         );
         const activeTask = tasks.find(t => t.id === taskId) || currentModalEditingTask;
+        const isWorktreeTask = isTaskAlreadyWorktree(taskId);
+        const isDirtyMainErr = data.status === "dirty_main_workspace";
         const showOpenEditor = Boolean(
           activeTask?.project &&
           data.status !== "one_way_requires_confirmation" &&
           (res.status === 409 ||
             data.status === "dirty_main_workspace" ||
             data.status === "rebase_conflict" ||
-            data.status === "conflict")
+            data.status === "conflict" ||
+            (isWorktreeTask && (data.status === "verification_failed" || data.status === "commit_failed")))
         );
         setLandErrorBox(errMsg, {
           taskId,
           projectId: activeTask?.project || "",
           requiresConfirmation: Boolean(data.requiresConfirmation),
           showSwitchWorktree: showSwitch,
-          showOpenEditor
+          showOpenEditor,
+          openWorktree: Boolean(isWorktreeTask && !isDirtyMainErr)
         });
         showToast(`提交失敗：${errMsg}`);
         return;
@@ -505,7 +513,9 @@ export {
   regenerateLandCommitMessage,
   toggleLandCommitDrawer,
   toggleReviewFeedbackDrawer,
-  triggerDockRejectFlow
+  triggerDockRejectFlow,
+  setLandErrorBox,
+  renderDriftStatusBadge
 };
 
 if (typeof window !== "undefined") {

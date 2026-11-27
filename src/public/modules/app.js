@@ -1024,6 +1024,10 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
       if (pathDisplay) {
         pathDisplay.innerText = settings.dataDirectoryPath || settings.defaultDataDir || '預設專案 data 目錄';
       }
+      const plainLangEl = document.getElementById('settingPlainLanguageWithTerms');
+      if (plainLangEl) {
+        plainLangEl.checked = !settings || settings.plainLanguageWithTerms !== false;
+      }
       document.getElementById('settingsModal').classList.remove('hidden');
       loadGitAccountsSettings();
       if (window.lucide) lucide.createIcons();
@@ -1040,6 +1044,8 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
         const cliCmd = (cliCmdEl ? cliCmdEl.value.trim() : '') || settings.cliCommand || 'hermes';
         const autoEl = document.getElementById('settingAutoTrigger');
         const autoTrigger = autoEl ? autoEl.checked : (settings.autoTriggerOnInProgress !== false);
+        const plainLangEl = document.getElementById('settingPlainLanguageWithTerms');
+        const plainLanguageWithTerms = plainLangEl ? plainLangEl.checked : (!settings || settings.plainLanguageWithTerms !== false);
         const enableAgent = !!settings.enableCliAgent;
         
         try {
@@ -1050,6 +1056,7 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
               enableCliAgent: enableAgent,
               cliCommand: cliCmd,
               autoTriggerOnInProgress: autoTrigger,
+              plainLanguageWithTerms,
               dataDirectoryPath: settings.dataDirectoryPath,
               fontSize: localStorage.getItem('fontSize') || (settings && settings.fontSize) || 'small',
               initialized: true

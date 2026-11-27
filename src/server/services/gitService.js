@@ -992,7 +992,18 @@ async function mergeTaskWorktree(options = {}) {
       };
     }
 
-    // 2. 若 worktree 內有尚未 commit 的變更，先在隔離分支建立 WIP commit 以便 rebase
+    // 2. 偵測是否存在尚未提交的合併 (MERGE_HEAD)；若有未提交變更或 MERGE_HEAD，先在隔離分支建立 commit
+    let hasPendingMerge = false;
+    try {
+      execFileSync('git', ['-C', worktreePath, 'rev-parse', '-q', '--verify', 'MERGE_HEAD'], {
+        encoding: 'utf8',
+        env: customEnv,
+        timeout: 5000,
+        stdio: 'pipe'
+      });
+      hasPendingMerge = true;
+    } catch (_) {}
+
     const wtStatus = execFileSync('git', ['-C', worktreePath, 'status', '--porcelain'], {
       encoding: 'utf8',
       env: customEnv,
@@ -1003,7 +1014,7 @@ async function mergeTaskWorktree(options = {}) {
       : `feat(${String(taskId || 'task').toLowerCase()}): ${task.title || 'Update task'}`;
     const defaultBody = (task.commitMessage && task.commitMessage.body) ? task.commitMessage.body.trim() : '';
 
-    if (wtStatus.length > 0) {
+    if (wtStatus.length > 0 || hasPendingMerge) {
       try {
         execFileSync('git', ['-C', worktreePath, 'add', '-A'], { env: customEnv, timeout: 10000, stdio: 'ignore' });
         const commitArgs = ['-C', worktreePath, 'commit', '-m', defaultSubject];
@@ -1020,34 +1031,90 @@ async function mergeTaskWorktree(options = {}) {
       }
     }
 
-    // 3. 於 worktree 內執行 git rebase <baseBranch>；衝突立即 abort，絕不污染 baseBranch
-    try {
-      execFileSync('git', ['-C', worktreePath, 'rebase', baseBranch], {
-        encoding: 'utf8',
-        env: customEnv,
-        timeout: 30000
-      });
-    } catch (rebaseErr) {
+    // 偵測隔離分支相對於目標分支是否包含 Merge Commit（若有則走 Merge-Preserving 通道，避免 rebase 拆散已解衝突）
+    let hasMergeHistory = hasPendingMerge;
+    if (!hasMergeHistory) {
       try {
-        execFileSync('git', ['-C', worktreePath, 'rebase', '--abort'], {
+        const mergeCountRaw = execFileSync('git', ['-C', worktreePath, 'rev-list', '--merges', '--count', `${currentBaseSha}..HEAD`], {
           encoding: 'utf8',
           env: customEnv,
-          timeout: 10000,
-          stdio: 'ignore'
-        });
-      } catch (abortErr) {}
-      return {
-        success: false,
-        merged: false,
-        conflict: true,
-        status: 'conflict',
-        baseBranch,
-        branchName,
-        error: `Rebase 至 ${baseBranch} 發生衝突，已立即執行 git rebase --abort，${baseBranch} 未受任何污染。`
-      };
+          timeout: 5000
+        }).trim();
+        hasMergeHistory = Number.parseInt(mergeCountRaw, 10) > 0;
+      } catch (_) {}
     }
 
-    // 4. 若 baseBranch 最新 SHA 不等於 baseCommit，強制於 Rebase 後的 worktree 重跑驗證命令 (0 LLM Token)
+    // 3. 整合最新 baseBranch：含 Merge Commit 時採 Merge-Preserving，否則維持 rebase
+    let isBaseAncestor = false;
+    if (hasMergeHistory) {
+      try {
+        execFileSync('git', ['-C', worktreePath, 'merge-base', '--is-ancestor', currentBaseSha, 'HEAD'], {
+          encoding: 'utf8',
+          env: customEnv,
+          timeout: 5000,
+          stdio: 'pipe'
+        });
+        isBaseAncestor = true;
+      } catch (_) {
+        isBaseAncestor = false;
+      }
+
+      if (!isBaseAncestor) {
+        try {
+          execFileSync('git', ['-C', worktreePath, 'merge', '--no-edit', baseBranch], {
+            encoding: 'utf8',
+            env: customEnv,
+            timeout: 30000
+          });
+        } catch (mergeErr) {
+          try {
+            execFileSync('git', ['-C', worktreePath, 'merge', '--abort'], {
+              encoding: 'utf8',
+              env: customEnv,
+              timeout: 10000,
+              stdio: 'ignore'
+            });
+          } catch (abortErr) {}
+          return {
+            success: false,
+            merged: false,
+            conflict: true,
+            status: 'conflict',
+            baseBranch,
+            branchName,
+            error: `合併最新 ${baseBranch} 至隔離分支發生衝突，已立即執行 git merge --abort，${baseBranch} 未受任何污染。`
+          };
+        }
+      }
+    } else {
+      try {
+        execFileSync('git', ['-C', worktreePath, 'rebase', baseBranch], {
+          encoding: 'utf8',
+          env: customEnv,
+          timeout: 30000
+        });
+      } catch (rebaseErr) {
+        try {
+          execFileSync('git', ['-C', worktreePath, 'rebase', '--abort'], {
+            encoding: 'utf8',
+            env: customEnv,
+            timeout: 10000,
+            stdio: 'ignore'
+          });
+        } catch (abortErr) {}
+        return {
+          success: false,
+          merged: false,
+          conflict: true,
+          status: 'conflict',
+          baseBranch,
+          branchName,
+          error: `Rebase 至 ${baseBranch} 發生衝突，已立即執行 git rebase --abort，${baseBranch} 未受任何污染。`
+        };
+      }
+    }
+
+    // 4. 若 baseBranch 最新 SHA 不等於 baseCommit，強制於整合後的 worktree 重跑驗證命令 (0 LLM Token)
     const baseMoved = Boolean(baseCommit && currentBaseSha && currentBaseSha !== baseCommit);
     let reVerified = false;
     if (baseMoved && verifyCommand && String(verifyCommand).trim()) {
@@ -1071,12 +1138,12 @@ async function mergeTaskWorktree(options = {}) {
           currentBaseSha,
           exitCode: verifyErr.status || 1,
           output: verifyOut,
-          error: `基線分支 ${baseBranch} 已前進，於 Rebase 後之 worktree 重跑驗證 (${verifyCommand}) 失敗，已阻斷合併。`
+          error: `基線分支 ${baseBranch} 已前進，於整合後之 worktree 重跑驗證 (${verifyCommand}) 失敗，已阻斷合併。`
         };
       }
     }
 
-    // 5. 風險門確認：one-way 高風險任務須顯式確認才可本地 Squash 合併
+    // 5. 風險門確認：one-way 高風險任務須顯式確認才可本地合併
     const riskDoor = (task && task.riskDoor) || 'two-way';
     if (riskDoor === 'one-way' && !confirmOneWayMerge && mode !== 'squash') {
       return {
@@ -1088,25 +1155,25 @@ async function mergeTaskWorktree(options = {}) {
         baseBranch,
         baseMoved,
         reVerified,
-        error: `One-Way 高風險任務須經顯式確認才可本地 Squash 合併至 ${baseBranch}，請傳入 confirmOneWayMerge: true（遠端 Push 與開 PR 請於結案後由交付塢操作）。`
+        error: `One-Way 高風險任務須經顯式確認才可本地合併至 ${baseBranch}，請傳入 confirmOneWayMerge: true（遠端 Push 與開 PR 請於結案後由交付塢操作）。`
       };
     }
 
-    // 6. Squash Merge：於 worktree 壓縮為單一原子 Commit
-    const rebasedHead = execFileSync('git', ['-C', worktreePath, 'rev-parse', '--verify', 'HEAD'], {
+    // 6. 產生最終要推進的 Commit：Merge 型態保留合併拓撲不 Squash；一般型態 Squash 為單一原子 Commit
+    const integratedHead = execFileSync('git', ['-C', worktreePath, 'rev-parse', '--verify', 'HEAD'], {
       encoding: 'utf8',
       env: customEnv,
       timeout: 5000
     }).trim();
 
-    if (rebasedHead === currentBaseSha) {
+    if (integratedHead === currentBaseSha) {
       removeTaskWorktree(cleanRepo, taskId, { branchName, worktreePath });
       return {
         success: true,
         merged: true,
         alreadyUpToDate: true,
         status: 'merged',
-        strategy: 'squash',
+        strategy: hasMergeHistory ? (isBaseAncestor ? 'merge-ff' : 'merge-preserve') : 'squash',
         baseBranch,
         baseCommit,
         mergeCommit: currentBaseSha,
@@ -1115,32 +1182,44 @@ async function mergeTaskWorktree(options = {}) {
       };
     }
 
-    execFileSync('git', ['-C', worktreePath, 'reset', '--soft', currentBaseSha], {
-      encoding: 'utf8',
-      env: customEnv,
-      timeout: 10000
-    });
+    let finalSha = currentBaseSha;
+    let strategy = 'squash';
+    let hasAdvanceCommit = false;
 
-    const stagedChanges = execFileSync('git', ['-C', worktreePath, 'diff', '--cached', '--name-only'], {
-      encoding: 'utf8',
-      env: customEnv,
-      timeout: 5000
-    }).trim();
+    if (hasMergeHistory) {
+      finalSha = integratedHead;
+      strategy = isBaseAncestor ? 'merge-ff' : 'merge-preserve';
+      hasAdvanceCommit = true;
+    } else {
+      execFileSync('git', ['-C', worktreePath, 'reset', '--soft', currentBaseSha], {
+        encoding: 'utf8',
+        env: customEnv,
+        timeout: 10000
+      });
 
-    let squashedSha = currentBaseSha;
-    if (stagedChanges.length > 0) {
-      const squashArgs = ['-C', worktreePath, 'commit', '-m', defaultSubject];
-      if (defaultBody) squashArgs.push('-m', defaultBody);
-      execFileSync('git', squashArgs, { encoding: 'utf8', env: customEnv, timeout: 30000 });
-      squashedSha = execFileSync('git', ['-C', worktreePath, 'rev-parse', '--verify', 'HEAD'], {
+      const stagedChanges = execFileSync('git', ['-C', worktreePath, 'diff', '--cached', '--name-only'], {
         encoding: 'utf8',
         env: customEnv,
         timeout: 5000
       }).trim();
 
-      // 7. 推進本地 baseBranch：主工作區在同一分支且乾淨時 ff-only；在別的分支或有未提交變更時用 git fetch . HEAD:<baseBranch>
+      if (stagedChanges.length > 0) {
+        const squashArgs = ['-C', worktreePath, 'commit', '-m', defaultSubject];
+        if (defaultBody) squashArgs.push('-m', defaultBody);
+        execFileSync('git', squashArgs, { encoding: 'utf8', env: customEnv, timeout: 30000 });
+        finalSha = execFileSync('git', ['-C', worktreePath, 'rev-parse', '--verify', 'HEAD'], {
+          encoding: 'utf8',
+          env: customEnv,
+          timeout: 5000
+        }).trim();
+        hasAdvanceCommit = true;
+      }
+    }
+
+    // 7. 推進本地 baseBranch：主工作區在同一分支且乾淨時 ff-only；在別的分支或有未提交變更時用 git fetch . HEAD:<baseBranch>
+    if (hasAdvanceCommit) {
       if (isMainOnBase) {
-        execFileSync('git', ['-C', cleanRepo, 'merge', '--ff-only', squashedSha], {
+        execFileSync('git', ['-C', cleanRepo, 'merge', '--ff-only', finalSha], {
           encoding: 'utf8',
           env: customEnv,
           timeout: 15000
@@ -1161,10 +1240,10 @@ async function mergeTaskWorktree(options = {}) {
       success: true,
       merged: true,
       status: 'merged',
-      strategy: 'squash',
+      strategy,
       baseBranch,
       baseCommit,
-      mergeCommit: squashedSha,
+      mergeCommit: finalSha,
       baseMoved,
       reVerified
     };

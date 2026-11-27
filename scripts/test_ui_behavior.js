@@ -1542,6 +1542,123 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
   );
   console.log('  ✅ Diff 前後文展開列、±3/±15/±40/整檔模式與位移安全對齊驗證通過');
 
+  // 驗證 TASK-257：reviewLandStudio.js 於 worktree 衝突時傳遞 openWorktree: true，於 dirty_main_workspace 維持開啟主目錄
+  const landSrc = fs.readFileSync(path.join(__dirname, '../src/public/modules/reviewLandStudio.js'), 'utf8')
+    .replace(/^import\s+[\s\S]*?from\s+['"][^'"]+['"];\s*$/gm, '')
+    .replace(/export\s*\{[\s\S]*?\};\s*$/m, '');
+
+  const errorBoxEl = { innerHTML: '', classList: { remove: () => {}, add: () => {} } };
+  const driftBadgeEl = { innerHTML: '', className: '' };
+  const landSandbox = {
+    window: {},
+    document: {
+      getElementById: (id) => {
+        if (id === 'reviewLandErrorBox') return errorBoxEl;
+        if (id === 'reviewLandDriftStatus') return driftBadgeEl;
+        return null;
+      }
+    },
+    projects: [{ id: 'tool-static-portal', defaultBranch: 'main' }],
+    tasks: [{ id: 'TASK-256', project: 'tool-static-portal', workspaceMode: 'worktree', worktreePath: '/tmp/wt-256' }],
+    currentModalEditingTask: null,
+    escapeHtml: (s) => String(s || ''),
+    showToast: () => {},
+    withButtonLoading: async (_btn, _label, fn) => fn(),
+    loadData: async () => {}
+  };
+  vm.createContext(landSandbox);
+  vm.runInContext(`${landSrc}\nthis.__landExports = { setLandErrorBox, renderDriftStatusBadge };`, landSandbox);
+  const { setLandErrorBox, renderDriftStatusBadge } = landSandbox.__landExports;
+
+  setLandErrorBox('rebase conflict', {
+    taskId: 'TASK-256',
+    projectId: 'tool-static-portal',
+    showOpenEditor: true,
+    openWorktree: true
+  });
+  assert(
+    errorBoxEl.innerHTML.includes("{ taskId: 'TASK-256', openWorktree: true }") &&
+    errorBoxEl.innerHTML.includes('在 VS Code 開啟隔離區') &&
+    errorBoxEl.innerHTML.includes('在 Antigravity 開啟隔離區'),
+    'worktree 衝突錯誤框必須傳入 openWorktree: true 並顯示開啟隔離區'
+  );
+
+  setLandErrorBox('dirty main', {
+    taskId: 'TASK-256',
+    projectId: 'tool-static-portal',
+    showOpenEditor: true,
+    openWorktree: false
+  });
+  assert(
+    !errorBoxEl.innerHTML.includes('openWorktree: true') &&
+    errorBoxEl.innerHTML.includes('在 VS Code 開啟') &&
+    !errorBoxEl.innerHTML.includes('在 VS Code 開啟隔離區'),
+    '主工作區髒狀態錯誤框不應傳入 openWorktree: true'
+  );
+
+  renderDriftStatusBadge({ status: 'conflict', hasConflict: true }, 'TASK-256');
+  assert(
+    driftBadgeEl.innerHTML.includes("{ taskId: 'TASK-256', openWorktree: true }") &&
+    driftBadgeEl.innerHTML.includes('VS Code 開啟隔離區'),
+    'worktree 分支漂移衝突徽章必須傳入 openWorktree: true'
+  );
+
+  renderDriftStatusBadge({ status: 'dirty_main_workspace', dirtyMainWorkspace: true, dirtyFiles: ['a.js'] }, 'TASK-256');
+  assert(
+    !driftBadgeEl.innerHTML.includes('openWorktree: true') &&
+    !driftBadgeEl.innerHTML.includes('VS Code 開啟隔離區'),
+    'dirty_main_workspace 徽章必須開啟主目錄而非隔離區'
+  );
+  console.log('  ✅ TASK-257 reviewLandStudio worktree 編輯器導向邏輯驗證通過');
+
+  // 驗證 TASK-257：設定面板 plainLanguageWithTerms (白話解釋搭配專有名詞) 讀取與儲存綁定
+  assert(htmlContent.includes('id="settingPlainLanguageWithTerms"'), 'index.html 設定 Modal 必須包含 #settingPlainLanguageWithTerms 開關');
+  const plainSettingCheckbox = { checked: true };
+  const settingsModalEl = { classList: { remove: () => {}, add: () => {} } };
+  let savedModalSettingsPayload = null;
+  const settingsUiSandbox = {
+    window: {},
+    localStorage: { getItem: () => 'small' },
+    settings: { enableCliAgent: false, cliCommand: 'hermes', autoTriggerOnInProgress: true, plainLanguageWithTerms: false, dataDirectoryPath: '' },
+    document: {
+      getElementById: (id) => {
+        if (id === 'settingPlainLanguageWithTerms') return plainSettingCheckbox;
+        if (id === 'settingsModal') return settingsModalEl;
+        if (id === 'settingConfigPathDisplay') return { innerText: '' };
+        if (id === 'settingCliCommand') return { value: 'agy' };
+        if (id === 'settingAutoTrigger') return { checked: true };
+        return null;
+      }
+    },
+    updateThemeButtons: () => {},
+    updateFontSizeButtons: () => {},
+    loadGitAccountsSettings: () => {},
+    withButtonLoading: async (_btn, _label, fn) => fn(),
+    setSettings: val => { settingsUiSandbox.settings = val; },
+    renderCliAgentBadge: () => {},
+    showToast: () => {},
+    loadData: async () => {},
+    fetch: async (url, opts) => {
+      if (url === '/api/settings' && opts && opts.method === 'POST') {
+        savedModalSettingsPayload = JSON.parse(opts.body);
+        return { ok: true, json: async () => savedModalSettingsPayload };
+      }
+      return { ok: true, json: async () => ({}) };
+    }
+  };
+  vm.createContext(settingsUiSandbox);
+  vm.runInContext(
+    ['openSettingsModal', 'closeSettingsModal', 'saveSettingsFromModal'].map(actualFunction).join('\n'),
+    settingsUiSandbox
+  );
+
+  settingsUiSandbox.openSettingsModal();
+  assert.strictEqual(plainSettingCheckbox.checked, false, 'openSettingsModal 必須正確回填 settings.plainLanguageWithTerms=false');
+  plainSettingCheckbox.checked = true;
+  await settingsUiSandbox.saveSettingsFromModal();
+  assert.strictEqual(savedModalSettingsPayload.plainLanguageWithTerms, true, 'saveSettingsFromModal 必須送出 plainLanguageWithTerms 設定值');
+  console.log('  ✅ TASK-257 設定面板 plainLanguageWithTerms 讀寫綁定驗證通過');
+
   console.log('🎉 所有前端核心互動邏輯與防禦機制測試通過！\n');
 })().catch(err => {
   console.error(err);

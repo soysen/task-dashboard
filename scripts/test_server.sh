@@ -55,9 +55,35 @@ echo "  [2/5] 測試 GET /api/projects ..."
 curl -s -f "http://localhost:$TEST_PORT/api/projects" > /dev/null
 echo "    ✅ /api/projects 正常"
 
-echo "  [3/5] 測試 GET /api/settings ..."
-curl -s -f "http://localhost:$TEST_PORT/api/settings" > /dev/null
-echo "    ✅ /api/settings 正常"
+echo "  [3/5] 測試 GET /api/settings 與 plainLanguageWithTerms 切換持久化 ..."
+TEST_PORT=$TEST_PORT node -e '
+(async () => {
+  const assert = require("node:assert/strict");
+  const base = `http://localhost:${process.env.TEST_PORT || "3031"}`;
+  const getRes = await fetch(`${base}/api/settings`);
+  assert.equal(getRes.status, 200);
+  const initial = await getRes.json();
+  assert.equal(initial.plainLanguageWithTerms, true, "預設 plainLanguageWithTerms 應為 true");
+
+  const offRes = await fetch(`${base}/api/settings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ plainLanguageWithTerms: false })
+  });
+  assert.equal(offRes.status, 200);
+  assert.equal((await offRes.json()).plainLanguageWithTerms, false);
+
+  const checkOff = await (await fetch(`${base}/api/settings`)).json();
+  assert.equal(checkOff.plainLanguageWithTerms, false, "plainLanguageWithTerms=false 必須持久化");
+
+  await fetch(`${base}/api/settings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ plainLanguageWithTerms: true })
+  });
+})();
+'
+echo "    ✅ /api/settings 與 plainLanguageWithTerms 持久化正常"
 
 echo "  [3.5/5] 測試 GET /api/events (SSE 即時推送端點) ..."
 SSE_HEADERS=$(curl -s -m 1 -i "http://localhost:$TEST_PORT/api/events" || true)
@@ -850,7 +876,70 @@ try {
   });
   assert.equal(owConfirmed.status, 200, "one-way 顯式 confirmOneWayMerge: true 後必須成功 Squash 合併");
 
-  console.log("    ✅ TD-S2 baseBranch 鎖定、衝突安全中止、基線變動重驗與無感 Squash 合併驗證通過");
+  // Case 4 (TASK-257): Worktree 內含已解決衝突之 MERGE_HEAD 時應走 merge-ff 保留雙父節點，不得 rebase 重爆衝突
+  execSync("git checkout -q main", { cwd: tempRepo });
+  fs.writeFileSync(path.join(tempRepo, "conflict_merge.txt"), "base-line\n");
+  execSync("git add -A && git commit -q -m \"base conflict_merge\"", { cwd: tempRepo });
+  execSync("git checkout -q -b upstream-master", { cwd: tempRepo });
+  fs.writeFileSync(path.join(tempRepo, "conflict_merge.txt"), "master-line\n");
+  execSync("git add -A && git commit -q -m \"upstream master change\"", { cwd: tempRepo });
+  execSync("git checkout -q main", { cwd: tempRepo });
+  fs.writeFileSync(path.join(tempRepo, "conflict_merge.txt"), "feature-line\n");
+  execSync("git add -A && git commit -q -m \"feature change on main\"", { cwd: tempRepo });
+
+  const wtMergeFf = createTaskWorktree(tempRepo, "TASK-257-MERGE-FF", { baseBranch: "main" });
+  let mergeFailedAsExpected = false;
+  try {
+    execSync("git merge --no-commit --no-ff upstream-master", { cwd: wtMergeFf.worktreePath, stdio: "ignore" });
+  } catch (_) {
+    mergeFailedAsExpected = true;
+  }
+  assert.equal(mergeFailedAsExpected, true, "模擬 worktree 合併 upstream-master 應先產生衝突");
+  // 以 master 為基準解決衝突並保留 MERGE_HEAD（不手動 commit，模擬 TASK-256 交回 review 狀態）
+  execSync("git checkout --theirs conflict_merge.txt && git add conflict_merge.txt", { cwd: wtMergeFf.worktreePath });
+  assert(fs.existsSync(path.join(tempRepo, ".git/worktrees/TASK-257-MERGE-FF/MERGE_HEAD")), "未 commit 前應存在 MERGE_HEAD");
+
+  const mergeFfRes = await mergeTaskWorktree({
+    repoPath: tempRepo,
+    taskId: "TASK-257-MERGE-FF",
+    task: { id: "TASK-257-MERGE-FF", title: "Merge FF preserve", baseBranch: "main", baseCommit: wtMergeFf.baseCommit },
+    worktreePath: wtMergeFf.worktreePath,
+    branchName: wtMergeFf.branchName
+  });
+  assert.equal(mergeFfRes.success, true, `含 MERGE_HEAD 之 worktree 應可順利合併，實際: ${mergeFfRes.error}`);
+  assert.equal(mergeFfRes.merged, true);
+  assert.equal(mergeFfRes.strategy, "merge-ff");
+  assert.equal(fs.readFileSync(path.join(tempRepo, "conflict_merge.txt"), "utf8"), "master-line\n");
+  const parentsFf = execSync("git rev-list --parents -n 1 main", { cwd: tempRepo, encoding: "utf8" }).trim().split(/\s+/);
+  assert.equal(parentsFf.length, 3, "merge-ff 後 main HEAD 應保留 2 個父節點（commit + 2 parents）");
+  assert(!fs.existsSync(wtMergeFf.worktreePath), "merge-ff 完成後 worktree 目錄必須已清理");
+
+  // Case 5 (TASK-257): Worktree 含 Merge Commit 且期間 baseBranch 新增無衝突 commit 時應走 merge-preserve（不 rebase）
+  const wtMergePreserve = createTaskWorktree(tempRepo, "TASK-257-MERGE-PRESERVE", { baseBranch: "main" });
+  execSync("git checkout -q -b side-branch main~1", { cwd: tempRepo });
+  fs.writeFileSync(path.join(tempRepo, "side_only.txt"), "from side\n");
+  execSync("git add -A && git commit -q -m \"side commit\"", { cwd: tempRepo });
+  execSync("git checkout -q main", { cwd: tempRepo });
+  execSync("git merge --no-ff -q -m \"wt merge side\" side-branch", { cwd: wtMergePreserve.worktreePath });
+  // 期間 main 前進另一個無衝突檔案
+  fs.writeFileSync(path.join(tempRepo, "main_parallel.txt"), "parallel\n");
+  execSync("git add -A && git commit -q -m \"main parallel advance\"", { cwd: tempRepo });
+
+  const mergePreserveRes = await mergeTaskWorktree({
+    repoPath: tempRepo,
+    taskId: "TASK-257-MERGE-PRESERVE",
+    task: { id: "TASK-257-MERGE-PRESERVE", title: "Merge Preserve test", baseBranch: "main", baseCommit: wtMergePreserve.baseCommit },
+    worktreePath: wtMergePreserve.worktreePath,
+    branchName: wtMergePreserve.branchName
+  });
+  assert.equal(mergePreserveRes.success, true, `merge-preserve 應順利整合並落地，實際: ${mergePreserveRes.error}`);
+  assert.equal(mergePreserveRes.merged, true);
+  assert.equal(mergePreserveRes.strategy, "merge-preserve");
+  assert.equal(fs.readFileSync(path.join(tempRepo, "side_only.txt"), "utf8"), "from side\n");
+  assert.equal(fs.readFileSync(path.join(tempRepo, "main_parallel.txt"), "utf8"), "parallel\n");
+  assert(!fs.existsSync(wtMergePreserve.worktreePath), "merge-preserve 完成後 worktree 目錄必須已清理");
+
+  console.log("    ✅ TD-S2 baseBranch 鎖定、衝突安全中止、基線變動重驗、Squash 與 Merge-Preserving 合併驗證通過");
 } finally {
   fs.rmSync(tempRepo, { recursive: true, force: true });
   fs.rmSync(`${tempRepo}.worktrees`, { recursive: true, force: true });
