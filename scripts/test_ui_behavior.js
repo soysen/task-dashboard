@@ -1751,6 +1751,152 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
   assert.strictEqual(headerlessSections.length, 2, '無 diff --git 檔頭之純 --- /dev/null diff 仍應切分為 2 段');
   console.log('  ✅ TASK-263 新增檔案 (new file mode 100644 / --- /dev/null) Diff 分割與完整內容渲染驗證通過');
 
+  // 驗證 TASK-265：開立 PR 前置同步目標分支選項、409 衝突引導面板與一鍵建立解衝任務
+  let createdModalEl = null;
+  let prFeedbackEl = { className: 'hidden', innerHTML: '', innerText: '' };
+  let prBtnEl = { disabled: false, innerText: '建立 PR' };
+  let prPullCheckboxEl = { checked: true };
+  let prAutoPushCheckboxEl = { checked: true };
+  const prFetchCalls = [];
+  let prFetchMockMode = 'conflict';
+  let loadDataCalledCount = 0;
+
+  const prFlowCtx = vm.createContext({
+    projects: [{ id: 'proj-265', defaultBranch: 'main', requirePr: true }],
+    tasks: [],
+    currentProject: 'proj-265',
+    currentBranch: 'feat/pr-conflict',
+    projectBranchesMap: {
+      'proj-265': {
+        isGitRepo: true,
+        defaultBranch: 'main',
+        currentCheckoutBranch: 'feat/pr-conflict',
+        branches: [{ name: 'main' }, { name: 'feat/pr-conflict' }]
+      }
+    },
+    groupByBranch: false,
+    expandedProjectId: null,
+    setCurrentProject: () => {},
+    setCurrentBranch: () => {},
+    setProjectBranchesMap: () => {},
+    setGroupByBranch: () => {},
+    setExpandedProjectId: () => {},
+    escapeHtml: (value) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'),
+    showToast: () => {},
+    openExternalUrl: () => {},
+    fetch: async (url, init = {}) => {
+      const payload = init.body ? JSON.parse(init.body) : null;
+      prFetchCalls.push({ url, method: init.method || 'GET', payload });
+      if (url === '/api/projects/proj-265/branches/pr') {
+        assert.strictEqual(prBtnEl.innerText, '先同步目標分支並建立中...', '送出 PR 時按鈕應顯示先同步目標分支並建立中...');
+        if (prFetchMockMode === 'conflict') {
+          return {
+            ok: false,
+            status: 409,
+            json: async () => ({
+              success: false,
+              syncFailed: true,
+              conflict: true,
+              status: 'conflict',
+              conflictingFiles: ['src/app.js', 'docs/<bad>.md'],
+              error: '將 origin/main 同步至 feat/pr-conflict 時發生衝突'
+            })
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            prUrl: 'https://github.com/octocat/demo/pull/99',
+            prePrSync: { synced: true, alreadyUpToDate: false, syncRef: 'origin/main', strategy: 'merge' },
+            archivedTaskIds: []
+          })
+        };
+      }
+      if (url === '/api/tasks') {
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({ id: 'TASK-999', ...payload })
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    },
+    document: {
+      createElement: () => ({
+        id: '',
+        className: '',
+        innerHTML: '',
+        addEventListener: () => {},
+        remove: () => { createdModalEl = null; }
+      }),
+      body: {
+        appendChild: (el) => { createdModalEl = el; }
+      },
+      getElementById: (id) => {
+        if (id === 'createPrModal') return createdModalEl;
+        if (id === 'prTargetBranchSelect') return { value: 'main' };
+        if (id === 'prTitleInput') return { value: 'Test PR Title' };
+        if (id === 'prDescriptionInput') return { value: 'Keep my PR description' };
+        if (id === 'prAutoPushCheckbox') return prAutoPushCheckboxEl;
+        if (id === 'prPullTargetCheckbox') return prPullCheckboxEl;
+        if (id === 'createPrModalFeedback') return prFeedbackEl;
+        if (id === 'btnConfirmCreatePr') return prBtnEl;
+        return null;
+      }
+    },
+    window: {
+      loadData: async () => { loadDataCalledCount += 1; },
+      updateModalButtonState: () => {}
+    }
+  });
+  vm.runInContext(branchNavRaw, prFlowCtx);
+
+  assert.strictEqual(typeof prFlowCtx.window.createConflictTaskFromPr, 'function', 'window.createConflictTaskFromPr 必須正確綁定');
+
+  prFlowCtx.openCreatePrModal('proj-265', 'feat/pr-conflict', 'main');
+  assert(createdModalEl && createdModalEl.innerHTML.includes('id="prPullTargetCheckbox"'), 'openCreatePrModal 必須渲染 #prPullTargetCheckbox');
+  const pullCheckboxIdx = createdModalEl.innerHTML.indexOf('id="prPullTargetCheckbox"');
+  const autoPushCheckboxIdx = createdModalEl.innerHTML.indexOf('id="prAutoPushCheckbox"');
+  assert(pullCheckboxIdx !== -1 && autoPushCheckboxIdx !== -1 && pullCheckboxIdx < autoPushCheckboxIdx, '#prPullTargetCheckbox 必須位於 #prAutoPushCheckbox 上方');
+  assert(createdModalEl.innerHTML.includes('id="prPullTargetCheckbox" checked'), '#prPullTargetCheckbox 必須預設勾選');
+
+  await prFlowCtx.submitCreatePr('proj-265', 'feat/pr-conflict', '');
+  assert.strictEqual(prFetchCalls[0].payload.pullTargetBeforePr, true, 'submitCreatePr 必須送出 pullTargetBeforePr: true');
+  assert(createdModalEl !== null, '遇 409 衝突時 #createPrModal 必須維持開啟保留輸入內容');
+  assert(!prFeedbackEl.className.includes('hidden'), '遇 409 衝突時 #createPrModalFeedback 必須顯示');
+  assert(
+    prFeedbackEl.innerHTML.includes('src/app.js') &&
+    prFeedbackEl.innerHTML.includes('docs/&lt;bad&gt;.md') &&
+    !prFeedbackEl.innerHTML.includes('<bad>'),
+    '衝突檔案清單必須呈現並妥善進行 HTML escaping'
+  );
+  for (const btnLabel of ['建立解衝任務 (Agent)', '在 Antigravity 開啟', '在 VS Code 開啟', '衝突已解，重新送出 PR']) {
+    assert(prFeedbackEl.innerHTML.includes(btnLabel), `衝突引導面板必須包含「${btnLabel}」按鈕`);
+  }
+
+  await prFlowCtx.window.createConflictTaskFromPr('proj-265', 'feat/pr-conflict', 'main', null);
+  const taskCreateCall = prFetchCalls.find(c => c.url === '/api/tasks');
+  assert(taskCreateCall && taskCreateCall.method === 'POST', 'createConflictTaskFromPr 必須呼叫 POST /api/tasks');
+  assert.strictEqual(taskCreateCall.payload.priority, 'P1');
+  assert.strictEqual(taskCreateCall.payload.status, 'todo');
+  assert.strictEqual(taskCreateCall.payload.workspaceMode, 'in_place');
+  assert.strictEqual(taskCreateCall.payload.targetBranch, 'feat/pr-conflict');
+  assert.strictEqual(taskCreateCall.payload.baseBranch, 'feat/pr-conflict');
+  assert(taskCreateCall.payload.description.includes('git merge origin/main'), '解衝任務描述必須包含 git merge origin/main 指令');
+  assert(taskCreateCall.payload.description.includes('src/app.js'), '解衝任務描述應讀取暫存之衝突檔案清單');
+  assert(loadDataCalledCount >= 1, '建立解衝任務後應呼叫 window.loadData()');
+
+  prFetchMockMode = 'success';
+  await prFlowCtx.submitCreatePr('proj-265', 'feat/pr-conflict', '');
+  assert(
+    prFeedbackEl.innerHTML.includes('已先拉取並合併目標分支 origin/main 最新進度') &&
+    prFeedbackEl.innerHTML.includes('https://github.com/octocat/demo/pull/99'),
+    '成功開立 PR 且有前置合併時應顯示 prePrSync 合併資訊與 PR 連結'
+  );
+  console.log('  ✅ TASK-265 開立 PR 前置同步勾選、409 衝突引導面板與一鍵建立解衝任務驗證通過');
+
   console.log('🎉 所有前端核心互動邏輯與防禦機制測試通過！\n');
 })().catch(err => {
   console.error(err);

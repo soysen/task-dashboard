@@ -2221,6 +2221,8 @@ function runNativeFolderPicker(promptText, callback) {
           description: data.description,
           draft: Boolean(data.draft),
           autoPush: Boolean(data.autoPush),
+          pullTargetBeforePr: data.pullTargetBeforePr !== false,
+          syncStrategy: data.syncStrategy === 'rebase' ? 'rebase' : 'merge',
           customEnv: buildCustomEnv()
         });
         const archiveOnPr = data.archiveTasks !== false;
@@ -2311,6 +2313,11 @@ function runNativeFolderPicker(promptText, callback) {
           }
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ...prRes, projectId: proj.id, updatedTaskIds, archivedTaskIds }));
+          return;
+        }
+        if (!prRes.success && (prRes.conflict || prRes.status === 'conflict' || prRes.status === 'dirty_workspace')) {
+          res.writeHead(409, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ...prRes, projectId: proj.id }));
           return;
         }
         res.writeHead(400, { 'Content-Type': 'application/json' });

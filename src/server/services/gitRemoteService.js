@@ -954,6 +954,8 @@ async function createPullRequest(repoPath, options = {}) {
     description = '',
     draft = false,
     autoPush = false,
+    pullTargetBeforePr = false,
+    syncStrategy = 'merge',
     customEnv = process.env,
     fetchImpl = globalThis.fetch
   } = options;
@@ -1001,6 +1003,39 @@ async function createPullRequest(repoPath, options = {}) {
   const fallbackCreateUrl = buildFallbackPrUrl(providerInfo, sourceBranch, targetBranch);
   const effectiveTitle = String(title || '').trim() || `PR: ${sourceBranch} → ${targetBranch}`;
 
+  let prePrSync = null;
+  if (pullTargetBeforePr === true) {
+    const syncRes = await syncBranchWithBase(cleanRepo, sourceBranch, targetBranch, {
+      strategy: syncStrategy === 'rebase' ? 'rebase' : 'merge',
+      customEnv
+    });
+    if (!syncRes.success) {
+      return {
+        success: false,
+        degraded: false,
+        provider: providerInfo.provider,
+        sourceBranch,
+        targetBranch,
+        fallbackCreateUrl,
+        syncFailed: true,
+        conflict: Boolean(syncRes.conflict),
+        status: syncRes.status || 'sync_failed',
+        syncRef: syncRes.syncRef || `origin/${targetBranch}`,
+        conflictingFiles: syncRes.conflictingFiles || [],
+        dirtyFiles: syncRes.dirtyFiles || [],
+        error: syncRes.error || `開立 PR 前同步 ${targetBranch} 失敗`
+      };
+    }
+    prePrSync = {
+      synced: true,
+      alreadyUpToDate: Boolean(syncRes.alreadyUpToDate),
+      syncRef: syncRes.syncRef,
+      strategy: syncRes.strategy,
+      commitSha: syncRes.commitSha || ''
+    };
+  }
+  const prePrSyncMeta = prePrSync ? { prePrSync } : {};
+
   if (autoPush === true) {
     const pushRes = await pushBranch(cleanRepo, sourceBranch, { customEnv });
     if (!pushRes.success) {
@@ -1011,6 +1046,7 @@ async function createPullRequest(repoPath, options = {}) {
         sourceBranch,
         targetBranch,
         fallbackCreateUrl,
+        ...prePrSyncMeta,
         error: pushRes.error
       };
     }
@@ -1026,6 +1062,7 @@ async function createPullRequest(repoPath, options = {}) {
         sourceBranch,
         targetBranch,
         fallbackCreateUrl,
+        ...prePrSyncMeta,
         error: '未偵測到 Azure DevOps PAT，已降級為網頁開立 PR。'
       };
     }
@@ -1059,7 +1096,8 @@ async function createPullRequest(repoPath, options = {}) {
           prUrl,
           sourceBranch,
           targetBranch,
-          title: effectiveTitle
+          title: effectiveTitle,
+          ...prePrSyncMeta
         };
       }
 
@@ -1085,6 +1123,7 @@ async function createPullRequest(repoPath, options = {}) {
         sourceBranch,
         targetBranch,
         fallbackCreateUrl,
+        ...prePrSyncMeta,
         error: redactUrlCredentials(errMsg)
       };
     } catch (err) {
@@ -1096,6 +1135,7 @@ async function createPullRequest(repoPath, options = {}) {
         sourceBranch,
         targetBranch,
         fallbackCreateUrl,
+        ...prePrSyncMeta,
         error: redactUrlCredentials(err && err.message ? err.message : 'Azure DevOps PR API 連線失敗')
       };
     }
@@ -1132,7 +1172,8 @@ async function createPullRequest(repoPath, options = {}) {
         prUrl,
         sourceBranch,
         targetBranch,
-        title: effectiveTitle
+        title: effectiveTitle,
+        ...prePrSyncMeta
       };
     } catch (err) {
       const errMsg = [err && err.message, err && err.stderr].filter(Boolean).join('\n') || 'gh pr create 執行失敗';
@@ -1143,6 +1184,7 @@ async function createPullRequest(repoPath, options = {}) {
         sourceBranch,
         targetBranch,
         fallbackCreateUrl,
+        ...prePrSyncMeta,
         error: redactUrlCredentials(errMsg)
       };
     }
@@ -1155,6 +1197,7 @@ async function createPullRequest(repoPath, options = {}) {
     sourceBranch,
     targetBranch,
     fallbackCreateUrl: '',
+    ...prePrSyncMeta,
     error: '目前遠端平台不支援自動開立 PR。'
   };
 }

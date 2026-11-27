@@ -9,6 +9,7 @@ const loadingRemoteStatusKeys = new Set();
 let branchRemoteStatusMap = {};
 let popoverTargetProjectId = "";
 let _gitSyncModalState = null;
+let _lastPrConflictState = null;
 
 async function loadBranchRemoteStatus(projectId, branchName, forceRefresh = false) {
   if (!projectId || projectId === "ALL" || !branchName || branchName === "ALL" || typeof fetch !== "function") {
@@ -850,6 +851,7 @@ function buildPrSummaryFromDoneTasks(projectId, branchName, targetBranch = "main
 
 function closeCreatePrModal() {
   if (typeof document === "undefined") return;
+  _lastPrConflictState = null;
   const modal = document.getElementById("createPrModal");
   if (modal) modal.remove();
   renderContextualHeaderActions();
@@ -857,6 +859,7 @@ function closeCreatePrModal() {
 
 function openCreatePrModal(projectId, sourceBranch, targetBranch, options = {}) {
   if (typeof document === "undefined") return;
+  _lastPrConflictState = null;
   const existing = document.getElementById("createPrModal");
   if (existing) existing.remove();
 
@@ -912,10 +915,16 @@ function openCreatePrModal(projectId, sourceBranch, targetBranch, options = {}) 
           <label for="prDescriptionInput" class="block font-semibold text-slate-700 dark:text-slate-300">PR 說明 (Markdown)</label>
           <textarea id="prDescriptionInput" rows="5" class="w-full px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-mono focus:outline-none focus:border-indigo-500">${escapeHtml(summary.description)}</textarea>
         </div>
-        <label class="inline-flex items-center gap-2 text-slate-700 dark:text-slate-300 cursor-pointer select-none">
-          <input type="checkbox" id="prAutoPushCheckbox" ${shouldAutoPush ? "checked" : ""} class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer">
-          <span>開立 PR 前先自動推送來源分支至遠端 (git push -u origin)</span>
-        </label>
+        <div class="space-y-2">
+          <label class="flex items-center gap-2 text-slate-700 dark:text-slate-300 cursor-pointer select-none">
+            <input type="checkbox" id="prPullTargetCheckbox" checked class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer">
+            <span>開立 PR 前先拉取並合併目標分支最新進度 (先 pull 目標分支，遇衝突中止送出)</span>
+          </label>
+          <label class="flex items-center gap-2 text-slate-700 dark:text-slate-300 cursor-pointer select-none">
+            <input type="checkbox" id="prAutoPushCheckbox" ${shouldAutoPush ? "checked" : ""} class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer">
+            <span>開立 PR 前先自動推送來源分支至遠端 (git push -u origin)</span>
+          </label>
+        </div>
         <div id="createPrModalFeedback" class="hidden rounded-lg p-2.5 text-[11px] whitespace-pre-wrap break-words"></div>
       </div>
       <div class="px-4 py-3 bg-slate-50 dark:bg-slate-900/90 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2">
@@ -930,11 +939,80 @@ function openCreatePrModal(projectId, sourceBranch, targetBranch, options = {}) 
   if (window.lucide) window.lucide.createIcons();
 }
 
+async function createConflictTaskFromPr(projectId, sourceBranch, targetBranch, files = [], event) {
+  if (event && typeof event.stopPropagation === "function") event.stopPropagation();
+  const projId = String(projectId || "").trim();
+  const src = String(sourceBranch || "").trim();
+  const tgt = String(targetBranch || "main").trim();
+  if (!projId || !src) return null;
+
+  const effectiveFiles = Array.isArray(files) && files.length > 0
+    ? files
+    : (Array.isArray(_lastPrConflictState?.files) ? _lastPrConflictState.files : []);
+  const btn = event?.currentTarget || event?.target?.closest?.("button") || null;
+  const origHtml = btn ? btn.innerHTML : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = "建立任務中...";
+  }
+
+  try {
+    const fileLines = effectiveFiles.length > 0
+      ? effectiveFiles.map(f => `- \`${f}\``).join("\n")
+      : "- （請執行 `git status` / `git diff` 確認衝突檔案）";
+    const description = [
+      `在開立 Pull Request (${src} → ${tgt}) 前先拉取目標分支最新進度時發生合併衝突 (Merge Conflict)，系統已自動中止還原工作區。`,
+      "",
+      "## 衝突檔案清單",
+      fileLines,
+      "",
+      "## 執行指引",
+      `1. 確認目前工作區位於來源分支 \`${src}\`（\`git checkout ${src}\`）`,
+      `2. 執行 \`git fetch origin --prune && git merge origin/${tgt}\` 重現合併衝突`,
+      "3. 依雙方修改意圖完整解決衝突檔案並移除衝突標記 (`<<<<<<<` / `=======` / `>>>>>>>`)",
+      "4. 執行相關測試與靜態檢查驗證無誤後，執行 `git add` 與 `git commit` 完成合併提交"
+    ].join("\n");
+
+    const res = await fetch("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: `解決 PR 合併衝突：${src} ← ${tgt}`,
+        project: projId,
+        priority: "P1",
+        status: "todo",
+        workspaceMode: "in_place",
+        targetBranch: src,
+        baseBranch: src,
+        description
+      })
+    });
+    const created = await res.json().catch(() => ({}));
+    if (!res.ok || !created?.id) {
+      throw new Error(created?.error || `建立解衝任務失敗 (HTTP ${res.status})`);
+    }
+    showToast(`已建立解衝任務 ${created.id}，請將任務移至進行中交由 Agent 處理`);
+    if (typeof window !== "undefined") {
+      await window.loadData?.();
+    }
+    return created;
+  } catch (err) {
+    showToast(`建立解衝任務失敗：${err.message || "未知錯誤"}`);
+    return null;
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    }
+  }
+}
+
 async function submitCreatePr(projectId, sourceBranch, taskId = "") {
   const targetBranch = document.getElementById("prTargetBranchSelect")?.value?.trim() || "main";
   const title = document.getElementById("prTitleInput")?.value?.trim() || "";
   const description = document.getElementById("prDescriptionInput")?.value || "";
   const autoPush = Boolean(document.getElementById("prAutoPushCheckbox")?.checked);
+  const pullTargetBeforePr = Boolean(document.getElementById("prPullTargetCheckbox")?.checked ?? true);
   const normalizedTaskId = String(taskId || "").trim();
   const feedbackEl = document.getElementById("createPrModalFeedback");
   const btn = document.getElementById("btnConfirmCreatePr");
@@ -945,7 +1023,7 @@ async function submitCreatePr(projectId, sourceBranch, taskId = "") {
   }
   if (btn) {
     btn.disabled = true;
-    btn.innerText = "建立中...";
+    btn.innerText = pullTargetBeforePr ? "先同步目標分支並建立中..." : "建立中...";
   }
 
   try {
@@ -958,10 +1036,61 @@ async function submitCreatePr(projectId, sourceBranch, taskId = "") {
         title,
         description,
         autoPush,
+        pullTargetBeforePr,
         ...(normalizedTaskId ? { taskId: normalizedTaskId } : {})
       })
     });
     const data = await res.json().catch(() => ({}));
+
+    const prePrSyncHtml =
+      data.prePrSync && data.prePrSync.synced && !data.prePrSync.alreadyUpToDate
+        ? `<div class="text-[11px] opacity-90">已先拉取並合併目標分支 ${escapeHtml(data.prePrSync.syncRef || targetBranch)} 最新進度 (${escapeHtml(data.prePrSync.strategy || "merge")}) ✓</div>`
+        : "";
+
+    if (res.status === 409 || data.conflict || data.status === "conflict" || data.status === "dirty_workspace") {
+      const isDirty = data.status === "dirty_workspace";
+      const files = Array.isArray(data.conflictingFiles) && data.conflictingFiles.length > 0
+        ? data.conflictingFiles
+        : (Array.isArray(data.dirtyFiles) ? data.dirtyFiles : []);
+      _lastPrConflictState = {
+        projectId,
+        sourceBranch,
+        targetBranch,
+        files,
+        taskId: normalizedTaskId
+      };
+      if (feedbackEl) {
+        const safeProjAttr = escapeAttrJs(projectId);
+        const safeSrcAttr = escapeAttrJs(sourceBranch);
+        const safeTgtAttr = escapeAttrJs(targetBranch);
+        const safeTaskAttr = escapeAttrJs(normalizedTaskId);
+        const fileListHtml = files.length > 0
+          ? `<div class="space-y-1">
+              <div class="font-semibold text-rose-800 dark:text-rose-200">${isDirty ? "未提交變更檔案" : "衝突檔案"}（${files.length}）：</div>
+              <div class="max-h-28 overflow-y-auto rounded bg-white/80 dark:bg-slate-900/70 border border-rose-200 dark:border-rose-800/60 p-1.5 font-mono text-[11px] space-y-0.5">
+                ${files.map(f => `<div class="truncate">${escapeHtml(f)}</div>`).join("")}
+              </div>
+            </div>`
+          : "";
+        feedbackEl.className = "rounded-lg p-3 text-[11px] bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200 space-y-2.5";
+        feedbackEl.innerHTML = `
+          <div class="font-semibold">${isDirty ? "開立 PR 前偵測到工作區有未提交變更 (Dirty Workspace)，已中止送出" : "開立 PR 前同步目標分支發生合併衝突 (Merge Conflict)，已自動安全還原工作區"}</div>
+          <div>${escapeHtml(data.error || `同步 ${targetBranch} 失敗，請先解決衝突或處理未提交變更後再送出 PR。`)}</div>
+          ${fileListHtml}
+          <div class="text-[10px] text-rose-700/90 dark:text-rose-300/90 leading-relaxed">
+            可建立 P1 解衝任務交由 Agent 處理，或於 Antigravity / VS Code 解完衝突並 commit 後直接點擊重新送出 PR（已輸入的標題與說明將保留）。
+          </div>
+          <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+            <button type="button" onclick="createConflictTaskFromPr('${safeProjAttr}', '${safeSrcAttr}', '${safeTgtAttr}', null, event)" class="px-2.5 py-1 rounded-md bg-rose-600 hover:bg-rose-500 text-white font-semibold cursor-pointer">建立解衝任務 (Agent)</button>
+            <button type="button" onclick="openProjectInEditor('${safeProjAttr}', 'antigravity', event)" class="px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white font-semibold cursor-pointer">在 Antigravity 開啟</button>
+            <button type="button" onclick="openProjectInEditor('${safeProjAttr}', 'vscode', event)" class="px-2.5 py-1 rounded-md bg-slate-700 hover:bg-slate-600 text-white font-semibold cursor-pointer">在 VS Code 開啟</button>
+            <button type="button" onclick="submitCreatePr('${safeProjAttr}', '${safeSrcAttr}', '${safeTaskAttr}')" class="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-semibold cursor-pointer">衝突已解，重新送出 PR</button>
+          </div>
+        `;
+      }
+      showToast(isDirty ? "工作區有未提交變更，已中止建立 PR" : "同步目標分支發生衝突，已自動安全還原並中止建立 PR");
+      return;
+    }
 
     if (data.success && data.prUrl) {
       const archivedIds = Array.isArray(data.archivedTaskIds) ? data.archivedTaskIds : [];
@@ -975,6 +1104,7 @@ async function submitCreatePr(projectId, sourceBranch, taskId = "") {
         const safeUrlAttr = escapeAttrJs(data.prUrl);
         feedbackEl.className = "rounded-lg p-2.5 text-[11px] bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 space-y-1.5";
         feedbackEl.innerHTML = `
+          ${prePrSyncHtml}
           <div class="font-semibold">PR 已成功建立${archivedCount > 0 ? `（已自動封存 ${archivedCount} 張任務）` : ""}：</div>
           <a href="${escapeHtml(data.prUrl)}" onclick="openExternalUrl('${safeUrlAttr}', event)" class="inline-flex items-center gap-1 underline font-mono break-all hover:text-emerald-600 dark:hover:text-emerald-100">${escapeHtml(data.prUrl)}</a>
         `;
@@ -1001,6 +1131,7 @@ async function submitCreatePr(projectId, sourceBranch, taskId = "") {
         const safeFallbackAttr = escapeAttrJs(data.fallbackCreateUrl);
         feedbackEl.className = "rounded-lg p-2.5 text-[11px] bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 space-y-2";
         feedbackEl.innerHTML = `
+          ${prePrSyncHtml}
           <div>${escapeHtml(data.error || "無法自動建立 PR，請透過網頁完成建立。")}${archivedCount > 0 ? `（已自動推送並封存 ${archivedCount} 張任務）` : ""}</div>
           <div>
             <a href="${escapeHtml(data.fallbackCreateUrl)}" onclick="openExternalUrl('${safeFallbackAttr}', event)" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-600 hover:bg-amber-500 text-white font-semibold no-underline">前往網頁開立 PR ↗</a>
@@ -1171,6 +1302,7 @@ export {
   openCreatePrForTask,
   closeCreatePrModal,
   submitCreatePr,
+  createConflictTaskFromPr,
   openProjectInEditor,
   openGitSyncModal,
   closeGitSyncModal,
@@ -1201,6 +1333,7 @@ if (typeof window !== "undefined") {
   window.openCreatePrForTask = openCreatePrForTask;
   window.closeCreatePrModal = closeCreatePrModal;
   window.submitCreatePr = submitCreatePr;
+  window.createConflictTaskFromPr = createConflictTaskFromPr;
   window.openProjectInEditor = openProjectInEditor;
   window.openGitSyncModal = openGitSyncModal;
   window.closeGitSyncModal = closeGitSyncModal;

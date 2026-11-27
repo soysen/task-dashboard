@@ -2379,6 +2379,84 @@ const { execFileSync } = require("child_process");
     assert.equal(execFileSync("git", ["-C", tempRepo, "status", "--porcelain"], { encoding: "utf8" }).trim(), "", "sync-base 衝突後必須自動 abort 保持乾淨");
     assert(!fs.existsSync(path.join(tempRepo, ".git", "MERGE_HEAD")), "不應殘留 MERGE_HEAD");
 
+    // B2. TASK-265: POST /api/projects/:id/branches/pr 開立 PR 前置拉取目標分支測試
+    // (1) 無衝突：peerRepo 推進 main，feat/pr-clean-sync 未含該 commit；呼叫 POST /branches/pr 應先自動合併 main 且回傳 prePrSync.synced === true
+    execFileSync("git", ["-C", tempRepo, "checkout", "-b", "feat/pr-clean-sync", "feat/clean-sync"], { stdio: "ignore" });
+    fs.writeFileSync(path.join(peerRepo, "main_only_pr.txt"), "upstream main change before PR\n", "utf8");
+    execFileSync("git", ["-C", peerRepo, "add", "main_only_pr.txt"], { stdio: "ignore" });
+    execFileSync("git", ["-C", peerRepo, "commit", "-m", "main: upstream change for pr pre-sync"], { stdio: "ignore" });
+    execFileSync("git", ["-C", peerRepo, "push", "origin", "main"], { stdio: "ignore" });
+
+    const prCleanRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/branches/pr`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceBranch: "feat/pr-clean-sync",
+        targetBranch: "main",
+        title: "Clean pre-PR sync",
+        autoPush: true
+      })
+    });
+    assert.equal(prCleanRes.status, 400, "bare origin 無 fallbackCreateUrl 回 400，但已完成前置同步與推送");
+    const prCleanData = await prCleanRes.json();
+    assert.strictEqual(prCleanData.prePrSync?.synced, true, "應自動執行前置同步並回傳 prePrSync.synced === true");
+    assert.strictEqual(prCleanData.prePrSync?.alreadyUpToDate, false, "應實際拉取並合併上游 main 新進度");
+    assert.strictEqual(prCleanData.prePrSync?.syncRef, "origin/main");
+    execFileSync("git", ["-C", tempRepo, "checkout", "feat/pr-clean-sync"], { stdio: "ignore" });
+    assert(fs.existsSync(path.join(tempRepo, "main_only_pr.txt")), "前置同步後 feat/pr-clean-sync 應包含上游 main_only_pr.txt");
+    assert(
+      execFileSync("git", ["-C", originBare, "rev-parse", "--verify", "refs/heads/feat/pr-clean-sync"], { encoding: "utf8" }).trim().length >= 7,
+      "前置同步成功後 autoPush 應順利推送 feat/pr-clean-sync 至 originBare"
+    );
+
+    // (2) 有衝突：feat/conflict-sync 與 origin/main 衝突，呼叫 POST /branches/pr 應中止推送並回傳 409 + conflict + conflictingFiles，且無殘留 MERGE_HEAD
+    const prConflictRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/branches/pr`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceBranch: "feat/conflict-sync",
+        targetBranch: "main",
+        title: "Conflict pre-PR sync",
+        autoPush: true
+      })
+    });
+    assert.equal(prConflictRes.status, 409, "開立 PR 前置同步遇衝突應回傳 HTTP 409");
+    const prConflictData = await prConflictRes.json();
+    assert.strictEqual(prConflictData.success, false);
+    assert.strictEqual(prConflictData.syncFailed, true);
+    assert.strictEqual(prConflictData.conflict, true);
+    assert.strictEqual(prConflictData.status, "conflict");
+    assert(Array.isArray(prConflictData.conflictingFiles) && prConflictData.conflictingFiles.includes("base_only.txt"), "409 回應應包含衝突檔案 base_only.txt");
+    assert.equal(execFileSync("git", ["-C", tempRepo, "status", "--porcelain"], { encoding: "utf8" }).trim(), "", "PR 前置同步衝突後工作區必須自動 abort 保持乾淨");
+    assert(!fs.existsSync(path.join(tempRepo, ".git", "MERGE_HEAD")), "PR 前置同步衝突後不應殘留 MERGE_HEAD");
+    let pushedConflictBranch = true;
+    try {
+      execFileSync("git", ["-C", originBare, "rev-parse", "--verify", "refs/heads/feat/conflict-sync"], { stdio: "ignore" });
+    } catch (_) {
+      pushedConflictBranch = false;
+    }
+    assert.strictEqual(pushedConflictBranch, false, "前置同步衝突中止後絕不可執行 autoPush");
+
+    // (3) pullTargetBeforePr: false 繞過前置同步，遇衝突分支仍可走降級網頁開單 (HTTP 200)
+    execFileSync("git", ["-C", tempRepo, "remote", "set-url", "origin", "https://dev.azure.com/FET-IDTT/SmartCS/_git/demo-repo"]);
+    const prBypassRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/branches/pr`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceBranch: "feat/conflict-sync",
+        targetBranch: "main",
+        title: "Bypass pre-PR sync",
+        pullTargetBeforePr: false,
+        autoPush: false
+      })
+    });
+    assert.equal(prBypassRes.status, 200, "pullTargetBeforePr: false 應跳過前置同步並進入降級 PR 流程");
+    const prBypassData = await prBypassRes.json();
+    assert.strictEqual(prBypassData.degraded, true);
+    assert.strictEqual(prBypassData.prePrSync, undefined, "pullTargetBeforePr: false 不應包含 prePrSync");
+    assert.strictEqual(Boolean(prBypassData.conflict), false);
+    execFileSync("git", ["-C", tempRepo, "remote", "set-url", "origin", originBare]);
+
     // C. /open-editor Dry-Run 與路徑安全邊界檢查
     const openAgyRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}/open-editor`, {
       method: "POST",
