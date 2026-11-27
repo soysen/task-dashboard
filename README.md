@@ -174,6 +174,7 @@ Task Dashboard 支援兩種自動執行通道，依開發場景自由切換：
 - **作業系統**：macOS 11.0 (Big Sur) 或更高版本（支援 Apple Silicon 與 Intel x86_64 架構）。
 - **Node.js**：Node.js 18.0.0 以上（推薦 v20+ 或 v24+）。
 - **編譯器**：Clang（安裝 Xcode Command Line Tools：`xcode-select --install`）。
+- **GitHub CLI (`gh`)（選配）**：核心看板、本地 Git 與 Azure DevOps 不需安裝；若需使用看板內免終端機登入 GitHub 多帳號、私有庫 HTTPS 免密 Clone 或一鍵建立 GitHub PR，請執行 `brew install gh`（或至 https://cli.github.com 下載安裝檔）。未安裝時 GitHub PR 會自動降級為瀏覽器網頁開立。
 
 ---
 
@@ -354,6 +355,12 @@ kill -9 $(lsof -ti:3030)
 
 ### Q4: 可以在沒有安裝 Xcode 的情況下編譯 macOS App 嗎？
 **A**: 可以！本專案採用輕量 Objective-C 原生代碼，只需安裝輕量的 **Command Line Tools**（`xcode-select --install`），無須下載數十 GB 的完整 Xcode。
+
+### Q5: 第一次使用沒有安裝 `gh` (GitHub CLI) 可以使用嗎？如何啟用 GitHub 整合？
+**A**: 可以！`gh` 為選配工具，未安裝仍可正常使用任務看板、AI 雙軌派工、本地 Git、Azure DevOps（Keychain PAT 與自動 PR）及 GitHub 公開庫 / SSH Clone；開立 GitHub PR 時亦會自動降級為開啟 GitHub 網頁手動建立。若需啟用看板內免終端機多帳號登入與一鍵 PR：
+1. 執行 `brew install gh`（無 Homebrew 可至 https://cli.github.com 下載 macOS `.pkg` 安裝檔）。
+2. 開啟右上角「設定 ➔ Git 帳號與遠端連線」，點擊「重新掃描」或「已安裝，重新偵測」（免重啟 App）。
+3. 點擊「＋ 登入 GitHub 帳號」，複製一次性驗證碼並於瀏覽器完成授權即可。
 
 ---
 

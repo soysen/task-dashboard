@@ -1176,7 +1176,10 @@ async function createPullRequest(repoPath, options = {}) {
         ...prePrSyncMeta
       };
     } catch (err) {
-      const errMsg = [err && err.message, err && err.stderr].filter(Boolean).join('\n') || 'gh pr create 執行失敗';
+      const isMissingGh = Boolean(err && (err.code === 'ENOENT' || /spawn\s+gh\s+ENOENT/i.test(String(err.message || ''))));
+      const errMsg = isMissingGh
+        ? '本機未安裝 GitHub CLI (gh)，已自動切換為網頁開立 PR（執行 brew install gh 安裝後即可啟用看板一鍵建立 PR）。'
+        : ([err && err.message, err && err.stderr].filter(Boolean).join('\n') || 'gh pr create 執行失敗');
       return {
         success: false,
         degraded: true,

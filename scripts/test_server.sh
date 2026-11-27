@@ -2034,6 +2034,10 @@ const {
       ghDegraded.fallbackCreateUrl.includes("github.com/octocat/demo-repo/compare/main...feat%2Fpr-demo?expand=1"),
       "GitHub 降級連結應包含 compare/main...feat%2Fpr-demo?expand=1"
     );
+    assert(
+      ghDegraded.error.includes("brew install gh"),
+      "未安裝 gh 時降級錯誤訊息應包含 brew install gh 安裝指引"
+    );
 
     // 8. 整合測試：專案級 requirePr 策略阻擋本地合併 (409 pr_required) & branches/pr autoPush 自動封存 done 任務
     const putReqPrRes = await fetch(`${base}/api/projects/${encodeURIComponent(projId)}`, {

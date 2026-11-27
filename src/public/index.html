@@ -1204,6 +1204,8 @@
             </label>
           </div>
 
+          <div id="cloneGhMissingHint" class="hidden rounded-lg p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-[11px] text-amber-800 dark:text-amber-200 space-y-1.5"></div>
+
           <div id="cloneProjectErrorBox" class="hidden rounded-lg p-2.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-[11px] text-rose-700 dark:text-rose-200 whitespace-pre-wrap break-words font-mono"></div>
 
           <div class="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-800">
@@ -1411,7 +1413,7 @@
               <i data-lucide="folder-plus" class="w-4 h-4 text-indigo-600 dark:text-indigo-400 mt-0.5 flex-shrink-0"></i>
               <div>
                 <strong class="text-slate-800 dark:text-slate-200">新增專案資料夾</strong>
-                <p class="text-slate-500 dark:text-slate-400 mt-0.5">彈出 macOS 原生 Finder 資料夾選取視窗，快速引入本地 repository 並鎖定路徑。</p>
+                <p class="text-slate-500 dark:text-slate-400 mt-0.5">支援從遠端 Git URL 直接 Clone（自動套用 GitHub gh 多帳號與 Azure Keychain PAT），或透過 macOS 原生 Finder 引入本機儲存庫。</p>
               </div>
             </div>
             <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 flex items-start gap-2.5">
@@ -1446,7 +1448,44 @@
               <i data-lucide="settings" class="w-4 h-4 text-indigo-500 mt-0.5 flex-shrink-0"></i>
               <div>
                 <strong class="text-slate-800 dark:text-slate-200">系統與偏好設定</strong>
-                <p class="text-slate-500 dark:text-slate-400 mt-0.5">自訂資料庫儲存目錄、深淺外觀主題與統一字級大小調整。</p>
+                <p class="text-slate-500 dark:text-slate-400 mt-0.5">管理 GitHub / Azure DevOps 帳號連線盤點、macOS Keychain PAT、資料庫儲存目錄、深淺外觀主題與字級大小。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 區塊 3: 首次使用與 GitHub CLI (gh) 選配指引 -->
+        <div id="helpGitEnvGuideSection" class="space-y-2.5">
+          <h4 class="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-1.5 pb-1 border-b border-slate-200 dark:border-slate-800">
+            <i data-lucide="git-branch" class="w-4 h-4 text-indigo-500"></i> 首次使用與 GitHub CLI (gh) 選配指引
+          </h4>
+          <div class="space-y-2">
+            <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 space-y-1.5">
+              <div class="font-semibold text-slate-800 dark:text-slate-200">免安裝即用範圍 vs 選配功能對照</div>
+              <p class="text-slate-600 dark:text-slate-300 leading-relaxed">
+                <strong class="text-emerald-700 dark:text-emerald-300">免裝即用：</strong>任務看板、AI 雙軌派工、Diff 審查、本地 Git、GitHub 公開庫 / SSH Clone，以及 Azure DevOps（Keychain PAT 與自動開 PR）。
+              </p>
+              <p class="text-slate-600 dark:text-slate-300 leading-relaxed">
+                <strong class="text-amber-700 dark:text-amber-300">需裝 <code class="font-mono">gh</code> 啟用：</strong>免終端機登入與切換多組 GitHub 帳號、GitHub 私有庫 HTTPS 免密 Clone、看板內一鍵開立 GitHub PR（未安裝時自動降級為開啟 GitHub 網頁開立 PR）。
+              </p>
+            </div>
+            <div class="p-2.5 rounded-lg bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200/80 dark:border-indigo-800/60 space-y-2">
+              <div class="font-semibold text-indigo-900 dark:text-indigo-200">三步驟快速安裝與授權</div>
+              <div class="space-y-1.5 text-[11px] text-slate-700 dark:text-slate-300">
+                <div class="flex flex-wrap items-center justify-between gap-1.5">
+                  <span><strong class="text-indigo-700 dark:text-indigo-300">1.</strong> 安裝工具：執行 <code class="font-mono px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-900">brew install gh</code></span>
+                  <div class="flex items-center gap-1.5">
+                    <button type="button" onclick="copyGhInstallCommand()" class="px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-semibold cursor-pointer">複製指令</button>
+                    <a href="https://cli.github.com" onclick="openExternalUrl('https://cli.github.com', event)" class="px-2 py-0.5 rounded bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 text-[10px] font-semibold no-underline">無 Homebrew 下載安裝包 ↗</a>
+                  </div>
+                </div>
+                <div class="flex flex-wrap items-center justify-between gap-1.5">
+                  <span><strong class="text-indigo-700 dark:text-indigo-300">2.</strong> 重新偵測：開啟「系統設定 ➔ Git 帳號與遠端連線」並按「重新掃描」</span>
+                  <button type="button" onclick="openGitSettingsFromHelp()" class="px-2 py-0.5 rounded bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 text-[10px] font-semibold cursor-pointer">前往設定檢查</button>
+                </div>
+                <div>
+                  <strong class="text-indigo-700 dark:text-indigo-300">3.</strong> 瀏覽器授權：點擊「＋ 登入 GitHub 帳號」，複製一次性驗證碼於瀏覽器完成授權，全程免於終端機手動輸入指令。
+                </div>
               </div>
             </div>
           </div>

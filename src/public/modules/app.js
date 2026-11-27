@@ -783,8 +783,10 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
     }
 
     let _azdoPatFormVisible = false;
+    let _gitAccountsSnapshot = null;
 
     function renderGitAccountsSettings(data) {
+      _gitAccountsSnapshot = data || null;
       const container = document.getElementById('gitAccountsSettingsContainer');
       const badge = document.getElementById('settingsGitConnectedBadge');
       if (!container) return;
@@ -814,24 +816,51 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
         ? `${escapeHtml(ident.name || '(未設名稱)')}${ident.email ? ` <${escapeHtml(ident.email)}>` : ''}`
         : '尚未設定 git global user.name / email';
 
-      const ghRows = ghAccounts.length > 0
-        ? ghAccounts.map(acc => {
-            const safeUser = escapeHtml(acc.username);
-            const attrUser = escapeHtml(acc.username).replace(/'/g, "\\'");
-            return `
-              <div class="flex items-center justify-between gap-2 py-1 px-2 rounded-lg bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-700/80">
-                <div class="min-w-0 flex items-center gap-1.5">
-                  <span class="w-1.5 h-1.5 rounded-full ${acc.active ? 'bg-emerald-500' : 'bg-slate-400'} flex-shrink-0"></span>
-                  <span class="font-mono font-semibold text-slate-800 dark:text-slate-100 truncate">${safeUser}</span>
-                  ${acc.active ? `<span class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-semibold">預設</span>` : ''}
-                </div>
-                ${!acc.active ? `
-                  <button type="button" onclick="switchGithubAccountFromSettings('${attrUser}')" class="text-[10px] px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-slate-700 dark:text-slate-200 font-medium cursor-pointer flex-shrink-0">設為預設</button>
-                ` : `<span class="text-[10px] text-slate-400 font-mono flex-shrink-0">${escapeHtml(acc.protocol || 'https')}</span>`}
+      const hasGh = Boolean(tools.gh);
+      const ghHeaderAction = hasGh
+        ? `<button type="button" id="btnStartGithubLogin" onclick="startGithubLoginFromSettings(event)" class="text-[10px] px-2 py-0.5 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white font-semibold cursor-pointer">＋ 登入 GitHub 帳號</button>`
+        : `<span class="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 font-semibold">未安裝 gh（選配）</span>`;
+
+      const ghRows = !hasGh
+        ? `
+          <div id="ghMissingGuideCard" class="rounded-lg p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-[11px] text-amber-900 dark:text-amber-100 space-y-2">
+            <div class="leading-relaxed">
+              <span class="font-semibold">gh 為選配工具：</span>核心看板、本地 Git 與 Azure DevOps 免安裝即可使用；若需「免終端機登入 GitHub 多帳號、私有庫 HTTPS 免密 Clone、看板一鍵開立 GitHub PR」，請依步驟安裝：
+            </div>
+            <div class="space-y-1.5 text-[10px] text-slate-700 dark:text-slate-200">
+              <div class="flex flex-wrap items-center justify-between gap-1.5 bg-white/80 dark:bg-slate-900/70 rounded-md px-2 py-1 border border-amber-200/70 dark:border-amber-800/50">
+                <span><span class="font-bold text-amber-700 dark:text-amber-300">1.</span> Homebrew 安裝：<code class="font-mono font-semibold select-all">brew install gh</code></span>
+                <button type="button" onclick="copyGhInstallCommand()" class="px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-500 text-white font-semibold cursor-pointer">複製指令</button>
               </div>
-            `;
-          }).join('')
-        : `<div class="text-[11px] text-slate-500 dark:text-slate-400 py-1">尚未登入任何 GitHub CLI 帳號${tools.gh ? '，點擊右側按鈕即可免終端機一鍵登入。' : '（請先安裝 gh：brew install gh）。'}</div>`;
+              <div class="flex flex-wrap items-center justify-between gap-1.5 bg-white/80 dark:bg-slate-900/70 rounded-md px-2 py-1 border border-amber-200/70 dark:border-amber-800/50">
+                <span><span class="font-bold text-amber-700 dark:text-amber-300">2.</span> 無 Homebrew 環境備案：下載官方 macOS 安裝檔</span>
+                <a href="https://cli.github.com" onclick="openExternalUrl('https://cli.github.com', event)" class="px-2 py-0.5 rounded bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 font-semibold no-underline hover:bg-amber-100 dark:hover:bg-amber-900/40">下載官方 .pkg ↗</a>
+              </div>
+              <div class="flex flex-wrap items-center justify-between gap-1.5 bg-white/80 dark:bg-slate-900/70 rounded-md px-2 py-1 border border-amber-200/70 dark:border-amber-800/50">
+                <span><span class="font-bold text-amber-700 dark:text-amber-300">3.</span> 安裝完成後免重啟 App，點擊即可切換為一鍵登入</span>
+                <button type="button" onclick="loadGitAccountsSettings()" class="px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-semibold cursor-pointer">已安裝，重新偵測</button>
+              </div>
+            </div>
+          </div>
+        `
+        : (ghAccounts.length > 0
+          ? ghAccounts.map(acc => {
+              const safeUser = escapeHtml(acc.username);
+              const attrUser = escapeHtml(acc.username).replace(/'/g, "\\'");
+              return `
+                <div class="flex items-center justify-between gap-2 py-1 px-2 rounded-lg bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-700/80">
+                  <div class="min-w-0 flex items-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full ${acc.active ? 'bg-emerald-500' : 'bg-slate-400'} flex-shrink-0"></span>
+                    <span class="font-mono font-semibold text-slate-800 dark:text-slate-100 truncate">${safeUser}</span>
+                    ${acc.active ? `<span class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-semibold">預設</span>` : ''}
+                  </div>
+                  ${!acc.active ? `
+                    <button type="button" onclick="switchGithubAccountFromSettings('${attrUser}')" class="text-[10px] px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-slate-700 dark:text-slate-200 font-medium cursor-pointer flex-shrink-0">設為預設</button>
+                  ` : `<span class="text-[10px] text-slate-400 font-mono flex-shrink-0">${escapeHtml(acc.protocol || 'https')}</span>`}
+                </div>
+              `;
+            }).join('')
+          : `<div class="text-[11px] text-slate-500 dark:text-slate-400 py-1">尚未登入任何 GitHub CLI 帳號，點擊右側按鈕即可免終端機一鍵登入。</div>`);
 
       const pendingBox = pending ? `
         <div class="rounded-lg p-2.5 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 space-y-1.5">
@@ -893,7 +922,7 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
         <div class="space-y-1.5">
           <div class="flex items-center justify-between">
             <span class="font-bold text-slate-700 dark:text-slate-200">GitHub (${ghAccounts.length} 個帳號)</span>
-            <button type="button" id="btnStartGithubLogin" onclick="startGithubLoginFromSettings(event)" class="text-[10px] px-2 py-0.5 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white font-semibold cursor-pointer">＋ 登入 GitHub 帳號</button>
+            ${ghHeaderAction}
           </div>
           ${pendingBox}
           <div class="space-y-1">${ghRows}</div>
@@ -935,6 +964,29 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
         navigator.clipboard.writeText(code).catch(() => {});
       }
       showToast(`已複製一次性驗證碼：${code}`);
+    }
+
+    function copyGhInstallCommand() {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText('brew install gh').catch(() => {});
+      }
+      showToast('已複製安裝指令：brew install gh');
+    }
+
+    function openGitSettingsFromClone() {
+      closeAddProjectModal();
+      openSettingsModal();
+      setTimeout(() => {
+        document.getElementById('gitAccountsSettingsContainer')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 60);
+    }
+
+    function openGitSettingsFromHelp() {
+      closeHelpModal();
+      openSettingsModal();
+      setTimeout(() => {
+        document.getElementById('gitAccountsSettingsContainer')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 60);
     }
 
     async function startGithubLoginFromSettings(event) {
@@ -1366,6 +1418,17 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
       if (reqPrEl) reqPrEl.checked = false;
       switchAddProjectTab(defaultTab);
       updateClonePreviewFromUrl();
+      if (!_gitAccountsSnapshot) {
+        fetch('/api/git/accounts')
+          .then(r => (r.ok ? r.json() : null))
+          .then(d => {
+            if (d) {
+              _gitAccountsSnapshot = d;
+              updateClonePreviewFromUrl();
+            }
+          })
+          .catch(() => {});
+      }
       modal.classList.remove('hidden');
       if (window.lucide) lucide.createIcons();
       if (defaultTab === 'clone') setTimeout(() => urlInput?.focus(), 20);
@@ -1426,6 +1489,25 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
           badgeEl.className = 'text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-slate-500/15 text-slate-600 dark:text-slate-300';
         } else {
           badgeEl.className = 'hidden text-[10px] px-1.5 py-0.5 rounded-full font-semibold';
+        }
+      }
+
+      const ghHintEl = document.getElementById('cloneGhMissingHint');
+      if (ghHintEl) {
+        const isGithubHttps = /^https?:\/\/github\.com\//i.test(url);
+        const ghMissing = Boolean(_gitAccountsSnapshot && _gitAccountsSnapshot.tools && _gitAccountsSnapshot.tools.gh === false);
+        if (isGithubHttps && ghMissing) {
+          ghHintEl.classList.remove('hidden');
+          ghHintEl.innerHTML = `
+            <div>未偵測到 <span class="font-mono font-semibold">GitHub CLI (gh)</span>：公開儲存庫可直接 Clone；私有儲存庫請改用 SSH URL (<span class="font-mono">git@github.com:...</span>)，或安裝 <span class="font-mono">gh</span> 啟用免密授權。</div>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <button type="button" onclick="copyGhInstallCommand()" class="px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-semibold cursor-pointer">複製 brew install gh</button>
+              <button type="button" onclick="openGitSettingsFromClone()" class="px-2 py-0.5 rounded bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 text-[10px] font-semibold cursor-pointer">前往 Git 帳號設定</button>
+            </div>
+          `;
+        } else {
+          ghHintEl.classList.add('hidden');
+          ghHintEl.innerHTML = '';
         }
       }
     }
@@ -1843,6 +1925,9 @@ export {
   toggleAzdoPatForm,
   saveAzdoPatFromSettings,
   copyGithubDeviceCode,
+  copyGhInstallCommand,
+  openGitSettingsFromClone,
+  openGitSettingsFromHelp,
   toggleSidebar,
   closeSidebar,
   toggleProjectExpand,
@@ -1920,6 +2005,9 @@ if (typeof window !== "undefined") {
   window.toggleAzdoPatForm = toggleAzdoPatForm;
   window.saveAzdoPatFromSettings = saveAzdoPatFromSettings;
   window.copyGithubDeviceCode = copyGithubDeviceCode;
+  window.copyGhInstallCommand = copyGhInstallCommand;
+  window.openGitSettingsFromClone = openGitSettingsFromClone;
+  window.openGitSettingsFromHelp = openGitSettingsFromHelp;
   window.toggleSidebar = toggleSidebar;
   window.closeSidebar = closeSidebar;
   window.toggleProjectExpand = toggleProjectExpand;

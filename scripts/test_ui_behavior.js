@@ -1422,6 +1422,15 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
     branchNavSource.includes("pullCurrentBranch('"),
     'app.js 與 branchNavigator.js 必須完整掛載 Git Clone 與分支拉取 (pullCurrentBranch) 全域函式'
   );
+  assert(
+    htmlContent.includes('id="helpGitEnvGuideSection"') &&
+    htmlContent.includes('id="cloneGhMissingHint"') &&
+    appModuleSource.includes('id="ghMissingGuideCard"') &&
+    appModuleSource.includes('window.copyGhInstallCommand = copyGhInstallCommand') &&
+    appModuleSource.includes('window.openGitSettingsFromClone = openGitSettingsFromClone') &&
+    appModuleSource.includes('window.openGitSettingsFromHelp = openGitSettingsFromHelp'),
+    'index.html 與 app.js 必須包含首次使用未安裝 gh 之選配指引、Clone 提示與全域掛載函式'
+  );
   console.log('  ✅ TASK-243 ~ TASK-245 Push/PR、requirePr、Git 帳號設定、Clone 與 Pull UI 綁定驗證通過');
 
   // 驗證執行中互動問答確認 UI、卡牌精簡與 macOS 原生通知橋接
