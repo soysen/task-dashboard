@@ -1659,6 +1659,98 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
   assert.strictEqual(savedModalSettingsPayload.plainLanguageWithTerms, true, 'saveSettingsFromModal 必須送出 plainLanguageWithTerms 設定值');
   console.log('  ✅ TASK-257 設定面板 plainLanguageWithTerms 讀寫綁定驗證通過');
 
+  // 驗證 TASK-263：新增檔案 (new file mode 100644 / --- /dev/null) 不得被 splitDiffByFiles 誤切為空殼檔頭與內容兩段
+  const newFileDiffSample = [
+    'diff --git a/src/models/productModel.js b/src/models/productModel.js',
+    'new file mode 100644',
+    'index 0000000..a80a54c',
+    '--- /dev/null',
+    '+++ b/src/models/productModel.js',
+    '@@ -0,0 +1,3 @@',
+    '+export const DEFAULT_PRODUCT_FIELDS = Object.freeze({',
+    '+  productHidden: true,',
+    '+});',
+    'diff --git a/src/views/ProductForm.vue b/src/views/ProductForm.vue',
+    'index 1111111..2222222 100644',
+    '--- a/src/views/ProductForm.vue',
+    '+++ b/src/views/ProductForm.vue',
+    '@@ -1,2 +1,3 @@',
+    ' <script>',
+    '+import { DEFAULT_PRODUCT_FIELDS } from "@/models/productModel"',
+    ' export default {}',
+    'diff --git a/tests/unit/productModel.spec.js b/tests/unit/productModel.spec.js',
+    'new file mode 100644',
+    'index 0000000..649c3c4',
+    '--- /dev/null',
+    '+++ b/tests/unit/productModel.spec.js',
+    '@@ -0,0 +1,2 @@',
+    '+import { DEFAULT_PRODUCT_FIELDS } from "@/models/productModel";',
+    '+test("ok", () => expect(DEFAULT_PRODUCT_FIELDS.productHidden).toBe(true));'
+  ].join('\n');
+
+  const diffVisualMockEl = { innerHTML: '' };
+  const diffBadgeEl = { innerText: '' };
+  const diffViewerRaw = fs.readFileSync(path.join(__dirname, '../src/public/modules/diffViewer.js'), 'utf8')
+    .replace(/^import\s+[\s\S]*?from\s+['"][^'"]+['"];\s*$/gm, '')
+    .replace(/export\s*\{[\s\S]*?\};\s*$/m, '');
+  const newFileDiffSandbox = {
+    currentActiveTaskDiff: newFileDiffSample,
+    currentProject: 'tool-static-portal',
+    currentModalEditingTask: {
+      id: 'TASK-259',
+      project: 'tool-static-portal',
+      modifiedFiles: ['src/models/productModel.js', 'src/views/ProductForm.vue', 'tests/unit/productModel.spec.js']
+    },
+    escapeHtml: value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'),
+    showToast: () => {},
+    copyToClipboard: () => {},
+    window: {},
+    document: {
+      getElementById: (id) => {
+        if (id === 'formDiffVisual') return diffVisualMockEl;
+        if (id === 'diffActiveFileBadge') return diffBadgeEl;
+        return null;
+      },
+      querySelectorAll: () => []
+    }
+  };
+  vm.createContext(newFileDiffSandbox);
+  vm.runInContext(diffViewerRaw, newFileDiffSandbox);
+
+  const parsedSections = newFileDiffSandbox.splitDiffByFiles(newFileDiffSample);
+  assert.strictEqual(parsedSections.length, 3, `新增檔案不可被誤拆成兩段，預期 3 檔，實際: ${parsedSections.length}`);
+  assert.strictEqual(parsedSections[0].filePath, 'src/models/productModel.js');
+  assert.strictEqual(parsedSections[0].status, 'A');
+  assert.strictEqual(parsedSections[2].filePath, 'tests/unit/productModel.spec.js');
+  assert.strictEqual(parsedSections[2].status, 'A');
+
+  const parsedStats = newFileDiffSandbox.parseDiffStats(newFileDiffSample);
+  assert.strictEqual(parsedStats.filesCount, 3, 'parseDiffStats.filesCount 應為 3 檔');
+  assert.strictEqual(parsedStats.additions, 6, 'parseDiffStats.additions 應統計為 6 行');
+
+  await newFileDiffSandbox.filterDiffForFile('src/models/productModel.js');
+  assert(
+    diffVisualMockEl.innerHTML.includes('DEFAULT_PRODUCT_FIELDS') &&
+    diffVisualMockEl.innerHTML.includes('productHidden: true') &&
+    diffVisualMockEl.innerHTML.includes('diff-line-add'),
+    '點選新增檔案 src/models/productModel.js 時，#formDiffVisual 必須顯示完整新增內容與 diff-line-add'
+  );
+
+  // 驗證無 diff --git 檔頭、直接以 --- /dev/null 起始的純 diff 仍能正常分割
+  const headerlessNewDiff = [
+    '--- /dev/null',
+    '+++ b/a.js',
+    '@@ -0,0 +1,1 @@',
+    '+const a = 1;',
+    '--- /dev/null',
+    '+++ b/b.js',
+    '@@ -0,0 +1,1 @@',
+    '+const b = 2;'
+  ].join('\n');
+  const headerlessSections = newFileDiffSandbox.splitDiffByFiles(headerlessNewDiff);
+  assert.strictEqual(headerlessSections.length, 2, '無 diff --git 檔頭之純 --- /dev/null diff 仍應切分為 2 段');
+  console.log('  ✅ TASK-263 新增檔案 (new file mode 100644 / --- /dev/null) Diff 分割與完整內容渲染驗證通過');
+
   console.log('🎉 所有前端核心互動邏輯與防禦機制測試通過！\n');
 })().catch(err => {
   console.error(err);

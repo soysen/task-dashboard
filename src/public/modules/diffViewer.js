@@ -90,9 +90,14 @@ import { currentActiveTaskDiff, currentProject, currentModalEditingTask } from "
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
+        const isInsidePendingDiffHeader = Boolean(
+          currentSection &&
+          currentSection.lines.some(l => l.startsWith('diff --git') || l.startsWith('diff --no-index')) &&
+          !currentSection.lines.some(l => l.startsWith('--- ') || l.startsWith('+++ ') || l.startsWith('@@'))
+        );
         const isNewFileStart = line.startsWith('diff --git') ||
                                line.startsWith('diff --no-index') ||
-                               (line.startsWith('--- /dev/null') && (!lines[i - 1] || !lines[i - 1].startsWith('diff'))) ||
+                               (line.startsWith('--- /dev/null') && !isInsidePendingDiffHeader) ||
                                line.startsWith('// ') ||
                                (line.startsWith('//') && line.includes('異動檔案'));
 
