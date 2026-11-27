@@ -1751,15 +1751,103 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
   assert.strictEqual(headerlessSections.length, 2, '無 diff --git 檔頭之純 --- /dev/null diff 仍應切分為 2 段');
   console.log('  ✅ TASK-263 新增檔案 (new file mode 100644 / --- /dev/null) Diff 分割與完整內容渲染驗證通過');
 
-  // 驗證 TASK-265：開立 PR 前置同步目標分支選項、409 衝突引導面板與一鍵建立解衝任務
+  // 驗證 TASK-267：openExternalUrl 三通道互斥單一開啟機制
+  const utilsRaw = fs.readFileSync(path.join(__dirname, '../src/public/modules/utils.js'), 'utf8')
+    .replace(/^import[\s\S]*?;\s*/gm, '')
+    .replace(/export\s*\{[\s\S]*?\};?\s*$/m, '');
+
+  const makeUtilsContext = ({ hasWebkit = false, fetchImpl = null } = {}) => {
+    const webkitCalls = [];
+    const fetchCalls = [];
+    const windowOpenCalls = [];
+    const ctx = vm.createContext({
+      tasks: [],
+      projects: [],
+      settings: {},
+      fetch: fetchImpl
+        ? async (url, init) => {
+            fetchCalls.push({ url, init });
+            return fetchImpl(url, init);
+          }
+        : undefined,
+      window: {
+        webkit: hasWebkit
+          ? {
+              messageHandlers: {
+                openExternalUrl: {
+                  postMessage: (url) => webkitCalls.push(url)
+                }
+              }
+            }
+          : undefined,
+        open: (url, target) => windowOpenCalls.push({ url, target })
+      }
+    });
+    vm.runInContext(utilsRaw, ctx);
+    return { ctx, webkitCalls, fetchCalls, windowOpenCalls };
+  };
+
+  // 通道 1：存在 WebKit MessageHandler 時僅呼叫 postMessage，同步攔截 event，絕不呼叫 /api/open-browser 或 window.open
+  {
+    let prevented = false;
+    let stopped = false;
+    const { ctx, webkitCalls, fetchCalls, windowOpenCalls } = makeUtilsContext({
+      hasWebkit: true,
+      fetchImpl: async () => ({ ok: true, status: 200 })
+    });
+    const pending = ctx.openExternalUrl('https://github.com/octocat/demo/pull/101', {
+      preventDefault: () => { prevented = true; },
+      stopPropagation: () => { stopped = true; }
+    });
+    assert.strictEqual(prevented, true, 'openExternalUrl 必須同步呼叫 event.preventDefault()');
+    assert.strictEqual(stopped, true, 'openExternalUrl 必須同步呼叫 event.stopPropagation()');
+    await pending;
+    assert.deepStrictEqual(webkitCalls, ['https://github.com/octocat/demo/pull/101'], '通道 1 應僅透過 WebKit postMessage 開啟一次');
+    assert.strictEqual(fetchCalls.length, 0, '通道 1 命中時不得再呼叫 /api/open-browser');
+    assert.strictEqual(windowOpenCalls.length, 0, '通道 1 命中時不得再呼叫 window.open');
+  }
+
+  // 通道 2：無 WebKit Handler 且 /api/open-browser 成功時僅呼叫 /api/open-browser，絕不呼叫 window.open
+  {
+    const { ctx, webkitCalls, fetchCalls, windowOpenCalls } = makeUtilsContext({
+      hasWebkit: false,
+      fetchImpl: async () => ({ ok: true, status: 200 })
+    });
+    await ctx.openExternalUrl('https://github.com/octocat/demo/pull/102');
+    assert.strictEqual(webkitCalls.length, 0);
+    assert.strictEqual(fetchCalls.length, 1, '通道 2 應呼叫一次 /api/open-browser');
+    assert.strictEqual(fetchCalls[0].url, '/api/open-browser');
+    assert.strictEqual(windowOpenCalls.length, 0, '通道 2 成功時不得再呼叫 window.open');
+  }
+
+  // 通道 3：無 WebKit Handler 且 /api/open-browser 失敗時才 fallback 至 window.open
+  {
+    const { ctx, fetchCalls, windowOpenCalls } = makeUtilsContext({
+      hasWebkit: false,
+      fetchImpl: async () => ({ ok: false, status: 500 })
+    });
+    await ctx.openExternalUrl('https://github.com/octocat/demo/pull/103');
+    assert.strictEqual(fetchCalls.length, 1);
+    assert.deepStrictEqual(
+      windowOpenCalls,
+      [{ url: 'https://github.com/octocat/demo/pull/103', target: '_blank' }],
+      '通道 3 僅於 WebKit 與 /api/open-browser 皆未成功時才 fallback 至 window.open'
+    );
+  }
+  console.log('  ✅ TASK-267 openExternalUrl 三通道互斥單一開啟機制驗證通過');
+
+  // 驗證 TASK-265 & TASK-267：開立 PR 前置同步目標分支選項、409 衝突引導面板、成功/降級單次自動開啟 PR 並關閉 #createPrModal
   let createdModalEl = null;
   let prFeedbackEl = { className: 'hidden', innerHTML: '', innerText: '' };
-  let prBtnEl = { disabled: false, innerText: '建立 PR' };
+  let prBtnEl = { disabled: false, innerText: '建立並開啟 PR' };
   let prPullCheckboxEl = { checked: true };
   let prAutoPushCheckboxEl = { checked: true };
   const prFetchCalls = [];
+  const openedExternalUrls = [];
+  const prToastMessages = [];
   let prFetchMockMode = 'conflict';
   let loadDataCalledCount = 0;
+  let closedTaskModalCount = 0;
 
   const prFlowCtx = vm.createContext({
     projects: [{ id: 'proj-265', defaultBranch: 'main', requirePr: true }],
@@ -1782,8 +1870,8 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
     setGroupByBranch: () => {},
     setExpandedProjectId: () => {},
     escapeHtml: (value) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'),
-    showToast: () => {},
-    openExternalUrl: () => {},
+    showToast: (msg) => { prToastMessages.push(msg); },
+    openExternalUrl: (url) => { openedExternalUrls.push(url); },
     fetch: async (url, init = {}) => {
       const payload = init.body ? JSON.parse(init.body) : null;
       prFetchCalls.push({ url, method: init.method || 'GET', payload });
@@ -1800,6 +1888,20 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
               status: 'conflict',
               conflictingFiles: ['src/app.js', 'docs/<bad>.md'],
               error: '將 origin/main 同步至 feat/pr-conflict 時發生衝突'
+            })
+          };
+        }
+        if (prFetchMockMode === 'degraded') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              success: false,
+              degraded: true,
+              fallbackCreateUrl: 'https://github.com/octocat/demo/compare/main...feat/pr-conflict?expand=1',
+              prePrSync: { synced: true, alreadyUpToDate: true, syncRef: 'origin/main', strategy: 'merge' },
+              archivedTaskIds: ['TASK-1'],
+              error: 'gh CLI 尚未登入'
             })
           };
         }
@@ -1847,6 +1949,8 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
       }
     },
     window: {
+      currentModalEditingTask: { id: 'TASK-1' },
+      closeModal: () => { closedTaskModalCount += 1; },
       loadData: async () => { loadDataCalledCount += 1; },
       updateModalButtonState: () => {}
     }
@@ -1857,6 +1961,7 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
 
   prFlowCtx.openCreatePrModal('proj-265', 'feat/pr-conflict', 'main');
   assert(createdModalEl && createdModalEl.innerHTML.includes('id="prPullTargetCheckbox"'), 'openCreatePrModal 必須渲染 #prPullTargetCheckbox');
+  assert(createdModalEl.innerHTML.includes('建立並開啟 PR'), 'openCreatePrModal 主按鈕文案必須為「建立並開啟 PR」');
   const pullCheckboxIdx = createdModalEl.innerHTML.indexOf('id="prPullTargetCheckbox"');
   const autoPushCheckboxIdx = createdModalEl.innerHTML.indexOf('id="prAutoPushCheckbox"');
   assert(pullCheckboxIdx !== -1 && autoPushCheckboxIdx !== -1 && pullCheckboxIdx < autoPushCheckboxIdx, '#prPullTargetCheckbox 必須位於 #prAutoPushCheckbox 上方');
@@ -1864,7 +1969,9 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
 
   await prFlowCtx.submitCreatePr('proj-265', 'feat/pr-conflict', '');
   assert.strictEqual(prFetchCalls[0].payload.pullTargetBeforePr, true, 'submitCreatePr 必須送出 pullTargetBeforePr: true');
+  assert.strictEqual(openedExternalUrls.length, 0, '遇 409 衝突時不得呼叫 openExternalUrl');
   assert(createdModalEl !== null, '遇 409 衝突時 #createPrModal 必須維持開啟保留輸入內容');
+  assert.strictEqual(prBtnEl.innerText, '建立並開啟 PR', '遇 409 衝突結束後按鈕應還原為「建立並開啟 PR」');
   assert(!prFeedbackEl.className.includes('hidden'), '遇 409 衝突時 #createPrModalFeedback 必須顯示');
   assert(
     prFeedbackEl.innerHTML.includes('src/app.js') &&
@@ -1890,12 +1997,34 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
 
   prFetchMockMode = 'success';
   await prFlowCtx.submitCreatePr('proj-265', 'feat/pr-conflict', '');
+  assert.deepStrictEqual(
+    openedExternalUrls,
+    ['https://github.com/octocat/demo/pull/99'],
+    '成功開立 PR 後必須單次自動呼叫 openExternalUrl(prUrl)'
+  );
+  assert.strictEqual(createdModalEl, null, '成功開立 PR 後必須自動關閉 #createPrModal');
   assert(
     prFeedbackEl.innerHTML.includes('已先拉取並合併目標分支 origin/main 最新進度') &&
     prFeedbackEl.innerHTML.includes('https://github.com/octocat/demo/pull/99'),
     '成功開立 PR 且有前置合併時應顯示 prePrSync 合併資訊與 PR 連結'
   );
-  console.log('  ✅ TASK-265 開立 PR 前置同步勾選、409 衝突引導面板與一鍵建立解衝任務驗證通過');
+
+  // 降級路徑（degraded + fallbackCreateUrl + archivedTaskIds）應單次自動開啟 fallbackCreateUrl 並關閉 #createPrModal
+  openedExternalUrls.length = 0;
+  prFlowCtx.openCreatePrModal('proj-265', 'feat/pr-conflict', 'main', { taskId: 'TASK-1' });
+  assert(createdModalEl !== null, '重新開啟 #createPrModal 後應存在');
+  prFetchMockMode = 'degraded';
+  const loadCountBeforeDegraded = loadDataCalledCount;
+  await prFlowCtx.submitCreatePr('proj-265', 'feat/pr-conflict', 'TASK-1');
+  assert.deepStrictEqual(
+    openedExternalUrls,
+    ['https://github.com/octocat/demo/compare/main...feat/pr-conflict?expand=1'],
+    '降級路徑必須單次自動呼叫 openExternalUrl(fallbackCreateUrl)'
+  );
+  assert.strictEqual(createdModalEl, null, '降級路徑完成後必須自動關閉 #createPrModal');
+  assert(loadDataCalledCount > loadCountBeforeDegraded, '降級路徑封存任務後應呼叫 window.loadData()');
+  assert.strictEqual(closedTaskModalCount, 1, '若編輯中任務於 archivedTaskIds 內應關閉 #taskModal');
+  console.log('  ✅ TASK-265 & TASK-267 開立 PR 前置同步、單次自動開啟網頁與自動關閉彈窗驗證通過');
 
   console.log('🎉 所有前端核心互動邏輯與防禦機制測試通過！\n');
 })().catch(err => {

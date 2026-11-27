@@ -929,7 +929,7 @@ function openCreatePrModal(projectId, sourceBranch, targetBranch, options = {}) 
       </div>
       <div class="px-4 py-3 bg-slate-50 dark:bg-slate-900/90 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2">
         <button type="button" onclick="closeCreatePrModal()" class="px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-xs font-medium cursor-pointer">取消</button>
-        <button type="button" id="btnConfirmCreatePr" onclick="submitCreatePr('${safeProjAttr}', '${safeSrcAttr}', '${safeTaskAttr}')" class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-sm transition cursor-pointer">建立 PR</button>
+        <button type="button" id="btnConfirmCreatePr" onclick="submitCreatePr('${safeProjAttr}', '${safeSrcAttr}', '${safeTaskAttr}')" class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-sm transition cursor-pointer">建立並開啟 PR</button>
       </div>
     </div>
   `;
@@ -1005,6 +1005,30 @@ async function createConflictTaskFromPr(projectId, sourceBranch, targetBranch, f
       btn.innerHTML = origHtml;
     }
   }
+}
+
+/**
+ * PR 建立／推送完成後之統一收尾：單次開啟目標 PR 網址、顯示 Toast、刷新遠端與資料狀態並關閉彈窗。
+ */
+async function finalizePrCreationModal({ projectId, sourceBranch, targetUrl, toastMessage, archivedIds = [] }) {
+  if (targetUrl) {
+    if (typeof openExternalUrl === "function") {
+      openExternalUrl(targetUrl);
+    } else if (typeof window !== "undefined" && typeof window.open === "function") {
+      window.open(targetUrl, "_blank");
+    }
+  }
+  showToast(toastMessage);
+  loadBranchRemoteStatus(projectId, sourceBranch, true);
+  if (typeof window !== "undefined") {
+    const editingTaskId = window.currentModalEditingTask?.id || document.getElementById("formTaskId")?.value || "";
+    if (editingTaskId && archivedIds.includes(editingTaskId)) {
+      window.closeModal?.();
+    }
+    await window.loadData?.();
+    window.updateModalButtonState?.();
+  }
+  closeCreatePrModal();
 }
 
 async function submitCreatePr(projectId, sourceBranch, taskId = "") {
@@ -1092,61 +1116,48 @@ async function submitCreatePr(projectId, sourceBranch, taskId = "") {
       return;
     }
 
-    if (data.success && data.prUrl) {
+    if ((data.success && data.prUrl) || (data.degraded && data.fallbackCreateUrl)) {
+      const isDirectPr = Boolean(data.success && data.prUrl);
+      const targetUrl = isDirectPr ? data.prUrl : data.fallbackCreateUrl;
       const archivedIds = Array.isArray(data.archivedTaskIds) ? data.archivedTaskIds : [];
       const archivedCount = archivedIds.length;
-      showToast(
-        archivedCount > 0
-          ? `Pull Request 已建立成功，並自動封存 ${archivedCount} 張任務！`
-          : "Pull Request 已建立成功！"
-      );
-      if (feedbackEl) {
-        const safeUrlAttr = escapeAttrJs(data.prUrl);
-        feedbackEl.className = "rounded-lg p-2.5 text-[11px] bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 space-y-1.5";
-        feedbackEl.innerHTML = `
-          ${prePrSyncHtml}
-          <div class="font-semibold">PR 已成功建立${archivedCount > 0 ? `（已自動封存 ${archivedCount} 張任務）` : ""}：</div>
-          <a href="${escapeHtml(data.prUrl)}" onclick="openExternalUrl('${safeUrlAttr}', event)" class="inline-flex items-center gap-1 underline font-mono break-all hover:text-emerald-600 dark:hover:text-emerald-100">${escapeHtml(data.prUrl)}</a>
-        `;
-      }
-      loadBranchRemoteStatus(projectId, sourceBranch, true);
-      if (typeof window !== "undefined") {
-        const editingTaskId = window.currentModalEditingTask?.id || document.getElementById("formTaskId")?.value || "";
-        if (editingTaskId && archivedIds.includes(editingTaskId)) {
-          window.closeModal?.();
-        }
-        await window.loadData?.();
-        window.updateModalButtonState?.();
-      }
-      return;
-    }
+      const safeUrlAttr = escapeAttrJs(targetUrl);
 
-    if (data.degraded && data.fallbackCreateUrl) {
-      const archivedIds = Array.isArray(data.archivedTaskIds) ? data.archivedTaskIds : [];
-      const archivedCount = archivedIds.length;
-      if (archivedCount > 0) {
-        showToast(`分支已推送並封存 ${archivedCount} 張任務，請前往網頁完成建立 PR`);
-      }
       if (feedbackEl) {
-        const safeFallbackAttr = escapeAttrJs(data.fallbackCreateUrl);
-        feedbackEl.className = "rounded-lg p-2.5 text-[11px] bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 space-y-2";
-        feedbackEl.innerHTML = `
-          ${prePrSyncHtml}
-          <div>${escapeHtml(data.error || "無法自動建立 PR，請透過網頁完成建立。")}${archivedCount > 0 ? `（已自動推送並封存 ${archivedCount} 張任務）` : ""}</div>
-          <div>
-            <a href="${escapeHtml(data.fallbackCreateUrl)}" onclick="openExternalUrl('${safeFallbackAttr}', event)" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-600 hover:bg-amber-500 text-white font-semibold no-underline">前往網頁開立 PR ↗</a>
-          </div>
-        `;
-      }
-      if (archivedCount > 0 && typeof window !== "undefined") {
-        loadBranchRemoteStatus(projectId, sourceBranch, true);
-        const editingTaskId = window.currentModalEditingTask?.id || document.getElementById("formTaskId")?.value || "";
-        if (editingTaskId && archivedIds.includes(editingTaskId)) {
-          window.closeModal?.();
+        if (isDirectPr) {
+          feedbackEl.className = "rounded-lg p-2.5 text-[11px] bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 space-y-1.5";
+          feedbackEl.innerHTML = `
+            ${prePrSyncHtml}
+            <div class="font-semibold">PR 已成功建立${archivedCount > 0 ? `（已自動封存 ${archivedCount} 張任務）` : ""}：</div>
+            <a href="${escapeHtml(targetUrl)}" onclick="openExternalUrl('${safeUrlAttr}', event)" class="inline-flex items-center gap-1 underline font-mono break-all hover:text-emerald-600 dark:hover:text-emerald-100">${escapeHtml(targetUrl)}</a>
+          `;
+        } else {
+          feedbackEl.className = "rounded-lg p-2.5 text-[11px] bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 space-y-2";
+          feedbackEl.innerHTML = `
+            ${prePrSyncHtml}
+            <div>${escapeHtml(data.error || "無法自動建立 PR，請透過網頁完成建立。")}${archivedCount > 0 ? `（已自動推送並封存 ${archivedCount} 張任務）` : ""}</div>
+            <div>
+              <a href="${escapeHtml(targetUrl)}" onclick="openExternalUrl('${safeUrlAttr}', event)" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-600 hover:bg-amber-500 text-white font-semibold no-underline">前往網頁開立 PR ↗</a>
+            </div>
+          `;
         }
-        await window.loadData?.();
-        window.updateModalButtonState?.();
       }
+
+      const toastMessage = isDirectPr
+        ? (archivedCount > 0
+            ? `Pull Request 已建立並開啟網頁，已自動封存 ${archivedCount} 張任務！`
+            : "Pull Request 已建立並開啟網頁！")
+        : (archivedCount > 0
+            ? `分支已推送並封存 ${archivedCount} 張任務，已開啟 PR 建立頁面`
+            : "分支已推送並開啟 PR 建立頁面，請於網頁完成建立");
+
+      await finalizePrCreationModal({
+        projectId,
+        sourceBranch,
+        targetUrl,
+        toastMessage,
+        archivedIds
+      });
       return;
     }
 
@@ -1160,7 +1171,7 @@ async function submitCreatePr(projectId, sourceBranch, taskId = "") {
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.innerText = "建立 PR";
+      btn.innerText = "建立並開啟 PR";
     }
   }
 }

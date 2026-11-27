@@ -47,31 +47,39 @@ import { tasks, projects, settings } from "./state.js";
     }
 
 
-    function openExternalUrl(url, event) {
+    async function openExternalUrl(url, event) {
       if (event) {
-        event.preventDefault();
-        event.stopPropagation();
+        event.preventDefault?.();
+        event.stopPropagation?.();
       }
-      if (!url || url === '#' || url === 'javascript:void(0)') return;
+      const cleanUrl = String(url || '').trim();
+      if (!cleanUrl || cleanUrl === '#' || cleanUrl === 'javascript:void(0)') return;
 
-      // 1. 透過後端 Node.js 在 macOS 呼叫原生 open (100% 可穿透 App 外殼與 WebView 沙盒)
-      fetch('/api/open-browser', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url })
-      }).catch(() => {});
-
-      // 2. 原生 WebKit MessageHandler 支援
+      // 1. 原生 WebKit MessageHandler 支援（macOS 原生外殼互斥單一通道）
       try {
-        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.openExternalUrl) {
-          window.webkit.messageHandlers.openExternalUrl.postMessage(url);
+        if (typeof window !== 'undefined' && window.webkit?.messageHandlers?.openExternalUrl) {
+          window.webkit.messageHandlers.openExternalUrl.postMessage(cleanUrl);
           return;
         }
       } catch (e) {}
 
-      // 3. 一般瀏覽器 fallback
+      // 2. 非原生外殼環境：透過後端 Node.js 在 macOS 呼叫原生 open
+      if (typeof fetch === 'function') {
+        try {
+          const res = await fetch('/api/open-browser', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: cleanUrl })
+          });
+          if (res && res.ok) return;
+        } catch (e) {}
+      }
+
+      // 3. 一般瀏覽器 fallback（僅於前兩通道皆未成功時觸發）
       try {
-        window.open(url, '_blank');
+        if (typeof window !== 'undefined' && typeof window.open === 'function') {
+          window.open(cleanUrl, '_blank');
+        }
       } catch (e) {}
     }
 
