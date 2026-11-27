@@ -2035,6 +2035,73 @@ assert.strictEqual(mockHtmlElement.style.fontSize, '16px', '尚未載入遠端�
   assert.strictEqual(closedTaskModalCount, 1, '若編輯中任務於 archivedTaskIds 內應關閉 #taskModal');
   console.log('  ✅ TASK-265 & TASK-267 開立 PR 前置同步、單次自動開啟網頁與自動關閉彈窗驗證通過');
 
+  // 驗證 Task Dashboard 3.0 互動式介面導覽 (helpGuide.js) 結構、window 綁定與狀態切換行為
+  const helpGuidePath = path.join(__dirname, '../src/public/modules/helpGuide.js');
+  assert(fs.existsSync(helpGuidePath), '必須存在 src/public/modules/helpGuide.js');
+  const helpGuideSource = fs.readFileSync(helpGuidePath, 'utf8');
+  for (const requiredToken of ['workspace', 'execution', 'review', 'git', 'shortcuts', 'Worktree', '通過並提交', '±15', '需確認事項']) {
+    assert(helpGuideSource.includes(requiredToken), `helpGuide.js 必須包含 3.0 核心導覽項目：${requiredToken}`);
+  }
+  for (const winFn of ['window.switchHelpGuideTab', 'window.selectHelpHotspot', 'window.setHelpDemoState', 'window.triggerHelpQuickAction']) {
+    assert(helpGuideSource.includes(winFn), `helpGuide.js 必須綁定 ${winFn}`);
+  }
+  assert(
+    htmlContent.includes('id="helpGuideTabBar"') &&
+    htmlContent.includes('id="helpGuideInteractiveStage"') &&
+    htmlContent.includes('id="helpGitEnvGuideSection"'),
+    'index.html 之 #helpModal 必須包含分頁列、互動舞台與 #helpGitEnvGuideSection'
+  );
+
+  const helpGuideRaw = helpGuideSource
+    .replace(/^import\s+[\s\S]*?from\s+["'][^"']+["'];\s*$/gm, '')
+    .replace(/export\s*\{[\s\S]*?\};\s*$/m, '');
+  const tabBarEl = { innerHTML: '' };
+  const stageEl = { innerHTML: '' };
+  let gitSectionHidden = true;
+  const gitSectionEl = {
+    classList: {
+      toggle: (cls, force) => {
+        if (cls === 'hidden') gitSectionHidden = Boolean(force);
+      }
+    }
+  };
+  let lucideCreateCount = 0;
+  const helpCtx = vm.createContext({
+    escapeHtml: (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
+    document: {
+      getElementById: (id) => {
+        if (id === 'helpGuideTabBar') return tabBarEl;
+        if (id === 'helpGuideInteractiveStage') return stageEl;
+        if (id === 'helpGitEnvGuideSection') return gitSectionEl;
+        return null;
+      }
+    },
+    window: {
+      lucide: { createIcons: () => { lucideCreateCount += 1; } },
+      closeHelpModal: () => {},
+      openAddProjectModal: () => {}
+    },
+    setTimeout
+  });
+  vm.runInContext(helpGuideRaw, helpCtx);
+
+  helpCtx.initHelpGuideModal();
+  assert(tabBarEl.innerHTML.includes('1. 主工作區與分支') && tabBarEl.innerHTML.includes('5. 鍵盤快捷鍵'), 'initHelpGuideModal 應渲染 5 大分頁');
+  assert(stageEl.innerHTML.includes('專案與分支') && gitSectionHidden === true, '預設 workspace 分頁應渲染模擬看板並隱藏 #helpGitEnvGuideSection');
+
+  helpCtx.setHelpDemoState('boardView', 'swimlane');
+  assert(stageEl.innerHTML.includes('點擊切換泳道'), 'setHelpDemoState(boardView, swimlane) 應切換為按分支看泳道模擬視圖');
+
+  helpCtx.switchHelpGuideTab('review');
+  assert(stageEl.innerHTML.includes('通過並提交') && stageEl.innerHTML.includes('±15'), '切換 review 分頁應渲染提交塢與 Diff 前後文切換器');
+  helpCtx.selectHelpHotspot('rev-diff');
+  assert(stageEl.innerHTML.includes('雙欄 Git Diff 檢視器與動態前後文切換'), 'selectHelpHotspot(rev-diff) 應即時更新右側解說面板');
+
+  helpCtx.switchHelpGuideTab('git');
+  assert(gitSectionHidden === false, '切換至 git 分頁時 #helpGitEnvGuideSection 必須解除 hidden 顯示');
+  assert(lucideCreateCount >= 4, '每次切換與渲染應觸發 lucide.createIcons()');
+  console.log('  ✅ Task Dashboard 3.0 互動式介面導覽 (helpGuide.js) 結構、綁定與動態切換驗證通過');
+
   console.log('🎉 所有前端核心互動邏輯與防禦機制測試通過！\n');
 })().catch(err => {
   console.error(err);

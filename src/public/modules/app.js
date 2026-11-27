@@ -17,6 +17,10 @@ import {
   showToast, withButtonLoading, copyPrompt, copySessionId, openExternalUrl
 } from "./utils.js";
 import {
+  initHelpGuideModal, switchHelpGuideTab, selectHelpHotspot,
+  stepHelpHotspot, setHelpDemoState, triggerHelpQuickAction
+} from "./helpGuide.js";
+import {
   normalizeStatus, getStatusLabel, renderMetrics, filterByStage,
   renderKanban, handleCardKeyDown, initSortable
 } from "./kanban.js";
@@ -1733,6 +1737,7 @@ node "${gateScriptPath}"${tierFlag}${sharedInstructions}`;
     function openHelpModal() {
       const modal = document.getElementById('helpModal');
       if (modal) {
+        initHelpGuideModal();
         modal.classList.remove('hidden');
         if (window.lucide) lucide.createIcons();
       }
@@ -1958,6 +1963,12 @@ export {
   initFontSize,
   openHelpModal,
   closeHelpModal,
+  initHelpGuideModal,
+  switchHelpGuideTab,
+  selectHelpHotspot,
+  stepHelpHotspot,
+  setHelpDemoState,
+  triggerHelpQuickAction,
   restartAndReloadPage,
   fetchInspectionStatus,
   triggerManualInspect,
@@ -2038,6 +2049,12 @@ if (typeof window !== "undefined") {
   window.initFontSize = initFontSize;
   window.openHelpModal = openHelpModal;
   window.closeHelpModal = closeHelpModal;
+  window.initHelpGuideModal = initHelpGuideModal;
+  window.switchHelpGuideTab = switchHelpGuideTab;
+  window.selectHelpHotspot = selectHelpHotspot;
+  window.stepHelpHotspot = stepHelpHotspot;
+  window.setHelpDemoState = setHelpDemoState;
+  window.triggerHelpQuickAction = triggerHelpQuickAction;
   window.restartAndReloadPage = restartAndReloadPage;
   window.fetchInspectionStatus = fetchInspectionStatus;
   window.triggerManualInspect = triggerManualInspect;

@@ -1334,169 +1334,73 @@
     </div>
   </div>
 
-  <!-- Help & Shortcuts Modal (功能導覽與快捷鍵清單) -->
-  <div id="helpModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl w-full max-w-2xl max-h-[88vh] flex flex-col shadow-2xl overflow-hidden text-slate-800 dark:text-slate-100 my-auto">
-      
+  <!-- Help & Shortcuts Modal (Task Dashboard 3.0 互動式介面導覽) -->
+  <div id="helpModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+    <div class="w-full max-w-6xl h-[88vh] max-h-[860px] flex flex-col td-canvas-bg border border-[var(--border)] rounded-2xl shadow-2xl overflow-hidden text-[var(--foreground)] my-auto">
+
       <!-- Header (Pinned) -->
-      <div class="p-3.5 px-4 sm:px-5 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
-        <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-          <i data-lucide="help-circle" class="w-4 h-4 text-indigo-600 dark:text-indigo-400"></i> 功能導覽與鍵盤快捷鍵清單
-        </h3>
-        <button onclick="closeHelpModal()" class="text-slate-400 hover:text-slate-900 dark:hover:text-white p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition">
-          <i data-lucide="x" class="w-4 h-4"></i>
-        </button>
+      <div class="p-3.5 px-4 sm:px-5 border-b border-[var(--border)] bg-[var(--card)] flex-shrink-0 space-y-2.5">
+        <div class="flex items-center justify-between gap-2">
+          <h3 class="text-sm font-bold flex items-center gap-2">
+            <i data-lucide="help-circle" class="w-4 h-4 text-[var(--primary)]"></i>
+            <span>Task Dashboard 3.0 互動式介面導覽</span>
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-sky-500/15 text-[var(--primary)] font-semibold">3.0 Interactive Guide</span>
+          </h3>
+          <button onclick="closeHelpModal()" class="text-[var(--muted-foreground)] hover:text-[var(--foreground)] p-1 rounded hover:bg-[var(--sidebar)] transition cursor-pointer">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+
+        <!-- 5 大主題分頁列 -->
+        <div id="helpGuideTabBar" role="tablist" aria-label="Task Dashboard 3.0 導覽分頁" class="flex items-center gap-1.5 p-1 rounded-xl bg-[var(--sidebar)] border border-[var(--border)] overflow-x-auto custom-scrollbar"></div>
       </div>
 
       <!-- Scrollable Body -->
-      <div class="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5 text-xs custom-scrollbar">
-        
-        <!-- 區塊 1: 鍵盤快捷鍵清單 -->
-        <div class="space-y-2.5">
-          <h4 class="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-1.5 pb-1 border-b border-slate-200 dark:border-slate-800">
-            <i data-lucide="keyboard" class="w-4 h-4 text-indigo-500"></i> 鍵盤快捷鍵 (Keyboard Shortcuts)
-          </h4>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
-              <span class="text-slate-600 dark:text-slate-300">打開 / 收合專案列表</span>
-              <kbd class="px-2 py-0.5 text-[11px] font-mono font-bold bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded shadow-xs">P / ⌘P</kbd>
-            </div>
-            <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
-              <span class="text-slate-600 dark:text-slate-300">新增 / 引入專案資料夾</span>
-              <kbd class="px-2 py-0.5 text-[11px] font-mono font-bold bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded shadow-xs">⇧P / ⌘⇧P</kbd>
-            </div>
-            <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
-              <span class="text-slate-600 dark:text-slate-300">新增 Task 任務</span>
-              <kbd class="px-2 py-0.5 text-[11px] font-mono font-bold bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded shadow-xs">N / ⌘N / C</kbd>
-            </div>
-            <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
-              <span class="text-slate-600 dark:text-slate-300">提交任務 (Task Submit)</span>
-              <kbd class="px-2 py-0.5 text-[11px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700 rounded shadow-xs">⌘Enter / Ctrl+Enter</kbd>
-            </div>
-            <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
-              <span class="text-slate-600 dark:text-slate-300">任務欄位與卡片聚焦切換</span>
-              <kbd class="px-2 py-0.5 text-[11px] font-mono font-bold bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded shadow-xs">Tab / ⇧Tab</kbd>
-            </div>
-            <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
-              <span class="text-slate-600 dark:text-slate-300">任務狀態快速切換 (Modal 內)</span>
-              <kbd class="px-2 py-0.5 text-[11px] font-mono font-bold bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded shadow-xs">Alt+S / Alt+1~5</kbd>
-            </div>
-            <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
-              <span class="text-slate-600 dark:text-slate-300">卡片左右欄位轉移 (聚焦卡片時)</span>
-              <kbd class="px-2 py-0.5 text-[11px] font-mono font-bold bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded shadow-xs">← / →</kbd>
-            </div>
-            <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60">
-              <span class="text-slate-600 dark:text-slate-300">關閉彈窗 / 專案選單</span>
-              <kbd class="px-2 py-0.5 text-[11px] font-mono font-bold bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded shadow-xs">Esc</kbd>
-            </div>
-            <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 sm:col-span-2">
-              <span class="text-slate-600 dark:text-slate-300">開啟本說明與快捷鍵視窗</span>
-              <kbd class="px-2 py-0.5 text-[11px] font-mono font-bold bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded shadow-xs">? / F1</kbd>
-            </div>
-          </div>
-        </div>
+      <div class="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 text-xs custom-scrollbar">
+        <div id="helpGuideInteractiveStage"></div>
 
-        <!-- 區塊 2: UI 按鈕功能導覽 -->
-        <div class="space-y-2.5">
-          <h4 class="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-1.5 pb-1 border-b border-slate-200 dark:border-slate-800">
-            <i data-lucide="layout" class="w-4 h-4 text-indigo-500"></i> UI 按鈕功能說明
+        <!-- 區塊 3: 首次使用與 GitHub CLI (gh) 選配指引 (切換至 git 分頁時顯示) -->
+        <div id="helpGitEnvGuideSection" class="hidden space-y-2.5 pt-2 border-t border-[var(--border)]">
+          <h4 class="font-bold text-xs flex items-center gap-1.5 pb-1 border-b border-[var(--border)]">
+            <i data-lucide="git-branch" class="w-4 h-4 text-[var(--primary)]"></i> 首次使用與 GitHub CLI (gh) 選配指引
           </h4>
-          <div class="space-y-2">
-            <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 flex items-start gap-2.5">
-              <i data-lucide="panel-left" class="w-4 h-4 text-indigo-600 dark:text-indigo-400 mt-0.5 flex-shrink-0"></i>
-              <div>
-                <strong class="text-slate-800 dark:text-slate-200">專案列表抽屜</strong>
-                <p class="text-slate-500 dark:text-slate-400 mt-0.5">點擊展開左側專案管理面板，可搜尋、切換全域或單一專案視角，查看專案技能與文件。</p>
-              </div>
-            </div>
-            <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 flex items-start gap-2.5">
-              <i data-lucide="folder-plus" class="w-4 h-4 text-indigo-600 dark:text-indigo-400 mt-0.5 flex-shrink-0"></i>
-              <div>
-                <strong class="text-slate-800 dark:text-slate-200">新增專案資料夾</strong>
-                <p class="text-slate-500 dark:text-slate-400 mt-0.5">支援從遠端 Git URL 直接 Clone（自動套用 GitHub gh 多帳號與 Azure Keychain PAT），或透過 macOS 原生 Finder 引入本機儲存庫。</p>
-              </div>
-            </div>
-            <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 flex items-start gap-2.5">
-              <i data-lucide="plus" class="w-4 h-4 text-indigo-600 dark:text-indigo-400 mt-0.5 flex-shrink-0"></i>
-              <div>
-                <strong class="text-slate-800 dark:text-slate-200">新增任務 (New Task)</strong>
-                <p class="text-slate-500 dark:text-slate-400 mt-0.5">位於待處理欄位頂部，點擊開啟任務表單建立需求，可指派優先級 (P0~P3)、所屬專案與標籤。</p>
-              </div>
-            </div>
-            <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 flex items-start gap-2.5">
-              <i data-lucide="search" class="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0"></i>
-              <div>
-                <strong class="text-slate-800 dark:text-slate-200">搜尋與優先級篩選</strong>
-                <p class="text-slate-500 dark:text-slate-400 mt-0.5">即時過濾看板卡片標題、需求描述與優先級等級，支援鍵盤 Tab 快速跳轉。</p>
-              </div>
-            </div>
-            <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 flex items-start gap-2.5">
-              <i data-lucide="cpu" class="w-4 h-4 text-indigo-500 mt-0.5 flex-shrink-0"></i>
-              <div>
-                <strong class="text-slate-800 dark:text-slate-200">開工引擎 (自動化派工)</strong>
-                <p class="text-slate-500 dark:text-slate-400 mt-0.5">點擊頂部「開工引擎」選單，切換本機 CLI Agent 自動開工或複製 Desktop AI 哨兵 0 Token 即時喚醒 Prompt。</p>
-              </div>
-            </div>
-            <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 flex items-start gap-2.5">
-              <i data-lucide="archive" class="w-4 h-4 text-indigo-500 mt-0.5 flex-shrink-0"></i>
-              <div>
-                <strong class="text-slate-800 dark:text-slate-200">封存任務庫</strong>
-                <p class="text-slate-500 dark:text-slate-400 mt-0.5">查看與管理歷史已結案任務，隨時可還原或檢視過去的執行日誌與 Git 異動紀錄。</p>
-              </div>
-            </div>
-            <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 flex items-start gap-2.5">
-              <i data-lucide="settings" class="w-4 h-4 text-indigo-500 mt-0.5 flex-shrink-0"></i>
-              <div>
-                <strong class="text-slate-800 dark:text-slate-200">系統與偏好設定</strong>
-                <p class="text-slate-500 dark:text-slate-400 mt-0.5">管理 GitHub / Azure DevOps 帳號連線盤點、macOS Keychain PAT、資料庫儲存目錄、深淺外觀主題與字級大小。</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 區塊 3: 首次使用與 GitHub CLI (gh) 選配指引 -->
-        <div id="helpGitEnvGuideSection" class="space-y-2.5">
-          <h4 class="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-1.5 pb-1 border-b border-slate-200 dark:border-slate-800">
-            <i data-lucide="git-branch" class="w-4 h-4 text-indigo-500"></i> 首次使用與 GitHub CLI (gh) 選配指引
-          </h4>
-          <div class="space-y-2">
-            <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 space-y-1.5">
-              <div class="font-semibold text-slate-800 dark:text-slate-200">免安裝即用範圍 vs 選配功能對照</div>
-              <p class="text-slate-600 dark:text-slate-300 leading-relaxed">
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <div class="p-3 rounded-xl td-surface-panel space-y-1.5">
+              <div class="font-semibold">免安裝即用範圍 vs 選配功能對照</div>
+              <p class="text-[var(--muted-foreground)] leading-relaxed">
                 <strong class="text-emerald-700 dark:text-emerald-300">免裝即用：</strong>任務看板、AI 雙軌派工、Diff 審查、本地 Git、GitHub 公開庫 / SSH Clone，以及 Azure DevOps（Keychain PAT 與自動開 PR）。
               </p>
-              <p class="text-slate-600 dark:text-slate-300 leading-relaxed">
+              <p class="text-[var(--muted-foreground)] leading-relaxed">
                 <strong class="text-amber-700 dark:text-amber-300">需裝 <code class="font-mono">gh</code> 啟用：</strong>免終端機登入與切換多組 GitHub 帳號、GitHub 私有庫 HTTPS 免密 Clone、看板內一鍵開立 GitHub PR（未安裝時自動降級為開啟 GitHub 網頁開立 PR）。
               </p>
             </div>
-            <div class="p-2.5 rounded-lg bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200/80 dark:border-indigo-800/60 space-y-2">
-              <div class="font-semibold text-indigo-900 dark:text-indigo-200">三步驟快速安裝與授權</div>
-              <div class="space-y-1.5 text-[11px] text-slate-700 dark:text-slate-300">
+            <div class="p-3 rounded-xl bg-sky-500/10 border border-sky-500/25 space-y-2">
+              <div class="font-semibold text-[var(--primary)]">三步驟快速安裝與授權</div>
+              <div class="space-y-1.5 text-[11px]">
                 <div class="flex flex-wrap items-center justify-between gap-1.5">
-                  <span><strong class="text-indigo-700 dark:text-indigo-300">1.</strong> 安裝工具：執行 <code class="font-mono px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-900">brew install gh</code></span>
+                  <span><strong class="text-[var(--primary)]">1.</strong> 安裝工具：執行 <code class="font-mono px-1.5 py-0.5 rounded bg-[var(--card)] border border-[var(--border)]">brew install gh</code></span>
                   <div class="flex items-center gap-1.5">
-                    <button type="button" onclick="copyGhInstallCommand()" class="px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-semibold cursor-pointer">複製指令</button>
-                    <a href="https://cli.github.com" onclick="openExternalUrl('https://cli.github.com', event)" class="px-2 py-0.5 rounded bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 text-[10px] font-semibold no-underline">無 Homebrew 下載安裝包 ↗</a>
+                    <button type="button" onclick="copyGhInstallCommand()" class="px-2 py-0.5 rounded bg-[var(--primary)] text-[var(--primary-foreground)] text-[10px] font-semibold cursor-pointer">複製指令</button>
+                    <a href="https://cli.github.com" onclick="openExternalUrl('https://cli.github.com', event)" class="px-2 py-0.5 rounded bg-[var(--card)] border border-[var(--border)] text-[var(--primary)] text-[10px] font-semibold no-underline">無 Homebrew 下載安裝包 ↗</a>
                   </div>
                 </div>
                 <div class="flex flex-wrap items-center justify-between gap-1.5">
-                  <span><strong class="text-indigo-700 dark:text-indigo-300">2.</strong> 重新偵測：開啟「系統設定 ➔ Git 帳號與遠端連線」並按「重新掃描」</span>
-                  <button type="button" onclick="openGitSettingsFromHelp()" class="px-2 py-0.5 rounded bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 text-[10px] font-semibold cursor-pointer">前往設定檢查</button>
+                  <span><strong class="text-[var(--primary)]">2.</strong> 重新偵測：開啟「系統設定 ➔ Git 帳號與遠端連線」並按「重新掃描」</span>
+                  <button type="button" onclick="openGitSettingsFromHelp()" class="px-2 py-0.5 rounded bg-[var(--card)] border border-[var(--border)] text-[var(--primary)] text-[10px] font-semibold cursor-pointer">前往設定檢查</button>
                 </div>
                 <div>
-                  <strong class="text-indigo-700 dark:text-indigo-300">3.</strong> 瀏覽器授權：點擊「＋ 登入 GitHub 帳號」，複製一次性驗證碼於瀏覽器完成授權，全程免於終端機手動輸入指令。
+                  <strong class="text-[var(--primary)]">3.</strong> 瀏覽器授權：點擊「＋ 登入 GitHub 帳號」，複製一次性驗證碼於瀏覽器完成授權，全程免於終端機手動輸入指令。
                 </div>
               </div>
             </div>
           </div>
         </div>
-
       </div>
 
       <!-- Footer (Pinned) -->
-      <div class="p-3 px-4 sm:px-5 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between bg-slate-50 dark:bg-slate-900/90 flex-shrink-0">
-        <span class="text-[11px] text-slate-500 dark:text-slate-400">支援鍵盤 Tab 焦點切換與高對比 Focus Outline</span>
-        <button type="button" onclick="closeHelpModal()" class="px-4 h-8 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow transition">關閉</button>
+      <div class="p-3 px-4 sm:px-5 border-t border-[var(--border)] flex items-center justify-between bg-[var(--card)] flex-shrink-0">
+        <span class="text-[11px] text-[var(--muted-foreground)]">點擊左側擬真 3.0 介面區塊可即時切換說明 · 快捷鍵 <kbd class="px-1.5 py-0.5 rounded bg-[var(--sidebar)] border border-[var(--border)] font-mono">?</kbd> 或 <kbd class="px-1.5 py-0.5 rounded bg-[var(--sidebar)] border border-[var(--border)] font-mono">F1</kbd> 隨時開啟</span>
+        <button type="button" onclick="closeHelpModal()" class="px-4 h-8 rounded-lg bg-[var(--primary)] hover:opacity-95 text-[var(--primary-foreground)] font-bold text-xs shadow transition cursor-pointer">關閉</button>
       </div>
 
     </div>
